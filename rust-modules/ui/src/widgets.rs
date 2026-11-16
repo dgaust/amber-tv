@@ -1008,6 +1008,16 @@ pub fn card_named(p: Painter, frame: Rect, art: Art, fan_name: Option<&str>, rad
 #[allow(clippy::too_many_arguments)]
 pub fn card_named_led(p: Painter, frame: Rect, art: Art, fan_name: Option<&str>, rad: f32, focused: bool,
     scale: f32, f: f32, led: Option<ArtImage>) {
+    card_named_led_body(p, frame, art, fan_name, rad, focused, scale, f, led);
+    // `focused` only says the card CAN take focus; `f` is how focused it is right now (0..1).
+    if focused && f > 0.01 && !p.is_recording() {
+        p.rring(frame.scaled(scale), rad, theme::CARD_FOCUS_RING_W, theme::with_a(theme::CARD_FOCUS_RING, f.min(1.0)));
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn card_named_led_body(p: Painter, frame: Rect, art: Art, fan_name: Option<&str>, rad: f32, focused: bool,
+    scale: f32, f: f32, led: Option<ArtImage>) {
     // Text prewarming visits an offscreen page. This leaf has no text: starting
     // image work here would bypass on-screen admission, and pollute its history.
     if p.is_recording() { return; }
@@ -8305,16 +8315,8 @@ impl ControlPalette {
         let keyed = |l: f32, scale: f32, alpha: f32| {
             oklab_to_srgb([l, ha * chroma * scale, hb * chroma * scale], alpha)
         };
-        let focus_top = keyed(
-            theme::CONTROL_FOCUS_FACE_L,
-            theme::CONTROL_FOCUS_AMBIENT_C,
-            1.0,
-        );
-        let focus_body = keyed(
-            theme::CONTROL_FOCUS_FACE_L - theme::CONTROL_FOCUS_BODY_STEP,
-            theme::CONTROL_FOCUS_AMBIENT_C,
-            1.0,
-        );
+        let focus_top = theme::CONTROL_FOCUS_TOP;
+        let focus_body = theme::CONTROL_FOCUS_BODY;
         let idle = keyed(
             theme::CONTROL_IDLE_FACE_L,
             theme::CONTROL_IDLE_AMBIENT_C,

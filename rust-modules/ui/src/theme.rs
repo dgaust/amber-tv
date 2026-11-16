@@ -372,12 +372,21 @@ pub mod logo {
 /// pair collapsed onto this one. Both survivors of that collapse are elsewhere and neither is a
 /// control: the warm off-white is [`WASH_WARM`], a page ground; the cool plate is
 /// [`SURFACE_QR_PLATE`], a scan surface.
-pub const ACCENT: [f32; 4] = COOL_0;
+pub const ACCENT: [f32; 4] = AMBER_500;
 /// Near-black ink/glyphs drawn over [`ACCENT`].
 pub const ACCENT_INK: [f32; 4] = NEUTRAL_950;
 /// Alias for [`ACCENT_INK`] read from the "ink over accent" intent. The one legitimate alias in this
 /// file: it is the same ROLE under a second name, not a second role that happens to share a stop.
 pub const INK_ON_ACCENT: [f32; 4] = ACCENT_INK;
+/// Amber: a focused control's face. Flat amber top to bottom, whatever artwork is behind the page -
+/// the focused thing on screen is always the amber thing.
+pub const CONTROL_FOCUS_TOP: [f32; 4] = AMBER_500;
+/// Amber: the lower edge of the same face (one stop, so the face is flat).
+pub const CONTROL_FOCUS_BODY: [f32; 4] = AMBER_500;
+/// Amber: the outline a focused poster, still or tile wears.
+pub const CARD_FOCUS_RING: [f32; 4] = AMBER_500;
+/// Width of [`CARD_FOCUS_RING`], px.
+pub const CARD_FOCUS_RING_W: f32 = 5.0;
 /// Fixed OKLCH lightness of a keyed focused control's lit top. The rendered ground contributes hue
 /// and a measured fraction of chroma only; it may never make the focus face darker.
 pub const CONTROL_FOCUS_FACE_L: f32 = 0.972;
@@ -402,7 +411,7 @@ pub const CONTROL_SPENT_FOCUS_W: f32 = 0.76;
 /// focus state changing. Deliberately close enough to `ACCENT` that [`ACCENT_INK`] stays legible on
 /// BOTH sides — the first version flipped the ink at the sweep line and cut the label in half
 /// mid-word.
-pub const CONTROL_SPENT_FILL: [f32; 4] = mix(COOL_0, NEUTRAL_500, 1.0 - CONTROL_SPENT_FOCUS_W);
+pub const CONTROL_SPENT_FILL: [f32; 4] = mix(AMBER_500, NEUTRAL_500, 1.0 - CONTROL_SPENT_FOCUS_W);
 
 /// The Search query field's **editing** ink — the bright endpoint of the `hot` cross-fade in
 /// `search::field::draw` (idle end: `TEXT_SECONDARY`) while the television's keyboard is up. Its own
