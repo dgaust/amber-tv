@@ -971,7 +971,7 @@ class ReplayFixtures(unittest.TestCase):
 
 class TeardownProcessTable(unittest.TestCase):
     def test_non_utf8_argv_cannot_hide_or_crash_a_run_stream_pid(self):
-        marker = "/tmp/com.beb.plxnative.debug/plxnative-events.log"
+        marker = "/tmp/com.dgaust.amber.debug/plxnative-events.log"
         raw = b"431 ssh " + marker.encode("ascii") + b" \xdflegacy\n"
         fake = mock.Mock(return_value=subprocess.CompletedProcess([], 0, stdout=raw))
         with mock.patch.object(run, "RUN_STREAM_MARK", marker):
@@ -1032,7 +1032,7 @@ class CrashGate(unittest.TestCase):
 
     def test_apply_triggers_records_the_crash_baseline(self):
         saved = run.RUNDIR
-        run.RUNDIR = "/tmp/com.beb.plxnative.debug"
+        run.RUNDIR = "/tmp/com.dgaust.amber.debug"
         try:
             done = subprocess.CompletedProcess([], 0, stdout="3\n", stderr="")
             with mock.patch.object(run, "ssh", return_value=done) as ssh:
@@ -1181,7 +1181,7 @@ class StoredSessionGate(unittest.TestCase):
         cases = [{"name": "offline_play", "session": "stored"},
                  {"name": "normal_case"}]
         remaining, skipped = run.partition_stored_sessions(
-            cases, "needs a signed-in session on com.beb.plxnative")
+            cases, "needs a signed-in session on com.dgaust.amber")
         self.assertEqual([c["name"] for c in remaining], ["normal_case"])
         self.assertEqual([c["name"] for c in skipped], ["offline_play"])
 
@@ -2410,12 +2410,12 @@ class ResolutionSpike(unittest.TestCase):
 
     def test_apply_triggers_removes_a_stale_trace_before_arming(self):
         saved = run.RUNDIR
-        run.RUNDIR = "/tmp/com.beb.plxnative.debug"
+        run.RUNDIR = "/tmp/com.dgaust.amber.debug"
         try:
             with mock.patch.object(run, "ssh") as ssh:
                 run.apply_triggers("192.0.2.20", [("plxnative-gstlog", "GST_EVENT:6")])
             command = ssh.call_args.args[1]
-            self.assertIn("rm -f /tmp/com.beb.plxnative.debug/plxnative-gst.log", command)
+            self.assertIn("rm -f /tmp/com.dgaust.amber.debug/plxnative-gst.log", command)
             self.assertIn("plxnative-gstlog", command)
         finally:
             run.RUNDIR = saved
@@ -7019,7 +7019,7 @@ class UriProductRunner(unittest.TestCase):
         endpoint_patch = (mock.patch.object(run.mock_fps, "configured_endpoint", return_value=endpoint)
                           if not isinstance(endpoint, BaseException) else
                           mock.patch.object(run.mock_fps, "configured_endpoint", side_effect=endpoint))
-        with mock.patch.object(run, "RUNDIR", "/tmp/com.beb.plxnative.debug"), \
+        with mock.patch.object(run, "RUNDIR", "/tmp/com.dgaust.amber.debug"), \
                 mock.patch.object(run, "require_tv"), mock.patch.object(run, "make", side_effect=fake_make), \
                 mock.patch.object(run, "ssh", side_effect=lambda tv, cmd, timeout=30: rec["ssh"].append(cmd)), \
                 mock.patch.object(run, "apply_triggers", side_effect=fake_apply), \
@@ -7056,7 +7056,7 @@ class UriProductRunner(unittest.TestCase):
         # the token rides `extra=` so it never reaches stdout, and is the fabricated guest's
         self.assertTrue(any("plxnative-token" in cmd and "plxnative-mock-guest" in cmd for cmd in extra))
         self.assertNotIn("plxnative-mock-guest", " ".join(f"{n}={c}" for n, c in files))
-        self.assertEqual(rec["ssh"], ["rm -f /tmp/com.beb.plxnative.debug/plxnative-uridev"])
+        self.assertEqual(rec["ssh"], ["rm -f /tmp/com.dgaust.amber.debug/plxnative-uridev"])
         self.assertTrue(rec["reported"][0][0])
 
     def test_the_previous_cases_app_is_closed_before_this_cases_mock_is_up(self):
@@ -7083,7 +7083,7 @@ class UriProductRunner(unittest.TestCase):
             with self.subTest(what):
                 out, rec = self._run(**kwargs)
                 self.assertIsInstance(out, RuntimeError)
-                self.assertEqual(rec["ssh"], ["rm -f /tmp/com.beb.plxnative.debug/plxnative-uridev"])
+                self.assertEqual(rec["ssh"], ["rm -f /tmp/com.dgaust.amber.debug/plxnative-uridev"])
                 self.assertEqual(rec["mock"][-1], "exit", "the mock is stopped too")
 
     def test_a_log_that_does_not_prove_the_synthetic_mock_is_not_graded(self):

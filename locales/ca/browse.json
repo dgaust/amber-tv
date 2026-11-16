@@ -184,7 +184,7 @@
   "browse.auth.insecure": "S'ha trobat el teu servidor Plex, però no disposa d'una connexió segura (HTTPS). Comprova que el servidor l'admeti i torna-ho a provar.",
   "browse.auth.no_access": "{profile} no té accés a cap servidor",
   "browse.auth.no_source_access": "{profile} no té accés a aquest servidor",
-  "browse.auth.tls_untrusted": "Aquest televisor no confia en el certificat de seguretat del teu servidor. Actualitza PlxNative i torna-ho a provar.",
+  "browse.auth.tls_untrusted": "Aquest televisor no confia en el certificat de seguretat del teu servidor. Actualitza Amber i torna-ho a provar.",
   "browse.kind.episodes": "Episodis",
   "browse.kind.collections": "Col·leccions",
   "browse.kind.films": "Pel·lícules",

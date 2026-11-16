@@ -1,0 +1,81 @@
+# Amber: build the installable TV package for this fork.
+#
+# The fork does not run upstream's release machinery (its gates assert upstream's identity,
+# telemetry projects and published checksums). This is the one workflow the fork needs: build the
+# ARM package on an arm64 runner - the webOS NDK has no x86_64 Linux build - and keep the .ipk as
+# an artifact.
+name: Amber build
+
+on:
+  workflow_dispatch:
+    inputs:
+      flavor:
+        description: 'stable (the app) or debug (a second install with developer triggers)'
+        type: choice
+        options: [stable, debug]
+        default: stable
+  push:
+    branches: [amber]
+    paths-ignore:
+      - 'docs/**'
+      - 'site/**'
+      - '**.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: amber-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    env:
+      FLAVOR: ${{ inputs.flavor || 'stable' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake pkg-config python3 xz-utils bzip2
+
+      - name: Install the pinned Rust and the armv7 target
+        uses: ./.github/actions/rust-toolchain
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: rust-modules
+          key: armv7-${{ env.FLAVOR }}
+
+      - name: Cache the pinned downloads
+        uses: ./.github/actions/deps-cache
+
+      - id: ndk
+        uses: ./.github/actions/webos-ndk
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            vendor/ffmpeg-prefix
+            vendor/ffmpeg-build
+          key: ffmpeg-${{ runner.arch }}-${{ hashFiles('ci/build-ffmpeg.sh', 'ci/deps.py', 'ci/dependencies.json') }}
+
+      - name: Build + package
+        env:
+          WEBOS_SDK: ${{ steps.ndk.outputs.sdk-dir }}
+          PLX_MIN_FREE_MB: "0"
+        run: |
+          if [ "$FLAVOR" = stable ]; then export RELEASE=1; fi
+          make -j"$(nproc)"
+          make ipk
+          ls -la pkg/*.ipk
+          sha256sum pkg/*.ipk
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: amber-${{ env.FLAVOR }}-ipk
+          path: pkg/*.ipk
+          if-no-files-found: error

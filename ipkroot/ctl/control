@@ -1,4 +1,4 @@
-Package: com.beb.plxnative
+Package: com.dgaust.amber
 Version: 0.10.0
 Section: misc
 Priority: optional
@@ -7,6 +7,6 @@ Installed-Size: 10117
 Maintainer: Gleb Linnik <support@plxnative.com>
 Homepage: https://github.com/plxnative/plx-native
 License: GPL-3.0-or-later
-Description: PlxNative — unofficial native Plex client for LG webOS (not affiliated with Plex)
+Description: Amber — unofficial native Plex client for LG webOS (not affiliated with Plex)
 webOS-Package-Format-Version: 2
 webOS-Packager-Version: plxnative-mkipk/1

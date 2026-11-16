@@ -174,7 +174,7 @@
   "browse.auth.insecure": "Je Plex-server is gevonden, maar niet via HTTPS bereikbaar. Controleer of je server beveiligde verbindingen toestaat en probeer het opnieuw.",
   "browse.auth.no_access": "{profile} heeft geen toegang tot server",
   "browse.auth.no_source_access": "{profile} heeft geen toegang tot deze server",
-  "browse.auth.tls_untrusted": "Deze tv vertrouwt het beveiligingscertificaat van je server niet. Werk PlxNative bij en probeer het opnieuw.",
+  "browse.auth.tls_untrusted": "Deze tv vertrouwt het beveiligingscertificaat van je server niet. Werk Amber bij en probeer het opnieuw.",
   "browse.kind.episodes": "Afleveringen",
   "browse.kind.collections": "Collecties",
   "browse.kind.films": "Films",

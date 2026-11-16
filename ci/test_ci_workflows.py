@@ -176,8 +176,8 @@ class NightlyHomebrewRepository(unittest.TestCase):
         build = code("build-package.yml")
         start = build.index("Generate the Homebrew Channel manifest")
         step = build[start:build.index("LGPL corresponding source", start)]
-        self.assertIn("app_id=com.beb.plxnative.nightly", step)
-        self.assertIn("app_id=com.beb.plxnative\n", step)
+        self.assertIn("app_id=com.dgaust.amber.nightly", step)
+        self.assertIn("app_id=com.dgaust.amber\n", step)
         self.assertIn('-o "pkg/${app_id}.manifest.json"', step)
         # the hash gate also pins the id and the version, not just the bytes
         self.assertIn("manifest['id']}_{manifest['version']}_arm.ipk", step)
@@ -190,9 +190,9 @@ class NightlyHomebrewRepository(unittest.TestCase):
 
     def test_the_manifest_is_published_with_the_release_and_checked_after(self):
         publish = job_body("nightly.yml", "publish")
-        self.assertIn("dist/com.beb.plxnative.nightly.manifest.json", publish.split("gh release create")[1].split("--target")[0])
+        self.assertIn("dist/com.dgaust.amber.nightly.manifest.json", publish.split("gh release create")[1].split("--target")[0])
         self.assertLess(publish.index("gh release create"),
-                        publish.index("--pattern com.beb.plxnative.nightly.manifest.json"))
+                        publish.index("--pattern com.dgaust.amber.nightly.manifest.json"))
 
     def test_a_nightly_is_released_in_the_nightly_repository_and_tagged_here(self):
         # The release and its assets go to `ci/nightly.py release-repo` with the token scoped to it;
