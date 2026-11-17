@@ -1305,7 +1305,7 @@ mod upgrade_tests {
                     let rev = self.record.as_ref().and_then(|r| r["_rev"].as_u64()).unwrap_or(0) + 1;
                     next["_rev"] = serde_json::json!(rev);
                     self.record = Some(next);
-                    Ok(serde_json::json!({"returnValue":true,"results":[{"id":"plxstate.stable","rev":rev}]}))
+                    Ok(serde_json::json!({"returnValue":true,"results":[{"id":"amber.stable","rev":rev}]}))
                 }
                 other => panic!("unexpected DB8/Keymanager call {other}"),
             }

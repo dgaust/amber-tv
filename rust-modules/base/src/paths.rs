@@ -1061,7 +1061,7 @@ mod tests {
         let stable = super::resolve_runtime_dir(None, None, super::STABLE_APP_ID);
         let debug = super::resolve_runtime_dir(None, None, "com.dgaust.amber.debug");
         let nightly = super::resolve_runtime_dir(None, None, "com.dgaust.amber.nightly");
-        assert_eq!(stable, std::path::Path::new("/tmp"));
+        assert_eq!(stable, std::path::Path::new("/tmp/com.dgaust.amber"));
         assert_eq!(debug, std::path::Path::new("/tmp/com.dgaust.amber.debug"));
         assert_eq!(nightly, std::path::Path::new("/tmp/com.dgaust.amber.nightly"));
         assert_ne!(
@@ -1072,7 +1072,7 @@ mod tests {
             debug.join("plxnative-events.log"),
             nightly.join("plxnative-events.log")
         );
-        for flavoured in [&debug, &nightly] {
+        for flavoured in [&stable, &debug, &nightly] {
             let name = flavoured.file_name().unwrap().to_string_lossy().into_owned();
             assert!(
                 !name.starts_with("plxnative-"),
@@ -1089,11 +1089,11 @@ mod tests {
     fn absent_or_empty_runtime_root_is_the_television() {
         assert_eq!(
             super::resolve_runtime_dir(None, None, super::STABLE_APP_ID),
-            std::path::Path::new("/tmp")
+            std::path::Path::new("/tmp/com.dgaust.amber")
         );
         assert_eq!(
             super::resolve_runtime_dir(Some("".into()), None, super::STABLE_APP_ID),
-            std::path::Path::new("/tmp")
+            std::path::Path::new("/tmp/com.dgaust.amber")
         );
     }
 
@@ -1171,7 +1171,7 @@ mod tests {
                 Some("/also/anywhere".into()),
                 super::STABLE_APP_ID
             ),
-            std::path::Path::new("/tmp")
+            std::path::Path::new("/tmp/com.dgaust.amber")
         );
     }
 

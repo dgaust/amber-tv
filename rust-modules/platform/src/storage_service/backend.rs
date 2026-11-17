@@ -1533,7 +1533,7 @@ mod tests {
             b.rpc.calls[0],
             (
                 "luna://com.palm.db/get".into(),
-                json!({"ids":["plxstate.stable"]})
+                json!({"ids":["amber.stable"]})
             )
         );
     }
@@ -1596,7 +1596,7 @@ mod tests {
         ));
         assert_eq!(b.rpc.calls.len(), 3);
         assert_eq!(b.rpc.calls[1].0, "luna://com.palm.db/put");
-        assert_eq!(b.rpc.calls[1].1["objects"][0]["_id"], "plxstate.stable");
+        assert_eq!(b.rpc.calls[1].1["objects"][0]["_id"], "amber.stable");
         assert!(b.rpc.calls[1].1["objects"][0].get("_rev").is_none());
         assert!(b.rpc.calls[1].1.get("force").is_none());
         assert_eq!(b.rpc.calls[2].0, "luna://com.palm.db/get");
@@ -1606,7 +1606,7 @@ mod tests {
         let rev = 9_007_199_254_740_993u64;
         let mut b = backend(vec![
             Ok(record(rev)),
-            Ok(json!({"returnValue":true,"results":[{"id":"plxstate.stable","rev":rev+1}]})),
+            Ok(json!({"returnValue":true,"results":[{"id":"amber.stable","rev":rev+1}]})),
             Ok(Value::Null),
         ]);
         let response = b.dispatch(commit(Expectation::Present {
@@ -1693,7 +1693,7 @@ mod tests {
     fn confirmed_clear_removes_old_key_after_db8_readback() {
         let mut b = backend(vec![
             Ok(protected_record()),
-            Ok(json!({"returnValue":true,"results":[{"id":"plxstate.stable","rev":10}]})),
+            Ok(json!({"returnValue":true,"results":[{"id":"amber.stable","rev":10}]})),
             Ok(Value::Null),
             Err(ErrorCode::Unavailable),
         ]);
@@ -1775,7 +1775,7 @@ mod tests {
                         Err(ErrorCode::Unavailable)
                     } else {
                         Ok(
-                            json!({"returnValue":true,"results":[{"id":"plxstate.stable","rev":10}]}),
+                            json!({"returnValue":true,"results":[{"id":"amber.stable","rev":10}]}),
                         )
                     }
                 }
@@ -3288,7 +3288,7 @@ mod tests {
         stored["results"][0]["migrations"]["session"]["progress"] = json!("Complete");
         b.rpc.replies = vec![
             Ok(stored),
-            Ok(json!({"returnValue":true,"results":[{"id":"plxstate.stable","rev":10}]})),
+            Ok(json!({"returnValue":true,"results":[{"id":"amber.stable","rev":10}]})),
             Ok(Value::Null),
         ]
         .into();
