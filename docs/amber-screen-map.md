@@ -11,12 +11,12 @@ Status column: **have** = Amber already does it; **partly** = present but differ
 | Element | Official app | Amber |
 |---|---|---|
 | Left sidebar, closed | a column of faint line icons at the left edge, the page beside it | **have** |
-| Left sidebar, open | ~400px dark panel: avatar + profile name at the top, then Search, Home, each library by name (TV Shows, Movies, ...), Watchlist, **Live TV**, then the other libraries (Music, Photos, ...). The page is pushed right, never covered | **partly**: no profile name row, Search is last not first, no Live TV |
-| Sidebar focus | a **white plate** with dark text and icon | **partly**: amber plate |
+| Left sidebar, open | ~400px dark panel: avatar + profile name at the top, then Search, Home, each library by name (TV Shows, Movies, ...), Watchlist, **Live TV**, then the other libraries (Music, Photos, ...). The page is pushed right, never covered | **have** |
+| Sidebar focus | a **white plate** with dark text and icon | **have** (white plate) |
 | Moving in the sidebar | moving the highlight switches the page behind it at once; OK/Right goes into the page | **missing**: Amber needs OK |
 | Back | from a page, Back returns focus to the sidebar on that page's entry | partly |
 | Section tabs | a row of text tabs at the top of the page, selected one with an amber underline: Home: *Home, Trending, Activity, Find Friends, Profile*; a library: *Recommended, Library, Collections, Categories*; Live TV: *Guide, What's On • server, DVR, Browse* | **missing** (Amber has a library chip row) |
-| Clock | top right on every page | **missing** |
+| Clock | top right on every page | **have** |
 
 ## 2. Home
 

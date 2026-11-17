@@ -3710,10 +3710,10 @@ class MockPms:
         if method == "POST" and p.startswith("/livetv/dvrs/9/channels/") and p.endswith("/tune"):
             films = lt_films()
             ch = urllib.parse.unquote(p.split("/")[5])
-            # as PMS 1.43.5 does: the tuner's channel is accepted, the guide's id is a 400
-            if not ch.isdigit():
+            # as PMS 1.43.5 does: no playback session id on the POST is a bare 400
+            if not any(k.lower() == "x-plex-session-identifier" and v for k, v in (headers or {}).items()):
                 return j({"error": "Bad Request"}, 400)
-            idx = next((i for i, c in enumerate(lt_channels()) if c["vcn"] == ch), 0)
+            idx = next((i for i, c in enumerate(lt_channels()) if ch in (c["id"], c["vcn"])), 0)
             rk = films[idx % len(films)]["ratingKey"] if films else "0"
             return j(self.container(MediaSubscription=[{"MediaGrabOperation": [{"Metadata": {
                 "key": f"/livetv/sessions/demo{rk}/1/index.m3u8", "title": "live"}}]}]))

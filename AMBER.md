@@ -47,12 +47,34 @@ xvfb-run -a -s "-screen 0 1920x1080x24" python3 tools/screenshots.py \
 
 `python3 tools/demo_library.py derive` fetches the demo artwork once (needs Pillow and ffmpeg).
 
+## Since the first cut (2026-11-17/18)
+
+- **The sidebar is on every page but the player** - Home, the libraries, Search, Watchlist, Live TV
+  and the item pages (movie, show, season, episode, person, collection: `AppArg::Content` wears
+  `Chrome::TabBar`). Left from a page's leftmost stop reaches it (item-page groups are reachable
+  only vertically, so a sideways search lands on nothing but the sidebar); an item page marks the
+  entry it was opened from. Entries can be reordered and hidden (*Edit sidebar*), and Home's rows
+  moved and hidden from a card's menu (`data::layout`, saved beside the app's state).
+- **The page is shifted right of the sidebar** by `widgets::page_shift`; anything a page places by
+  screen width (the A-Z and decade rails, the library header) is laid out in page space, the
+  screen's width less `PAGE_SHIFT_CLOSED`.
+- **Home's billboard** shows Continue Watching's art only (topped up to five from the rest of the
+  catalog, rated M or under, when Continue Watching has fewer than three). It has no buttons or
+  pager and is not a focus stop: Home opens on the first row's first card under it.
+- **Live TV** (`plex::livetv`, `screens::livetv`, `app::livetv`): the DVR's channels and a guide
+  grid (now line, aired part dimmed, details of the focused programme). OK on an airing on now
+  tunes it - by the tuner's channel from the DVR's mapping; PMS 1.43.5 refuses the guide's own id
+  with 400 - and plays `/livetv/sessions/<uuid>` through the ordinary player path.
+- **A clock** top right on every page with the sidebar.
+
 ## Not done
 
-- **Not yet run on a television.** Everything above was verified in the simulator only.
-- **Upstream's host test suite has not been run** against these changes; its geometry and legibility
-  tests for the top bar will fail by design and need rewriting for the sidebar.
-- **Live TV and the guide.** Mapped in `docs/amber-screen-map.md` §5; the household server has a DVR (XMLTV guide, two tuners). Not built yet.
-  data layer, screens and a playback path, not a restyle. Needs a real server to develop against.
-- **Home and detail layouts** are still upstream's (hero carousel; backdrop detail page).
+- **Live TV playback is not yet confirmed on a television**: the guide loads from the real server;
+  the tune by the tuner's channel is the build after `e12b00ea`.
+- Live TV's *What's On* rows, the live player overlay (channel up/down, next programme) and Plex's
+  free channels.
+- The library page's filter row, item count and Play / Shuffle; the detail page's round icon
+  buttons. See `docs/amber-screen-map.md`.
+- Upstream tests that pin the top bar or the billboard as a focus stop are `#[ignore]`d with the
+  reason; `cargo test -p plx_screens -p plx_plex -p plx_data` passes.
 - Music, photos and playlists are not in upstream either.

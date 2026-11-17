@@ -7,8 +7,8 @@
 //! - `GET /<epg>/grid?type=1,4&sort=beginsAt&endsAt>=T0&beginsAt<=T1` -> `MediaContainer.Metadata[]`,
 //!   one per airing, its `Media[0]` naming `channelIdentifier`, `beginsAt`, `endsAt`;
 //! - `POST /livetv/dvrs/<key>/channels/<channel>/tune` -> a subscription whose grab operation's
-//!   (an XMLTV guide id such as `C2.146.ersatztv.org` is refused with 400 on 1.43.5; the tuner's
-//!   own channel is tried first, `livetv_tune_any`)
+//!   (`<channel>` is the guide's `channelIdentifier`, as Plex Web sends it; the POST must carry an
+//!   `X-Plex-Session-Identifier` or PMS answers 400. Other forms are tried after it, `livetv_tune_any`)
 //!   metadata `key` is the live session, `/livetv/sessions/<uuid>`, playable like a library item.
 
 use super::Client;
@@ -166,6 +166,15 @@ pub fn parse_tune(body: &[u8]) -> Option<String> {
     find(&v)
 }
 
+/// A fresh playback session id for one tune: 32 hex digits from the clock and a counter.
+fn session_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(0);
+    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64);
+    let n = N.fetch_add(1, Ordering::Relaxed);
+    format!("{:016x}{:016x}", t, n.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ t.rotate_left(17))
+}
+
 fn enc(x: &str) -> String {
     let mut out = String::new();
     for b in x.bytes() {
@@ -218,7 +227,10 @@ impl Client {
 
     pub fn livetv_tune(&self, dvr: &str, channel: &str) -> Result<String, String> {
         let path = format!("/livetv/dvrs/{}/channels/{}/tune", enc(dvr), enc(channel));
-        let reply = self.send(&path, crate::http::Method::Post, &[crate::http::ACCEPT_JSON])
+        // PMS answers a tune without a playback session id with a bare 400 (Plex Web sends
+        // `X-Plex-Session-Identifier` on this POST, and on nothing else of Live TV's).
+        let session = format!("X-Plex-Session-Identifier: {}", session_id());
+        let reply = self.send(&path, crate::http::Method::Post, &[crate::http::ACCEPT_JSON, &session])
             .ok_or_else(|| format!("no answer (channel {channel})"))?;
         let head = || String::from_utf8_lossy(&reply.body[..reply.body.len().min(160)]).replace('\n', " ");
         if !reply.ok() {

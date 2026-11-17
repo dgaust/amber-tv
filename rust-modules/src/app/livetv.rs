@@ -142,9 +142,9 @@ pub(crate) fn tune(channel: String) {
         s.dvr.clone()
     }) else { return };
     let title = with(|s| s.channels.iter().find(|c| c.id == channel).map(|c| c.title.clone()).unwrap_or_default());
-    // The forms this channel goes by, the tuner's own first: the guide's id alone is refused.
+    // The forms this channel goes by: the guide's id first (what Plex Web sends), then the tuner's.
     let candidates: Vec<String> = with(|s| {
-        let mut out: Vec<String> = Vec::new();
+        let mut out: Vec<String> = vec![channel.clone()];
         if let Some(d) = s.dvr.as_ref() {
             for (lineup, device, key) in &d.mappings {
                 if *lineup == channel { out.push(device.clone()); out.push(key.clone()); }
@@ -154,7 +154,6 @@ pub(crate) fn tune(channel: String) {
             out.push(c.number.clone());
             out.push(c.grid_key.clone());
         }
-        out.push(channel.clone());
         let mut seen = std::collections::HashSet::new();
         out.retain(|c| !c.is_empty() && seen.insert(c.clone()));
         out
