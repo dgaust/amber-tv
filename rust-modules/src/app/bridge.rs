@@ -4557,6 +4557,7 @@ pub(crate) fn card_menu_arg(
     rect: Option<plx_ui::Rect>,
 ) -> plx_screens::registry::ItemMenuArg {
     plx_screens::registry::ItemMenuArg {
+        home_row: None,
         sid: item.sid, // the ROW's server, not the current one
         rk: item.rk.clone(),
         kind: ItemMenuKind::Card { row: Box::new(item.clone()), from_deck },
@@ -4582,6 +4583,7 @@ fn strip_menu_arg(
     rect: Option<plx_ui::Rect>,
 ) -> plx_screens::registry::ItemMenuArg {
     plx_screens::registry::ItemMenuArg {
+        home_row: None,
         sid,
         rk: rk.to_string(),
         loaded_episode: matches!(kind, ItemMenuKind::Episode { .. }),

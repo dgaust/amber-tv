@@ -1,0 +1,125 @@
+//! Amber: the viewer's own arrangement of the sidebar and of Home's rows - their order and which
+//! are hidden - kept in one small JSON file beside the app's other persistent files, so it
+//! survives a reboot and a reinstall. Identities, not positions: a sidebar entry is `search`,
+//! `home`, `watchlist` or `lib:<section key>`; a Home row is `<hubIdentifier>|<key>`. An entry the
+//! file does not name keeps its default place after the named ones.
+//!
+//! One cached copy for the process, read once and written through on every change, so the sidebar
+//! (application layer) and Home's merge (this crate) can never overwrite each other's half.
+
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Mutex;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Layout {
+    pub sidebar_order: Vec<String>,
+    pub sidebar_hidden: Vec<String>,
+    pub home_order: Vec<String>,
+    pub home_hidden: Vec<String>,
+}
+
+static CACHE: Mutex<Option<Layout>> = Mutex::new(None);
+static GEN: AtomicU32 = AtomicU32::new(1);
+static HOME_ROWS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+fn path() -> PathBuf {
+    let dev = std::path::Path::new("/media/developer");
+    if dev.is_dir() {
+        return dev.join(format!("{}-layout.json", plx_base::paths::app_id()));
+    }
+    plx_base::paths::runtime_dir().join("amber-layout.json")
+}
+
+fn load() -> Layout {
+    std::fs::read(path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+}
+
+fn save(l: &Layout) {
+    let Ok(bytes) = serde_json::to_vec_pretty(l) else { return };
+    let target = path();
+    let tmp = target.with_extension("json.tmp");
+    if std::fs::write(&tmp, bytes).is_ok() {
+        let _ = std::fs::rename(&tmp, &target);
+    }
+}
+
+/// The current arrangement.
+pub fn get() -> Layout {
+    let mut c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    c.get_or_insert_with(load).clone()
+}
+
+/// Change the arrangement and keep it.
+pub fn update(f: impl FnOnce(&mut Layout)) {
+    let mut c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    let l = c.get_or_insert_with(load);
+    f(l);
+    save(l);
+    GEN.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Moves on every change: what a derived list re-reads on.
+pub fn generation() -> u32 {
+    GEN.load(Ordering::Relaxed)
+}
+
+/// A Home row's identity.
+pub fn home_row_id(hub_id: &str, key: &str) -> String {
+    format!("{hub_id}|{key}")
+}
+
+/// Home's rows as the last merge arranged them (hidden ones left out): what a move steps through.
+pub fn home_rows() -> Vec<String> {
+    HOME_ROWS.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+pub(crate) fn set_home_rows(rows: Vec<String>) {
+    *HOME_ROWS.lock().unwrap_or_else(|e| e.into_inner()) = rows;
+}
+
+impl Layout {
+    /// `ids` in the viewer's order: the ones the layout names first, in its order, then the rest
+    /// in their given order.
+    pub fn arrange<'a>(order: &[String], ids: &'a [String]) -> Vec<&'a String> {
+        let mut out: Vec<&String> = ids.iter().collect();
+        out.sort_by_key(|id| order.iter().position(|o| o == *id).unwrap_or(usize::MAX));
+        out
+    }
+
+    /// Move `id` one place up (`-1`) or down (`+1`) within `visible`, the current arrangement,
+    /// and keep the result as the whole order.
+    pub fn step(order: &mut Vec<String>, visible: &[String], id: &str, dir: i32) {
+        let mut all: Vec<String> = visible.to_vec();
+        let Some(i) = all.iter().position(|x| x == id) else { return };
+        let j = i as i32 + dir;
+        if j < 0 || j as usize >= all.len() { return; }
+        all.swap(i, j as usize);
+        *order = all;
+    }
+
+    pub fn toggle(hidden: &mut Vec<String>, id: &str) {
+        if let Some(i) = hidden.iter().position(|x| x == id) { hidden.remove(i); } else { hidden.push(id.to_owned()); }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn arrange_puts_named_first_and_keeps_the_rest_in_order() {
+        let ids: Vec<String> = ["search", "home", "lib:1", "lib:2", "watchlist"].iter().map(|s| s.to_string()).collect();
+        let order = vec!["lib:2".to_string(), "home".to_string()];
+        let got: Vec<&str> = Layout::arrange(&order, &ids).into_iter().map(|s| s.as_str()).collect();
+        assert_eq!(got, ["lib:2", "home", "search", "lib:1", "watchlist"]);
+    }
+    #[test]
+    fn step_moves_within_the_arrangement() {
+        let visible: Vec<String> = ["a", "b", "c"].iter().map(|s| s.to_string()).collect();
+        let mut order = Vec::new();
+        Layout::step(&mut order, &visible, "c", -1);
+        assert_eq!(order, ["a", "c", "b"]);
+    }
+}

@@ -480,6 +480,9 @@ pub struct ItemMenuArg {
     /// of the argument's identity or canonical form: it is a fact about the title, not a second
     /// menu.
     pub watchlist: Option<crate::item_menu::watchlist::Face>,
+    /// Amber: the Home row the card is in (`layout::home_row_id`), when the menu opened on Home
+    /// from a row the viewer may move or hide; `None` everywhere else.
+    pub home_row: Option<String>,
 }
 
 /// **A discover-catalog title**, the subject of an [`ItemMenuKind::Catalog`] menu: identity only,
@@ -2471,6 +2474,7 @@ pub fn every_surface_arg() -> Vec<AppArg> {
         }),
         AppArg::AccountMenu,
         AppArg::ItemMenu(ItemMenuArg {
+            home_row: None,
             sid: plx_plex::plex::ServerId::UNSET,
             rk: "1".into(),
             kind: ItemMenuKind::Card { row: Box::new(plx_data::pms::PmsMovie::default()), from_deck: false },

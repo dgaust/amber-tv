@@ -768,6 +768,7 @@ fn home_command(app: &mut ScreenCommandApp<'_>, source: MachineId, request: Home
             let from_deck = home_menu_from_deck(&ret);
             let opener = app.bridge.home_opener(app.pages, entry, ret.focus);
             let mut arg = bridge::card_menu_arg(item, from_deck, true, entry, ret.focus, opener.rect);
+            arg.home_row = home_menu_row(&ret);
             app.bridge.watchlist_open_if_idle();
             arg.watchlist = app.bridge.watchlist_card_face(item);
             bridge::open_item_menu(app.pages, arg);
@@ -2649,6 +2650,21 @@ mod library_publication_tests {
         rig.metadata_mut().run(plx_data::stores::metadata::MetadataCmd::Clear);
         plx_data::metadata::set_current_for_test(rig.metadata_mut().state_mut(), None);
         drain_detail_workers(&mut rig);
+    }
+}
+
+/// Amber: the Home row the focused card is in, as `layout::home_row_id` names it. `None` for
+/// Continue Watching (it keeps its place) and for a row with no stable identity.
+fn home_menu_row(ret: &ReturnState<u32, PageMemory>) -> Option<String> {
+    let (Some(focus), PageMemory::Home(memory)) = (ret.focus, &ret.memory) else { return None };
+    let key = memory.items.iter().find(|key| key.elem == focus.elem)?;
+    let hub = match &key.identity {
+        HomeItemIdentity::Item { hub, .. } | HomeItemIdentity::Slot { hub, .. } => hub,
+    };
+    match hub {
+        HomeHubIdentity::Identifier { id, key, .. } => Some(plx_data::layout::home_row_id(id, key)),
+        HomeHubIdentity::Key { key, .. } => Some(plx_data::layout::home_row_id("", key)),
+        _ => None,
     }
 }
 

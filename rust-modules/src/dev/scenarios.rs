@@ -2752,6 +2752,7 @@ fn modal_bench_open(app: &mut App, target: bench::ModalTarget) {
             let sid = plx_plex::plex::current_server();
             let anchor_rect = plx_screens::item_menu::fallback_anchor();
             let arg = ItemMenuArg {
+        home_row: None,
                 sid,
                 rk: rk.clone(),
                 kind: ItemMenuKind::Card {

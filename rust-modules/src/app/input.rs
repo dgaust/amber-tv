@@ -1021,6 +1021,16 @@ pub(super) unsafe fn apply_item_action<R: super::playback::PlaybackResources>(
             });
             super::bridge::execute_endpoint_outcomes(pages, outcome.endpoints);
         }
+        Action::HomeRow { op, id } => {
+            plx_data::layout::update(|l| match op {
+                0 | 1 => {
+                    let visible = plx_data::layout::home_rows();
+                    plx_data::layout::Layout::step(&mut l.home_order, &visible, &id, if op == 0 { -1 } else { 1 });
+                }
+                2 => if !l.home_hidden.contains(&id) { l.home_hidden.push(id.clone()) },
+                _ => l.home_hidden.clear(),
+            });
+        }
         Action::RemoveFromDeck(rk) => {
             // A HIDE, not a reset: the server keeps the item's `viewOffset`, so the card leaves
             // the shelf while the resume point survives and playing it again picks up where it

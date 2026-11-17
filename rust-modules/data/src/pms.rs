@@ -752,6 +752,31 @@ struct HubRow {
     #[serde(skip)]
     epoch: u32,
 }
+// ---- Amber: the viewer's arrangement of Home's rows ------------------------------------------------
+thread_local! { static SEEN_LAYOUT: std::cell::Cell<u32> = const { std::cell::Cell::new(0) }; }
+
+/// Has the arrangement changed since the last merge? (First call: yes, which is harmless.)
+fn home_layout_moved() -> bool {
+    let now = crate::layout::generation();
+    SEEN_LAYOUT.with(|s| { let moved = s.get() != now; s.set(now); moved })
+}
+
+/// Put the merged rows in the viewer's order and leave out the hidden ones. Continue Watching
+/// keeps its place at the head. The cards are not moved: a row is a slice of them, and reordering
+/// the slices is enough.
+fn apply_home_layout(build: &mut HubBuild) {
+    let l = crate::layout::get();
+    let ids: Vec<String> = build.1.iter().map(|h| crate::layout::home_row_id(&h.hub_id, &h.key)).collect();
+    let mut idx: Vec<usize> = (0..build.1.len()).collect();
+    idx.sort_by_key(|&i| {
+        if build.1[i].hub_id == "home.continue" { return (0, 0); }
+        (1, l.home_order.iter().position(|o| *o == ids[i]).unwrap_or(usize::MAX))
+    });
+    let kept: Vec<usize> = idx.into_iter().filter(|&i| !l.home_hidden.contains(&ids[i])).collect();
+    crate::layout::set_home_rows(kept.iter().map(|&i| ids[i].clone()).collect());
+    build.1 = kept.into_iter().map(|i| build.1[i].clone()).collect();
+}
+
 fn hubs(state: &PmsState) -> &Vec<HubRow> {
     &published_home(state).hubs
 }
@@ -3845,11 +3870,13 @@ fn step_landings_with_scope(state: &mut PmsState, adapter: &PmsAdapter, dt: Opti
     // beyond the rebuilt catalog. Cheap enough to run on a generation change rather than to try to
     // predict which changes matter.
     let scope_moved = browse_scope_moved(state, scope);
+    let layout_moved = home_layout_moved();
     if dirty || scope_moved { settle_deck(&mut srcs, refreshed); }
-    let build = (dirty || scope_moved).then(|| {
+    let build = (dirty || scope_moved || layout_moved).then(|| {
         let t0 = crate::instruments::start();
         let (mut build, _) = merge_held(&mut srcs, scope, state.hold);
         if paged && !refreshed && !scope_moved { preserve_heroes(state, &mut build); }
+        apply_home_layout(&mut build);
         let took = crate::instruments::elapsed(t0);
         (build, took)
     });

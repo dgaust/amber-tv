@@ -369,6 +369,7 @@ impl Bridge {
             _ => None,
         };
         Some(plx_screens::registry::ItemMenuArg {
+        home_row: None,
             sid,
             rk,
             kind,

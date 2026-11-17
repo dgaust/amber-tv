@@ -136,7 +136,6 @@ mod preferences;
 pub(crate) mod input;
 pub(crate) mod bridge;
 pub(crate) mod chrome;
-pub(crate) mod layout;
 mod collections_probe;
 pub(crate) mod content;
 pub(crate) mod deeplink;

@@ -29,8 +29,6 @@ fn strip_keys(directory: DirectoryView<'_>) -> Vec<u32> {
 // Main-thread state: the strip's key list is derived in several places from the directory alone,
 // so the arrangement those derivations read lives beside them rather than on one caller.
 thread_local! {
-    static LAYOUT: std::cell::RefCell<crate::app::layout::Layout> = std::cell::RefCell::new(crate::app::layout::Layout::load());
-    static LAYOUT_GEN: std::cell::Cell<u32> = const { std::cell::Cell::new(1) };
     static EDITING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static CARRYING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
@@ -49,13 +47,11 @@ fn strip_entries(directory: DirectoryView<'_>) -> Vec<(u32, String)> {
     let all = all_entries(directory);
     let ids: Vec<String> = all.iter().map(|(_, id)| id.clone()).collect();
     let editing = EDITING.with(|e| e.get());
-    let mut out: Vec<(u32, String)> = LAYOUT.with(|l| {
-        let l = l.borrow();
-        crate::app::layout::Layout::arrange(&l.sidebar_order, &ids).into_iter()
-            .filter(|id| editing || !l.sidebar_hidden.contains(id))
-            .filter_map(|id| all.iter().find(|(_, x)| x == id).cloned())
-            .collect()
-    });
+    let l = plx_data::layout::get();
+    let mut out: Vec<(u32, String)> = plx_data::layout::Layout::arrange(&l.sidebar_order, &ids).into_iter()
+        .filter(|id| editing || !l.sidebar_hidden.contains(id))
+        .filter_map(|id| all.iter().find(|(_, x)| x == id).cloned())
+        .collect();
     out.push((widgets::TAB_KEY_EDIT, "edit".to_owned()));
     out
 }
@@ -63,7 +59,8 @@ fn strip_entries(directory: DirectoryView<'_>) -> Vec<(u32, String)> {
 pub(crate) fn editing() -> bool { EDITING.with(|e| e.get()) }
 pub(crate) fn carrying() -> bool { CARRYING.with(|c| c.get()) }
 
-fn bump() { LAYOUT_GEN.with(|g| g.set(g.get().wrapping_add(1))); }
+fn bump() { EDIT_GEN.with(|g| g.set(g.get().wrapping_add(1))); }
+thread_local! { static EDIT_GEN: std::cell::Cell<u32> = const { std::cell::Cell::new(0) }; }
 
 /// The identity of the entry a strip key names, under this directory.
 pub(crate) fn id_of_key(directory: DirectoryView<'_>, key: u32) -> Option<String> {
@@ -76,7 +73,7 @@ pub(crate) fn begin_edit(directory: DirectoryView<'_>) {
     // entries the file never named.
     let order: Vec<String> = { EDITING.with(|e| e.set(true)); strip_entries(directory) }
         .into_iter().map(|(_, id)| id).filter(|id| id != "edit").collect();
-    LAYOUT.with(|l| l.borrow_mut().sidebar_order = order);
+    plx_data::layout::update(|l| l.sidebar_order = order);
     bump();
 }
 
@@ -84,7 +81,6 @@ pub(crate) fn end_edit() {
     EDITING.with(|e| e.set(false));
     CARRYING.with(|c| c.set(false));
     widgets::set_rail_carry(false);
-    LAYOUT.with(|l| l.borrow().save());
     bump();
 }
 
@@ -95,21 +91,19 @@ pub(crate) fn toggle_carry() {
 }
 
 pub(crate) fn toggle_hidden(id: &str) {
-    LAYOUT.with(|l| { crate::app::layout::Layout::toggle(&mut l.borrow_mut().sidebar_hidden, id); l.borrow().save(); });
+    plx_data::layout::update(|l| plx_data::layout::Layout::toggle(&mut l.sidebar_hidden, id));
     bump();
 }
 
 pub(crate) fn step(id: &str, dir: i32) {
-    LAYOUT.with(|l| {
-        let mut l = l.borrow_mut();
+    plx_data::layout::update(|l| {
         let visible = l.sidebar_order.clone();
-        crate::app::layout::Layout::step(&mut l.sidebar_order, &visible, id, dir);
-        l.save();
+        plx_data::layout::Layout::step(&mut l.sidebar_order, &visible, id, dir);
     });
     bump();
 }
 
-fn hidden(id: &str) -> bool { LAYOUT.with(|l| l.borrow().sidebar_hidden.iter().any(|x| x == id)) }
+fn hidden(id: &str) -> bool { plx_data::layout::get().sidebar_hidden.iter().any(|x| x == id) }
 
 pub(crate) fn pill_at(directory: DirectoryView<'_>, i: usize) -> Pill {
     pill_in(i, &strip_keys(directory))
@@ -118,7 +112,8 @@ pub(crate) fn pill_at(directory: DirectoryView<'_>, i: usize) -> Pill {
 /// The generation the strip is rebuilt on: its type tabs AND its list of libraries.
 fn strip_generation(directory: DirectoryView<'_>) -> u32 {
     directory.tabs_gen().wrapping_mul(65_599).wrapping_add(directory.sections_gen())
-        .wrapping_mul(31).wrapping_add(LAYOUT_GEN.with(|g| g.get()))
+        .wrapping_mul(31).wrapping_add(plx_data::layout::generation())
+        .wrapping_mul(31).wrapping_add(EDIT_GEN.with(|g| g.get()))
 }
 
 /// The destination a strip index names, by the KEY published at that index.

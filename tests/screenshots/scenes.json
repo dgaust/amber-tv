@@ -789,6 +789,218 @@
           "size": "1920x1080"
         }
       ]
+    },
+    {
+      "name": "amber-rows-menu",
+      "state": "Amber: amber-rows-menu",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          3.5,
+          "down"
+        ],
+        [
+          4.2,
+          "down"
+        ],
+        [
+          4.9,
+          "okdown"
+        ],
+        [
+          5.7,
+          "okup"
+        ]
+      ],
+      "after_ms": 8000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-rows-menu.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-rows-movedown",
+      "state": "Amber: amber-rows-movedown",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          3.5,
+          "down"
+        ],
+        [
+          4.2,
+          "down"
+        ],
+        [
+          4.9,
+          "okdown"
+        ],
+        [
+          5.7,
+          "okup"
+        ],
+        [
+          6.6,
+          "down"
+        ],
+        [
+          7.199999999999999,
+          "down"
+        ],
+        [
+          7.8,
+          "down"
+        ],
+        [
+          8.399999999999999,
+          "down"
+        ],
+        [
+          9.0,
+          "ok"
+        ]
+      ],
+      "after_ms": 11000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-rows-movedown.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-rows-hide",
+      "state": "Amber: amber-rows-hide",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          3.5,
+          "down"
+        ],
+        [
+          4.2,
+          "down"
+        ],
+        [
+          4.9,
+          "okdown"
+        ],
+        [
+          5.7,
+          "okup"
+        ],
+        [
+          6.6,
+          "down"
+        ],
+        [
+          7.199999999999999,
+          "down"
+        ],
+        [
+          7.8,
+          "down"
+        ],
+        [
+          8.399999999999999,
+          "down"
+        ],
+        [
+          9.0,
+          "down"
+        ],
+        [
+          9.6,
+          "ok"
+        ]
+      ],
+      "after_ms": 11000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-rows-hide.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-rows-restore",
+      "state": "Amber: amber-rows-restore",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          3.5,
+          "down"
+        ],
+        [
+          4.2,
+          "down"
+        ],
+        [
+          4.9,
+          "okdown"
+        ],
+        [
+          5.7,
+          "okup"
+        ],
+        [
+          6.6,
+          "down"
+        ],
+        [
+          7.199999999999999,
+          "down"
+        ],
+        [
+          7.8,
+          "down"
+        ],
+        [
+          8.399999999999999,
+          "down"
+        ],
+        [
+          9.0,
+          "down"
+        ],
+        [
+          9.6,
+          "ok"
+        ],
+        [
+          11.0,
+          "okdown"
+        ],
+        [
+          11.8,
+          "okup"
+        ]
+      ],
+      "after_ms": 14000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-rows-restore.jpg",
+          "size": "1920x1080"
+        }
+      ]
     }
   ]
 }

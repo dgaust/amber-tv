@@ -106,6 +106,8 @@ pub enum Action {
     /// playing the item again picks up where it left off (see
     /// `plex::Client::remove_from_continue_watching`).
     RemoveFromDeck(String),
+    /// Amber: rearrange Home - 0 move the row up, 1 down, 2 hide it, 3 show every hidden row.
+    HomeRow { op: u8, id: String },
     /// Watchlist hold menu: open the catalog page of this discover guid (a title with no playable
     /// copy). The app routes it to `ContentArg::Catalog` (`app::input::apply_item_action`).
     GoToCatalog(String),
@@ -163,6 +165,7 @@ impl Action {
             | Action::ChooseVersion(rk) => rk,
             Action::PlayVersion { rk, .. } => rk,
             Action::PlayTrailer { rk, .. } => rk,
+            Action::HomeRow { id, .. } => id,
             // No ratingKey: the subject is a catalog id.
             Action::WatchlistAdd { .. } => "",
         }
@@ -184,6 +187,7 @@ impl Action {
             Action::WatchlistAdd { .. } => 11,
             Action::ChooseVersion(_) => 12,
             Action::PlayVersion { .. } => 13,
+            Action::HomeRow { .. } => 14,
         };
         c.u32(tag).str(self.rk());
         if let Action::WatchlistAdd { hex } = self {
@@ -191,6 +195,9 @@ impl Action {
         }
         if let Action::GoToShow(_, season) = self {
             c.u32(*season as u32);
+        }
+        if let Action::HomeRow { op, .. } = self {
+            c.u32(u32::from(*op));
         }
         if let Action::PlayVersion { media, .. } = self {
             c.u64(media.0 as u64);
@@ -255,6 +262,11 @@ pub enum ItemRow {
     PlayVersion,
     /// One version on the Play Version page, by its position in the list captured at open.
     Version(u16),
+    /// Amber: the Home row's own rows.
+    MoveRowUp,
+    MoveRowDown,
+    HideRow,
+    ShowHiddenRows,
 }
 
 impl ItemRow {
@@ -280,6 +292,10 @@ impl FormId for ItemRow {
             ItemRow::WatchlistRemove => 10,
             ItemRow::WatchlistAdd => 11,
             ItemRow::PlayVersion => 12,
+            ItemRow::MoveRowUp => 20,
+            ItemRow::MoveRowDown => 21,
+            ItemRow::HideRow => 22,
+            ItemRow::ShowHiddenRows => 23,
             ItemRow::Version(n) => VERSION_KEY_BASE + u32::from(*n),
         })
     }
@@ -723,6 +739,21 @@ impl ItemMenuScreen {
                 let member = self.face.as_ref().map_or(plx_data::catalog::Membership::On, |f| f.member);
                 build_catalog(*state, kind, &self.arg.rk, guid, member)
             }
+        };
+        // Amber: on a Home row, the row's own rows - move it, hide it, bring hidden ones back.
+        let form = match &self.arg.home_row {
+            Some(id) => {
+                let hidden = plx_data::layout::get().home_hidden.len();
+                let act = |op: u8| Action::HomeRow { op, id: id.clone() };
+                form.section(FormSection::new("")
+                    .separator()
+                    .item(ItemRow::MoveRowUp, RowKind::Button, act(0), Row::new("Move row up").licon(Icon::ChevronUp))
+                    .item(ItemRow::MoveRowDown, RowKind::Button, act(1), Row::new("Move row down").licon(Icon::ChevronDown))
+                    .item(ItemRow::HideRow, RowKind::Button, act(2), Row::new("Hide row").licon(Icon::Minus))
+                    .item_if(hidden > 0, ItemRow::ShowHiddenRows, RowKind::Button, act(3),
+                        Row::new(format!("Show hidden rows ({hidden})")).licon(Icon::Restart)))
+            }
+            None => form,
         };
         // a short list of one-line actions — BODY labels, not menu-size HEADLINE
         self.form.table.compact = true;
