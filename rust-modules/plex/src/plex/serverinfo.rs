@@ -247,6 +247,7 @@ fn fetch_once(id: ServerId, c: &Client) {
         sub = Subscription::No;
     }
     store(id, sub, &mc.version);
+    livetv_probe(i, c);
     // The version + subscription bit identify a RELEASE, not a household — safe to log, and safe
     // for the stats panel to photograph. The SLOT number names which server said it, because the
     // `machineIdentifier` that really identifies one is a permanent household fingerprint
@@ -540,4 +541,38 @@ mod tests {
         assert!(!present.take(2));
         super::super::servers::reset_for_test();
     }
+}
+
+
+/// Amber: one log line saying what Live TV this server offers - its EPG providers and its DVRs -
+/// read on the same off-thread round trip as the server's version. It names provider identifiers
+/// and DVR lineups (a region and a source type), never an address or a token.
+fn livetv_probe(i: u16, c: &Client) {
+    let json = |path: &str| -> Option<serde_json::Value> {
+        let body = c.body_2xx_bulk(path, &[crate::http::ACCEPT_JSON])?;
+        serde_json::from_slice(&body).ok()
+    };
+    let providers: Vec<String> = json("/media/providers")
+        .and_then(|v| v.pointer("/MediaContainer/MediaProvider").cloned())
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|p| p.get("identifier").and_then(|x| x.as_str()).map(str::to_owned))
+        .filter(|id| id.contains("epg") || id.contains("livetv") || id.contains("dvr"))
+        .collect();
+    let dvrs = json("/livetv/dvrs");
+    let dvr_list = dvrs.as_ref()
+        .and_then(|v| v.pointer("/MediaContainer/Dvr").cloned())
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+    let lineups: Vec<String> = dvr_list.iter().map(|d| {
+        let title = d.get("lineupTitle").and_then(|x| x.as_str()).unwrap_or("");
+        let epg = d.get("epgIdentifier").and_then(|x| x.as_str()).unwrap_or("");
+        let devices = d.get("Device").and_then(|x| x.as_array()).map_or(0, |a| a.len());
+        format!("{title}|{epg}|devices={devices}")
+    }).collect();
+    plx_base::eventlog::log(&format!(
+        "livetv: server {i} epg_providers={:?} dvrs={} lineups={:?} dvrs_answered={}",
+        providers, dvr_list.len(), lineups, dvrs.is_some()
+    ));
 }

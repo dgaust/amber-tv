@@ -560,7 +560,7 @@ impl Client {
 
     /// The 2xx-folding twin of [`Client::send_bulk`] used by ordinary content-dependent reads.
     #[track_caller]
-    fn body_2xx_bulk(&self, path_no_token: &str, headers: &[&str]) -> Option<Vec<u8>> {
+    pub(super) fn body_2xx_bulk(&self, path_no_token: &str, headers: &[&str]) -> Option<Vec<u8>> {
         let r = self.send_bulk(path_no_token, headers)?;
         r.ok().then_some(r.body)
     }
