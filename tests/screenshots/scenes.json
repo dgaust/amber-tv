@@ -301,6 +301,140 @@
         "clockstop: clock held at 175750 ms"
       ],
       "outputs": []
+    },
+    {
+      "name": "amber-rail-home",
+      "state": "Amber: amber-rail-home",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          3.5,
+          "left"
+        ]
+      ],
+      "after_ms": 7000,
+      "settle_ms": 1200,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-rail-home.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-rail-down",
+      "state": "Amber: amber-rail-down",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          3.5,
+          "left"
+        ],
+        [
+          4.2,
+          "down"
+        ],
+        [
+          4.9,
+          "down"
+        ]
+      ],
+      "after_ms": 7000,
+      "settle_ms": 1200,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-rail-down.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-rail-lib",
+      "state": "Amber: amber-rail-lib",
+      "triggers": {
+        "library": "0"
+      },
+      "remote": [
+        [
+          3.5,
+          "left"
+        ]
+      ],
+      "after_ms": 7000,
+      "settle_ms": 1200,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-rail-lib.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-rail-go",
+      "state": "Amber: amber-rail-go",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          3.5,
+          "left"
+        ],
+        [
+          4.2,
+          "down"
+        ],
+        [
+          4.9,
+          "ok"
+        ]
+      ],
+      "after_ms": 9000,
+      "settle_ms": 1200,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-rail-go.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-rail-back",
+      "state": "Amber: amber-rail-back",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          3.5,
+          "left"
+        ],
+        [
+          4.2,
+          "down"
+        ],
+        [
+          4.9,
+          "right"
+        ]
+      ],
+      "after_ms": 7000,
+      "settle_ms": 1200,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-rail-back.jpg",
+          "size": "1920x1080"
+        }
+      ]
     }
   ]
 }

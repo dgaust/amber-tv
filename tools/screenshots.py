@@ -284,6 +284,27 @@ def capture(binary, scene, defaults, hero, keep, *, prepare=None, assets=None):
             (rt / "frames.rgb").touch()
         out = open(rt / "sim.out", "w")
         timeout = scene.get("timeout_s", defaults["timeout_s"])
+        # Amber: a scene may press remote keys. `remote` is a list of [seconds after boot, token]
+        # pairs written to the app's key FIFO (docs/agent-reference.md, "Remote-driving"); give the
+        # scene an `after_ms` past the last one so the capture waits for them.
+        if scene.get("remote"):
+            import threading
+            def _press(steps=scene["remote"], fifo=rt / "plxnative-remote"):
+                t_boot = time.monotonic()
+                for at, token in steps:
+                    delay = at - (time.monotonic() - t_boot)
+                    if delay > 0:
+                        time.sleep(delay)
+                    for _ in range(50):
+                        try:
+                            fd = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+                        except OSError:
+                            time.sleep(0.1)
+                            continue
+                        os.write(fd, (token + "\n").encode())
+                        os.close(fd)
+                        break
+            threading.Thread(target=_press, daemon=True).start()
         t0 = time.monotonic()
         try:
             rc = subprocess.run([str(binary), "127.0.0.1", str(port)], env=clean_env(rt, shot, scene, defaults, assets),

@@ -93,12 +93,12 @@ impl<H: Host> TabContainer<H> {
             .unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
         GroupSpec {
             id: STRIP,
-            kind: GroupKind::Row { wrap: false },
+            kind: GroupKind::Column,
             seat: Seat::Nearest,
-            reachable: AxisMask::VERTICAL,
-            // The strip's horizontal endpoints are terminal, independent of where a page's
-            // other groups happen to be placed. Only UP/DOWN may cross to page content.
-            edge: [EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Stop, EdgeRule::Stop],
+            reachable: AxisMask::BOTH,
+            // Amber: the strip is a column down the left edge. Its top and bottom are terminal
+            // and nothing is to its left; RIGHT crosses into the page.
+            edge: [EdgeRule::Stop, EdgeRule::Stop, EdgeRule::Stop, EdgeRule::Geometric],
             extent,
             len: self.strip.len(),
             elem: ElemKind::Control,

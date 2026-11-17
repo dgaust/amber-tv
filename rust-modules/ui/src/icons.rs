@@ -159,6 +159,12 @@ pub enum Icon {
     /// handle also starts just outside the ring, so the round caps close the joint without the two
     /// strokes overlapping at all.
     Search,
+    /// The sidebar's destination marks (Amber): a house, a film strip, a television, and a
+    /// television with an aerial for Live TV.
+    Home,
+    Film,
+    Tv,
+    LiveTv,
     // ---- review-score marks (the detail hero's ratings row) ----
     //
     // These are OUR OWN drawings, not reproductions. Rotten Tomatoes' marks — the fruit, the
@@ -348,6 +354,10 @@ fn src(id: Icon) -> &'static str {
         Icon::Close => include_str!("../../../assets/icons/close.svg"),
         Icon::More => include_str!("../../../assets/icons/more.svg"),
         Icon::Search => include_str!("../../../assets/icons/search.svg"),
+        Icon::Home => include_str!("../../../assets/icons/home.svg"),
+        Icon::Film => include_str!("../../../assets/icons/film.svg"),
+        Icon::Tv => include_str!("../../../assets/icons/tv.svg"),
+        Icon::LiveTv => include_str!("../../../assets/icons/live-tv.svg"),
         Icon::Tomato => include_str!("../../../assets/icons/tomato.svg"),
         Icon::TomatoCalyx => include_str!("../../../assets/icons/tomato-calyx.svg"),
         Icon::TomatoHollow => include_str!("../../../assets/icons/tomato-hollow.svg"),

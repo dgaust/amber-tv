@@ -835,7 +835,9 @@ impl Default for NavPresentation {
 /// The distance the top chrome rises at `tuck` (0 shown .. 1 gone): none at rest, the whole chrome
 /// band ([`widgets::TOP_BAR_BOTTOM`]) once fully tucked.
 pub fn chrome_lift(tuck: f32) -> f32 {
-    crate::widgets::TOP_BAR_BOTTOM * tuck.clamp(0.0, 1.0)
+    // Amber: the navigation is a sidebar, which fades with the tuck and does not travel.
+    let _ = tuck;
+    0.0
 }
 
 impl NavPresentation {

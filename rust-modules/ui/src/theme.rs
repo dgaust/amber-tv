@@ -383,6 +383,12 @@ pub const INK_ON_ACCENT: [f32; 4] = ACCENT_INK;
 pub const CONTROL_FOCUS_TOP: [f32; 4] = AMBER_500;
 /// Amber: the lower edge of the same face (one stop, so the face is flat).
 pub const CONTROL_FOCUS_BODY: [f32; 4] = AMBER_500;
+/// Amber: the sidebar's open panel, the dark sheet the labels are read on.
+pub const RAIL_PANEL: [f32; 4] = with_a(NEUTRAL_950, 0.94);
+/// Amber: the gutter the closed sidebar's marks stand in, so they read over any artwork.
+pub const RAIL_GUTTER: [f32; 4] = with_a(BLACK, 0.46);
+/// Amber: a sidebar mark at rest.
+pub const RAIL_INK: [f32; 4] = with_a(WHITE, 0.86);
 /// Amber: the outline a focused poster, still or tile wears.
 pub const CARD_FOCUS_RING: [f32; 4] = AMBER_500;
 /// Width of [`CARD_FOCUS_RING`], px.

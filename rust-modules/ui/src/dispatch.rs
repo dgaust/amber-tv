@@ -83,8 +83,8 @@ where
                     elem: members[j].elem,
                 });
                 match dir {
-                    Dir::Left if i > 0 => mv(i - 1),
-                    Dir::Right if i + 1 < members.len() => mv(i + 1),
+                    Dir::Up if i > 0 => mv(i - 1),
+                    Dir::Down if i + 1 < members.len() => mv(i + 1),
                     _ => Step::Edge,
                 }
             }
