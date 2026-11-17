@@ -102,7 +102,8 @@ fn owned_library_overscan_probe_covers_every_legacy_edge() {
     // The board's letter column (x 1822, 44 wide) stands past the 5% safe edge (1824) on purpose;
     // the board overrides that edge for the rail, so it is pinned to the board here, not graded.
     let rail_rect = Rect::new(rail.1 - RAIL_TRACK_W * 0.5, rail.0, RAIL_TRACK_W, rail.2);
-    assert_eq!((rail_rect.x, rail_rect.w), (1822.0, 44.0));
+    // Amber: in page space, which the painter draws PAGE_SHIFT_CLOSED right of the sidebar.
+    assert_eq!((rail_rect.x + plx_ui::widgets::PAGE_SHIFT_CLOSED, rail_rect.w), (1822.0, 44.0));
     let bare = Layout::new(false, 40);
     let screen = crate::library::LibraryScreen::new(
         EntryId(1),

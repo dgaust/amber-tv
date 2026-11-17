@@ -1506,7 +1506,7 @@ fn a_rating_sorted_listing_gets_a_rail_of_its_bands_with_the_empty_ones_dimmed()
     rail.groups(&fixture.cx(Some(page.key(page.pair.detail.elem_at(0).unwrap()))), &mut groups);
     let extent = groups.first().expect("the bands are a focus group").extent;
     assert_eq!((extent.y, extent.h), (244.0, 6.0 * 40.0));
-    assert!((extent.x + extent.w * 0.5 - 1834.0).abs() < 0.01, "centred on 1834, not the letters' 1844: {extent:?}");
+    assert!((extent.x + extent.w * 0.5 + plx_ui::widgets::PAGE_SHIFT_CLOSED - 1834.0).abs() < 0.01, "centred on 1834, not the letters' 1844: {extent:?}");
 }
 
 #[test]
@@ -1634,7 +1634,7 @@ fn a_date_sorted_listing_gets_a_rail_of_today_the_months_and_the_years_with_one_
     rail.groups(&fixture.cx(Some(page.key(page.pair.detail.elem_at(0).unwrap()))), &mut groups);
     let extent = groups.first().expect("the bands are a focus group").extent;
     assert_eq!((extent.y, extent.h), (244.0, 13.0 * 40.0 + 8.0));
-    assert!((extent.x + extent.w * 0.5 - 1834.0).abs() < 0.01, "centred on 1834: {extent:?}");
+    assert!((extent.x + extent.w * 0.5 + plx_ui::widgets::PAGE_SHIFT_CLOSED - 1834.0).abs() < 0.01, "centred on 1834: {extent:?}");
 }
 
 #[test]

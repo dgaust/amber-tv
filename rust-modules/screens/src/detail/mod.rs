@@ -1464,11 +1464,13 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
         let (_, hero_n) = hero::visible_ctls(set, self.full_trailer());
         let hero_y = self.hero_chain(measure, meta).btn_y;
         let hero_last = hero::hero_btn_rect_at(set, hero_n.saturating_sub(1), hero_y, widths);
+        // Amber: every group here is reachable only VERTICALLY, so Left from a row's first stop
+        // (an open left edge) can land on nothing but the sidebar beside the page.
         out.push(GroupSpec {
             id: hero::HERO_GROUP,
             kind: GroupKind::Row { wrap: false },
             seat: Seat::First,
-            reachable: AxisMask::BOTH,
+            reachable: AxisMask::VERTICAL,
             edge: [
                 EdgeRule::Stop,
                 EdgeRule::Geometric,
@@ -1494,7 +1496,7 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
                     id: season::SEASON_GROUP,
                     kind: GroupKind::Row { wrap: false },
                     seat: Seat::Nearest,
-                    reachable: AxisMask::BOTH,
+                    reachable: AxisMask::VERTICAL,
                     edge: [EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Stop],
                     extent: Rect::new(
                         plx_ui::consts::MARGIN_X,
@@ -1512,7 +1514,7 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
                         holes: &[],
                     },
                     seat: Seat::Nearest,
-                    reachable: AxisMask::BOTH,
+                    reachable: AxisMask::VERTICAL,
                     edge: [EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Stop],
                     extent: Rect::new(
                         plx_ui::consts::MARGIN_X,
@@ -1527,7 +1529,7 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
                     id: extras::EXTRAS_GROUP,
                     kind: GroupKind::Row { wrap: false },
                     seat: Seat::Remembered,
-                    reachable: AxisMask::BOTH,
+                    reachable: AxisMask::VERTICAL,
                     edge: [EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Stop],
                     extent: Rect::new(
                         plx_ui::consts::MARGIN_X,
@@ -1542,7 +1544,7 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
                     id: related::RELATED_GROUP,
                     kind: GroupKind::Row { wrap: false },
                     seat: Seat::Remembered,
-                    reachable: AxisMask::BOTH,
+                    reachable: AxisMask::VERTICAL,
                     edge: [EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Stop],
                     extent: Rect::new(
                         plx_ui::consts::MARGIN_X,
@@ -1567,7 +1569,7 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
                             collection::COLLECTION_GROUP,
                             Seat::Remembered,
                         ),
-                        reachable: AxisMask::BOTH,
+                        reachable: AxisMask::VERTICAL,
                         edge: [EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Stop],
                         extent: Rect::new(
                             plx_ui::consts::MARGIN_X,
@@ -1583,7 +1585,7 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
                     id: cast::CAST_GROUP,
                     kind: GroupKind::Row { wrap: false },
                     seat: Seat::Remembered,
-                    reachable: AxisMask::BOTH,
+                    reachable: AxisMask::VERTICAL,
                     edge: [EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Stop],
                     extent: Rect::new(
                         plx_ui::consts::MARGIN_X,
@@ -1600,7 +1602,7 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
                         id: about::ABOUT_GROUP,
                         kind: GroupKind::Column,
                         seat: Seat::First,
-                        reachable: AxisMask::BOTH,
+                        reachable: AxisMask::VERTICAL,
                         edge: [
                             EdgeRule::Geometric,
                             EdgeRule::Stop,

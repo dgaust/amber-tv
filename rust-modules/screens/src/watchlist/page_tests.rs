@@ -1153,6 +1153,7 @@ fn a_scrolled_watchlist_draws_the_top_fade_and_no_capsule() {
 /// strip has tucked. Frame by frame it only ever fades out on the way down (monotone, in several
 /// frames, not cut), and it is the chrome's own alpha: the two are one value.
 #[test]
+#[ignore = "Amber: the sidebar never tucks, so the top strip's tuck handoff this pins is gone"]
 fn a_scrolled_rest_leaves_no_header_under_the_chrome() {
     use plx_ui::screen::Screen;
     let mut h = Harness::new(tiles(24));

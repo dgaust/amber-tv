@@ -208,7 +208,8 @@ fn every_gap_of_the_right_cluster_is_one_gap_whatever_the_collections_count_is()
             assert!((gap - want).abs() < 0.01, "{answer:?}: {} -> {} is {gap} apart, not {want}", pair[0].1.label, pair[1].1.label);
         }
         let last = cluster.last().unwrap().0.text;
-        assert!((last.x + last.w - plx_ui::page_header::TEXT_X1).abs() < 0.01, "{answer:?}: the cluster ends at the right text edge");
+        // Amber: the header is laid out at the page's width, the screen's less the sidebar's shift
+        assert!((last.x + last.w + plx_ui::widgets::PAGE_SHIFT_CLOSED - plx_ui::page_header::TEXT_X1).abs() < 0.01, "{answer:?}: the cluster ends at the right text edge");
     }
 }
 

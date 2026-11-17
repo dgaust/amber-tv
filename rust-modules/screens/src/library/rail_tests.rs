@@ -74,7 +74,7 @@ fn a_ladder_of_bands_starts_at_the_grid_top_forty_apart_and_adds_a_step_before_a
     use super::layout::{BandRows, BAND_PITCH, BAND_RAIL_CX, BAND_STEP_GAP};
     let plain = BandRows::new(6, &[]);
     assert_eq!(plain.geom(), (244.0, BAND_RAIL_CX, 6.0 * BAND_PITCH, 0.0));
-    assert_eq!((BAND_RAIL_CX, BAND_PITCH, BAND_STEP_GAP), (1834.0, 40.0, 8.0));
+    assert_eq!((BAND_RAIL_CX, BAND_PITCH, BAND_STEP_GAP), (1834.0 - plx_ui::widgets::PAGE_SHIFT_CLOSED, 40.0, 8.0));
     assert_eq!((0..6).map(|i| plain.top(i)).collect::<Vec<_>>(), [0.0, 40.0, 80.0, 120.0, 160.0, 200.0]);
     // the extra step goes before the rows named, and only there
     let stepped = BandRows::new(5, &[3]);

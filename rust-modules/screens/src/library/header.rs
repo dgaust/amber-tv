@@ -306,7 +306,7 @@ impl LibraryScreen {
         let (right, widest) = self.header_right(cx);
         let measure = cx.measure;
         let budget = PageHeader::new(PageHeaderSpec { right: right.clone(), ..Default::default() }, &widest, measure)
-            .layout(SCR_W, measure).left_budget;
+            .layout(SCR_W - plx_ui::widgets::PAGE_SHIFT_CLOSED, measure).left_budget;
 
         self.libraries.clear();
         self.folded.clear();
@@ -365,7 +365,7 @@ impl LibraryScreen {
             }
         }
         let page = PageHeader::new(PageHeaderSpec { left, right, ..Default::default() }, &widest, measure);
-        let layout = page.layout(SCR_W, measure);
+        let layout = page.layout(SCR_W - plx_ui::widgets::PAGE_SHIFT_CLOSED, measure);
         self.header_row(page, layout)
     }
 
@@ -404,7 +404,7 @@ impl LibraryScreen {
         let spec = super::collections_page::header_spec(&library, self.kind, declared, self.sort_value(cx));
         self.collections_sort = super::collections_page::sort_visible(declared);
         let page = PageHeader::new(spec, &[], cx.measure);
-        let layout = page.layout(SCR_W, cx.measure);
+        let layout = page.layout(SCR_W - plx_ui::widgets::PAGE_SHIFT_CLOSED, cx.measure);
         self.header_row(page, layout)
     }
 

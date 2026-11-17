@@ -563,11 +563,11 @@ impl LibraryLike for RailHost {
     #[test]
     fn the_rail_is_the_boards_column_at_pitch_32_starting_higher_before_it_shrinks() {
         use super::super::layout::{RAIL_CAP_PAD, RAIL_MIN_PITCH, RAIL_PITCH, RAIL_CX};
-        assert_eq!((RAIL_PITCH, RAIL_TRACK_W, RAIL_CX), (32.0, 44.0, 1844.0));
+        assert_eq!((RAIL_PITCH, RAIL_TRACK_W, RAIL_CX), (32.0, 44.0, 1844.0 - plx_ui::widgets::PAGE_SHIFT_CLOSED));
         for n in [9usize, 26, 27] {
             let (y, x, h, max) = rail_geom(n);
             let pitch = rail_pitch(n);
-            assert_eq!((x, max), (1844.0, 0.0), "{n} letters: the whole alphabet stands, no scrolling");
+            assert_eq!((x, max), (1844.0 - plx_ui::widgets::PAGE_SHIFT_CLOSED, 0.0), "{n} letters: the whole alphabet stands, no scrolling");
             assert!((h - n as f32 * pitch).abs() < 0.01);
             assert!(y + h + RAIL_CAP_PAD <= plx_ui::consts::SCR_H - plx_ui::consts::MARGIN_Y + 0.01, "{n} letters end inside the bottom margin");
             assert!((RAIL_MIN_PITCH..=RAIL_PITCH).contains(&pitch));
@@ -611,7 +611,7 @@ impl LibraryLike for RailHost {
         }
         for r in &runs {
             assert_ne!(r.align, 0, "{} is centre-anchored", r.text);
-            assert!((r.at.x - 1844.0).abs() < 0.6, "{} anchored on 1844, got {}", r.text, r.at.x);
+            assert!((r.at.x + plx_ui::widgets::PAGE_SHIFT_CLOSED - 1844.0).abs() < 0.6, "{} anchored on 1844, got {}", r.text, r.at.x);
         }
         assert!((runs[1].at.y - runs[0].at.y - 32.0).abs() < 0.01, "pitch 32");
     }
@@ -775,9 +775,9 @@ impl LibraryLike for RailHost {
         let _guard = plx_base::testlock::serial();
         let rig = BandRig::rating(true);
         let rail = rig.rail();
-        assert_eq!((BAND_RAIL_CX, BAND_PITCH), (1834.0, 40.0));
+        assert_eq!((BAND_RAIL_CX, BAND_PITCH), (1834.0 - plx_ui::widgets::PAGE_SHIFT_CLOSED, 40.0));
         assert_eq!(rail.rect.y, 244.0, "the first band starts at the grid's top");
-        assert!((rail.rect.x + rail.rect.w * 0.5 - 1834.0).abs() < 0.01, "centred on 1834: {:?}", rail.rect);
+        assert!((rail.rect.x + rail.rect.w * 0.5 + plx_ui::widgets::PAGE_SHIFT_CLOSED - 1834.0).abs() < 0.01, "centred on 1834: {:?}", rail.rect);
         // the fixture measures a byte as half the size: `<75%` is 4 x 11 = 44 wide
         assert_eq!(rail.rect.w, 44.0 + 2.0 * BAND_PILL_PAD, "wider than the letters' 44 once a pill must fit");
         assert_eq!(rail.rect.h, 6.0 * 40.0);
@@ -808,7 +808,7 @@ impl LibraryLike for RailHost {
         let (y, x, h, _) = rail_geom(3);
         letters.rect = Rect::new(x - RAIL_TRACK_W * 0.5, y, RAIL_TRACK_W, h);
         assert!(letters.bands.is_none());
-        assert_eq!((letters.geom().1, letters.rect.w, letters.pitch()), (1844.0, 44.0, 32.0));
+        assert_eq!((letters.geom().1, letters.rect.w, letters.pitch()), (1844.0 - plx_ui::widgets::PAGE_SHIFT_CLOSED, 44.0, 32.0));
     }
 
     type Drawn = (Vec<plx_ui::draw_census::Run>, Vec<(u64, Rect)>);
@@ -846,7 +846,7 @@ impl LibraryLike for RailHost {
         for (index, (run, want)) in runs.iter().zip(want).enumerate() {
             assert!(near(run.ink, want), "band {index} {:?}: ink {:?}, wanted {want:?}", run.text, run.ink);
             assert!(!run.bold && run.size == theme::size::MICRO, "bare regular MICRO text");
-            assert!((run.at.x - 1834.0).abs() < 0.6, "{} is centred on 1834, got {}", run.text, run.at.x);
+            assert!((run.at.x + plx_ui::widgets::PAGE_SHIFT_CLOSED - 1834.0).abs() < 0.6, "{} is centred on 1834, got {}", run.text, run.at.x);
         }
         assert_eq!(texts(&rail), runs.iter().map(|run| run.text.clone()).collect::<Vec<_>>());
         // exactly one fill is drawn - the focused band's pill - so there is no position bar, no
@@ -856,7 +856,7 @@ impl LibraryLike for RailHost {
         let pill = fills[0].1;
         let row = rail.slot(2, At::Drawn);
         assert_eq!((pill.h, pill.w), (38.0, 33.0 + 24.0), "38 high, 12 px of air each side of `85%`");
-        assert!((pill.cx() - 1834.0).abs() < 0.01 && (pill.cy() - row.cy()).abs() < 0.01);
+        assert!((pill.cx() + plx_ui::widgets::PAGE_SHIFT_CLOSED - 1834.0).abs() < 0.01 && (pill.cy() - row.cy()).abs() < 0.01);
         // nothing focused: no pill at all
         let (_, shapes) = drawn(&rig, &rail, None, Some(3));
         assert!(shapes.iter().all(|(tag, _)| *tag == 100), "no fill without a focused band: {shapes:?}");

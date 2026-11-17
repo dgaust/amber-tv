@@ -3430,7 +3430,9 @@ impl Rig<AppHost> for Bridge {
         // Amber: the clock, top right, on every page that wears the sidebar.
         let clock = crate::app::clock::unix_ms()
             .and_then(|ms| crate::app::clock::local_end_time(ms / 1000))
-            .and_then(|hm| plx_platform::i18n::current().time_of_day(hm));
+            .and_then(|hm| plx_platform::i18n::current().time_of_day(hm))
+            // CLDR puts a NARROW no-break space before AM/PM, which the UI faces do not carry
+            .map(|t| t.replace('\u{202f}', " "));
         if let Some(clock) = clock.and_then(|c| std::ffi::CString::new(c).ok()) {
             let sz = plx_ui::theme::size::LABEL;
             // On its own dark capsule: a page scrolls its content up under the top right, and a

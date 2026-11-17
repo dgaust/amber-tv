@@ -261,7 +261,8 @@ pub(super) fn rail_scroll_target(scroll: f32, drive: usize, n: usize) -> f32 {
 
 /// The centre of a rail of BANDS (the sort's value ladder): ten px nearer the posters than the letters'
 /// ([`RAIL_CX`]), the board's `x 1834`.
-pub(super) const BAND_RAIL_CX: f32 = 1834.0;
+// Amber: page space, as `RAIL_CX` - the painter shifts the page right of the sidebar.
+pub(super) const BAND_RAIL_CX: f32 = 1834.0 - plx_ui::widgets::PAGE_SHIFT_CLOSED;
 /// The distance between two bands' tops: the board's 40. The letters' pitch is [`rail_pitch`]: 32 at
 /// most, squeezed toward 26 for a long alphabet.
 pub(super) const BAND_PITCH: f32 = 40.0;

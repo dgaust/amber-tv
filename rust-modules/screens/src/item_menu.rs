@@ -1789,6 +1789,7 @@ mod tests {
                 from_home: false,
                 catalog: None,
                 watchlist: None,
+                home_row: None,
             },
         );
         strip.build_rows(test_store().view(), DeckPress::Play);
@@ -1823,6 +1824,7 @@ mod tests {
                 from_home: false,
                 catalog: None,
                 watchlist: None,
+                home_row: None,
             },
         );
         tab.build_rows(test_store().view(), DeckPress::Play);
@@ -2059,6 +2061,7 @@ mod tests {
             from_home: true,
             catalog: None,
             watchlist: None,
+            home_row: None,
         }
     }
 

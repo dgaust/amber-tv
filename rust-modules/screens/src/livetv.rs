@@ -231,7 +231,8 @@ impl LiveTvScreen {
 
     fn clock(&self, t: i64) -> String {
         let hm = plx_platform::i18n::local_clock_time(t).unwrap_or([0, 0]);
-        plx_platform::i18n::current().time_of_day(hm).unwrap_or_default()
+        // CLDR puts a NARROW no-break space before AM/PM, which the UI faces do not carry
+        plx_platform::i18n::current().time_of_day(hm).unwrap_or_default().replace('\u{202f}', " ")
     }
 
     fn draw_details(&self, p: Painter, measure: &dyn plx_machine::machine::Measure) {

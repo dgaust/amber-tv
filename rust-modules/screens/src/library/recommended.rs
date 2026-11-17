@@ -1286,7 +1286,7 @@ impl RecommendedScreen {
                 super::collections_page::root_label(Self::library_title(cx), self.kind),
                 plx_platform::i18n::msg::library_header_recommended());
             let page = PageHeader::new(PageHeaderSpec { crumb: Some(crumb), ..Default::default() }, &[], cx.measure);
-            let layout = page.layout(SCR_W, cx.measure);
+            let layout = page.layout(SCR_W - plx_ui::widgets::PAGE_SHIFT_CLOSED, cx.measure);
             let root = layout.items.iter().position(|item| item.slot == Slot::CrumbRoot).unwrap_or(0);
             HeaderRow::new(page, layout, vec![(CRUMB_ELEM, root)])
         })
