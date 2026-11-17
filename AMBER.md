@@ -52,7 +52,7 @@ xvfb-run -a -s "-screen 0 1920x1080x24" python3 tools/screenshots.py \
 - **Not yet run on a television.** Everything above was verified in the simulator only.
 - **Upstream's host test suite has not been run** against these changes; its geometry and legibility
   tests for the top bar will fail by design and need rewriting for the sidebar.
-- **Live TV and the guide.** Upstream has no Live TV at all (it is out of its scope), so this is a new
+- **Live TV and the guide.** Mapped in `docs/amber-screen-map.md` §5; the household server has a DVR (XMLTV guide, two tuners). Not built yet.
   data layer, screens and a playback path, not a restyle. Needs a real server to develop against.
 - **Home and detail layouts** are still upstream's (hero carousel; backdrop detail page).
 - Music, photos and playlists are not in upstream either.
