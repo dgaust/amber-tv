@@ -29,7 +29,9 @@ pub(super) const RAIL_PITCH: f32 = 32.0;
 pub(super) const RAIL_MIN_PITCH: f32 = 26.0;
 pub(super) const RAIL_CAP_PAD: f32 = 10.0;
 pub(super) const RAIL_BAND: f32 = RAIL_TRACK_W + theme::space::XS;
-pub(super) const GRID_RIGHT: f32 = SCR_W - MARGIN_X - RAIL_BAND;
+/// Amber: the page stands `PAGE_SHIFT_CLOSED` right of where it was laid out, beside the sidebar,
+/// so everything anchored to the right margin is laid out that much further in.
+pub(super) const GRID_RIGHT: f32 = SCR_W - MARGIN_X - RAIL_BAND - plx_ui::widgets::PAGE_SHIFT_CLOSED;
 pub(super) const GRID_GAP: f32 =
     (GRID_RIGHT - MARGIN_X - COLS as f32 * CARD_W) / (COLS as f32 - 1.0);
 
@@ -225,7 +227,7 @@ const RAIL_BOTTOM: f32 = SCR_H - MARGIN_Y - RAIL_CAP_PAD;
 /// The height the letters may take when the rail starts as high as it goes.
 const RAIL_AVAIL: f32 = RAIL_BOTTOM - RAIL_TOP_HIGH;
 /// The board's letter column centre: the track box is x 1822, 44 wide.
-pub(super) const RAIL_CX: f32 = 1844.0;
+pub(super) const RAIL_CX: f32 = 1844.0 - plx_ui::widgets::PAGE_SHIFT_CLOSED;
 
 /// The pitch of `n` letters: [`RAIL_PITCH`], scaled down only as far as it takes (never below
 /// [`RAIL_MIN_PITCH`]) for the whole alphabet (a Latin one is 27 letters with `#`) to stand
@@ -474,7 +476,7 @@ mod tests {
         assert_eq!(layout.cell_x(0), MARGIN_X);
         let right = layout.cell_x(COLS - 1) + layout.card_w();
         assert!((right - GRID_RIGHT).abs() < 0.01);
-        assert!(right + RAIL_BAND <= SCR_W - MARGIN_X + 0.01);
+        assert!(right + RAIL_BAND <= SCR_W - MARGIN_X - plx_ui::widgets::PAGE_SHIFT_CLOSED + 0.01);
     }
 
     #[test]

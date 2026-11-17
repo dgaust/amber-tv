@@ -3385,8 +3385,16 @@ impl Rig<AppHost> for Bridge {
             .and_then(|hm| plx_platform::i18n::current().time_of_day(hm));
         if let Some(clock) = clock.and_then(|c| std::ffi::CString::new(c).ok()) {
             let sz = plx_ui::theme::size::LABEL;
-            let y = plx_gfx::text::text_vcenter_y(sz, 0, plx_ui::widgets::CHIP_FRAME.y + plx_ui::widgets::CHIP_FRAME.h * 0.5);
-            p.text(clock.as_ptr(), plx_ui::consts::SCR_W - plx_ui::consts::MARGIN_X, y, sz, plx_ui::theme::CLOCK_INK, 2, 0);
+            // On its own dark capsule: a page scrolls its content up under the top right, and a
+            // bare clock over a poster would be unreadable.
+            let cy = plx_ui::widgets::CHIP_FRAME.y + plx_ui::widgets::CHIP_FRAME.h * 0.5;
+            let w = 150.0;
+            let h = 48.0;
+            let right = plx_ui::consts::SCR_W - plx_ui::consts::MARGIN_X + plx_ui::theme::space::SM;
+            let cap = plx_ui::Rect::new(right - w, cy - h * 0.5, w, h);
+            p.rrect(cap, h * 0.5, h * 0.5, plx_ui::theme::scrim(0.72));
+            let y = plx_gfx::text::text_vcenter_y(sz, 0, cy);
+            p.text(clock.as_ptr(), cap.x + cap.w * 0.5, y, sz, plx_ui::theme::CLOCK_INK, 1, 0);
         }
     }
     /// The chip's DRAWN rect: `chip_cap` at the strip's live unfurl and the captured name's width,
