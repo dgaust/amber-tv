@@ -1147,6 +1147,9 @@ fn home_tab_available(
     directory: plx_data::stores::browse::DirectoryView<'_>,
     tab: HomeTab,
 ) -> bool {
+    if let HomeTab::Library(i) = tab {
+        return (i as usize) < directory.sections().len();
+    }
     let kind = match tab {
         HomeTab::Movies => Some(plx_data::stores::browse::SecKind::Movie),
         HomeTab::Shows => Some(plx_data::stores::browse::SecKind::Show),

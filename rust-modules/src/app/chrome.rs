@@ -11,6 +11,8 @@ use plx_data::stores::browse::{DirectoryView, SecKind};
 pub(crate) enum Pill {
     Home,
     Section(SecKind),
+    /// Amber: one library, by its index in the directory's sections.
+    Library(usize),
     Watchlist,
     Search,
 }
@@ -21,10 +23,9 @@ pub(crate) enum Pill {
 /// map assumes which index Search holds.
 fn strip_keys(directory: DirectoryView<'_>) -> Vec<u32> {
     let mut keys = vec![widgets::TAB_KEY_HOME];
-    keys.extend((0..directory.tab_count()).filter_map(|i| directory.tab_kind(i)).map(|kind| match kind {
-        SecKind::Movie => widgets::TAB_KEY_MOVIES,
-        SecKind::Show => widgets::TAB_KEY_SHOWS,
-    }));
+    // Amber: every library, in the directory's order.
+    let n = directory.sections().len().min(widgets::TAB_KEY_LIB_MAX as usize);
+    keys.extend((0..n).map(|i| widgets::TAB_KEY_LIB_BASE + i as u32));
     keys.push(widgets::TAB_KEY_WATCHLIST);
     keys.push(widgets::TAB_KEY_SEARCH);
     keys
@@ -34,8 +35,16 @@ pub(crate) fn pill_at(directory: DirectoryView<'_>, i: usize) -> Pill {
     pill_in(i, &strip_keys(directory))
 }
 
+/// The generation the strip is rebuilt on: its type tabs AND its list of libraries.
+fn strip_generation(directory: DirectoryView<'_>) -> u32 {
+    directory.tabs_gen().wrapping_mul(65_599).wrapping_add(directory.sections_gen())
+}
+
 /// The destination a strip index names, by the KEY published at that index.
 fn pill_in(i: usize, keys: &[u32]) -> Pill {
+    if let Some(lib) = keys.get(i).copied().and_then(widgets::library_of_key) {
+        return Pill::Library(lib as usize);
+    }
     match keys.get(i).copied() {
         Some(widgets::TAB_KEY_MOVIES) => Pill::Section(SecKind::Movie),
         Some(widgets::TAB_KEY_SHOWS) => Pill::Section(SecKind::Show),
@@ -46,11 +55,17 @@ fn pill_in(i: usize, keys: &[u32]) -> Pill {
 }
 
 pub(crate) fn pill_of(directory: DirectoryView<'_>, pill: Pill) -> Option<usize> {
+    // A TYPE is shown by the library it opens: the one being visited, else the type's favourite.
+    let pill = match pill {
+        Pill::Section(kind) => directory.preferred(kind).map(Pill::Library).unwrap_or(pill),
+        other => other,
+    };
     pill_index(pill, &strip_keys(directory))
 }
 
 fn pill_index(pill: Pill, keys: &[u32]) -> Option<usize> {
     let key = match pill {
+        Pill::Library(i) => widgets::TAB_KEY_LIB_BASE + i as u32,
         Pill::Home => widgets::TAB_KEY_HOME,
         Pill::Section(SecKind::Movie) => widgets::TAB_KEY_MOVIES,
         Pill::Section(SecKind::Show) => widgets::TAB_KEY_SHOWS,
@@ -108,11 +123,16 @@ impl ChromeSnapshot {
 
     pub(crate) fn refresh_with_profile(&mut self, measure: &dyn Measure, directory: DirectoryView<'_>,
         captured: Option<(&plx_plex::plex::session::CurrentProfile, &plx_plex::plex::session::Session)>) {
-        let generation = directory.tabs_gen();
+        let generation = strip_generation(directory);
         let strip_changed = self.tabs_generation != Some(generation);
         if strip_changed {
             self.keys = strip_keys(directory);
             self.faces = self.keys.iter().map(|&key| match key {
+                key if widgets::library_of_key(key).is_some() => {
+                    let section = directory.sections().get(widgets::library_of_key(key).unwrap_or(0) as usize);
+                    let icon = match section.map(|s| s.kind) { Some(SecKind::Show) => Icon::Tv, _ => Icon::Film };
+                    TabFace::Entry(icon, section.map(|s| s.row.title.clone()).unwrap_or_default())
+                }
                 widgets::TAB_KEY_HOME => TabFace::Entry(Icon::Home, plx_platform::i18n::msg::browse_chrome_home().into()),
                 widgets::TAB_KEY_MOVIES => TabFace::Entry(Icon::Film, plx_platform::i18n::msg::browse_kind_movies().into()),
                 widgets::TAB_KEY_SHOWS => TabFace::Entry(Icon::Tv, plx_platform::i18n::msg::browse_kind_tv_shows().into()),

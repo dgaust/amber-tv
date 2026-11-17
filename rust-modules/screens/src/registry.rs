@@ -327,6 +327,8 @@ pub enum HomeReq {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum HomeTab {
     Home,
+    /// Amber: one library, by its index in the directory's sections.
+    Library(u16),
     Movies,
     Shows,
     /// The Watchlist mark, before Search (docs/watchlist-plan.md §2.4 W45).

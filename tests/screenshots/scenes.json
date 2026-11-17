@@ -431,6 +431,120 @@
           "size": "1920x1080"
         }
       ]
+    },
+    {
+      "name": "amber-lib-open",
+      "state": "Amber: amber-lib-open",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          3.5,
+          "up"
+        ]
+      ],
+      "after_ms": 7000,
+      "settle_ms": 1200,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-lib-open.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-lib-kids",
+      "state": "Amber: amber-lib-kids",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          3.5,
+          "up"
+        ],
+        [
+          4.2,
+          "down"
+        ],
+        [
+          4.9,
+          "down"
+        ],
+        [
+          5.6,
+          "down"
+        ],
+        [
+          6.3,
+          "ok"
+        ]
+      ],
+      "after_ms": 9000,
+      "settle_ms": 1200,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-lib-kids.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-lib-back",
+      "state": "Amber: amber-lib-back",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          3.5,
+          "up"
+        ],
+        [
+          4.2,
+          "down"
+        ],
+        [
+          4.9,
+          "down"
+        ],
+        [
+          5.6,
+          "down"
+        ],
+        [
+          6.3,
+          "ok"
+        ],
+        [
+          9.0,
+          "left"
+        ],
+        [
+          9.8,
+          "up"
+        ],
+        [
+          10.5,
+          "up"
+        ],
+        [
+          11.2,
+          "ok"
+        ]
+      ],
+      "after_ms": 14000,
+      "settle_ms": 1200,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-lib-back.jpg",
+          "size": "1920x1080"
+        }
+      ]
     }
   ]
 }

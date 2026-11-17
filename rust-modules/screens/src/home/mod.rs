@@ -2121,6 +2121,7 @@ impl HomeScreen {
     fn request_for_strip(elem: u32) -> Option<HomeReq> {
         Some(match elem {
             STRIP_HOME_ELEM => HomeReq::Tab(HomeTab::Home),
+            k if plx_ui::widgets::library_of_key(k).is_some() => HomeReq::Tab(HomeTab::Library(plx_ui::widgets::library_of_key(k).unwrap_or(0))),
             STRIP_MOVIES_ELEM => HomeReq::Tab(HomeTab::Movies),
             STRIP_SHOWS_ELEM => HomeReq::Tab(HomeTab::Shows),
             STRIP_SEARCH_ELEM => HomeReq::Tab(HomeTab::Search),
@@ -2199,6 +2200,7 @@ impl HomeScreen {
             HomeCmd::FocusStrip(tab) => {
                 let elem = match tab {
                     HomeTab::Home => STRIP_HOME_ELEM,
+                    HomeTab::Library(i) => plx_ui::widgets::TAB_KEY_LIB_BASE + i as u32,
                     HomeTab::Movies => STRIP_MOVIES_ELEM,
                     HomeTab::Shows => STRIP_SHOWS_ELEM,
                     HomeTab::Search => STRIP_SEARCH_ELEM,

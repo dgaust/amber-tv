@@ -1203,6 +1203,20 @@ impl Bridge {
     /// already on the preferred library stays there; a departed non-favorite visit is restored to
     /// the last-used favorite. Not for a Library already on top: its `LibraryCmd::Enter` saves the outgoing
     /// section's cursor from the listing it is still showing, before it switches.
+    /// Amber: make library `index` (in the directory's sections) the current choice, as picking it
+    /// in the library page's switcher does. Its type, or `None` when there is no such library.
+    pub(crate) fn select_library_section(&mut self, index: usize) -> Option<plx_data::browse::SecKind> {
+        let (target, kind) = {
+            let directory = self.directory.view();
+            let section = directory.sections().get(index)?;
+            (plx_data::stores::browse::SectionAddress { epoch: directory.epoch()?, sid: section.sid?, section: section.key },
+                section.kind)
+        };
+        self.browse_run(plx_data::stores::browse::BrowseCmd::Addressed { target,
+            work: plx_data::stores::browse::LibraryWork::Commit { select: true, choice: true, query: None } });
+        Some(kind)
+    }
+
     pub(crate) fn aim_library(&mut self, kind: plx_data::browse::SecKind) {
         let target = {
             let directory = self.directory.view();
@@ -4909,6 +4923,7 @@ pub(crate) fn nav_tab(
             if let Some(pill) = focus_pill.filter(|pill| crate::app::chrome::pill_of(rig.directory.view(), *pill).is_some()) {
                 let want = match pill {
                     Pill::Home => HomeTab::Home,
+                    Pill::Library(i) => HomeTab::Library(i as u16),
                     Pill::Search => HomeTab::Search,
                     Pill::Watchlist => HomeTab::Watchlist,
                     Pill::Section(plx_data::browse::SecKind::Movie) => HomeTab::Movies,
@@ -4918,8 +4933,18 @@ pub(crate) fn nav_tab(
             }
             AppArg::Home
         }
-        HomeTab::Movies | HomeTab::Shows => {
-            let kind = if tab == HomeTab::Movies { plx_data::browse::SecKind::Movie } else { plx_data::browse::SecKind::Show };
+        HomeTab::Movies | HomeTab::Shows | HomeTab::Library(_) => {
+            // Amber: a library entry first makes that library the current choice (what picking it
+            // in the library page's own switcher does), so the page opens on it; the store is
+            // then already aimed, and must not be re-aimed at the type's previous favourite.
+            let (kind, aimed) = match tab {
+                HomeTab::Library(i) => match rig.select_library_section(i as usize) {
+                    Some(kind) => (kind, true),
+                    None => return,
+                },
+                HomeTab::Movies => (plx_data::browse::SecKind::Movie, false),
+                _ => (plx_data::browse::SecKind::Show, false),
+            };
             if let Some((child, machine, key)) = rig.remembered_library_child(kind) {
                 let already_open = rig.library_page_visit.as_ref().is_some_and(|visit|
                     d.nav.top_page().is_some_and(|entry| entry.id == visit.entry)
@@ -4927,7 +4952,7 @@ pub(crate) fn nav_tab(
                 rig.enter_library(kind);
                 // A grid already on top saves its outgoing cursor in Enter before it selects
                 // the destination. Other pages have no grid to deliver Enter to.
-                if d.top_arg() != Some(&AppArg::Library) { rig.aim_library(kind); }
+                if d.top_arg() != Some(&AppArg::Library) && !aimed { rig.aim_library(kind); }
                 let op = if already_open {
                     // Reselecting the current library still goes to its grid.
                     NavOp::Pop
@@ -4947,7 +4972,7 @@ pub(crate) fn nav_tab(
                 if d.nav.tabs.stack.is_pending() || d.has_pending_navigation() {
                     d.request(MachineId::Nav, NavOp::PopTo(grid.id));
                 }
-            } else {
+            } else if !aimed {
                 rig.aim_library(kind);
             }
             AppArg::Library
