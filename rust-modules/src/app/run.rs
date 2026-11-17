@@ -1295,6 +1295,12 @@ unsafe fn ingest_sdl_event_with_window(app: &mut App, fr: &mut Frame,
             app.ptr.edge.stop();
             return;
         }
+        // Amber: the sidebar's edit mode takes its keys first (down edges; a consumed key's
+        // release finds nothing armed).
+        if (state & 0xff) == 1 && app.boot_initial.is_none() && app.bridge.rail_edit_key(&app.pages, key) {
+            app.note_presentation_damage(plx_machine::present::Provenance::Lifecycle);
+            return;
+        }
         if app.boot_initial.is_some() {
             let event = super::bridge::key_input(sym, wcode, state,
                 plx_machine::machine::Tick { ms: clock::now(), dt_us: 0 }, plx_machine::machine::Source::Sdl);

@@ -1511,6 +1511,43 @@ impl Bridge {
         self.mounter.player_more_folds = folded;
     }
 
+    /// Amber: the sidebar's edit mode takes the remote's keys before the page does. `true` when
+    /// the key was the edit mode's.
+    pub(crate) fn rail_edit_key(&mut self, d: &Dispatcher<AppHost>, key: plx_ui::consts::Key) -> bool {
+        use plx_ui::consts::Key;
+        use crate::app::chrome;
+        let elem = Self::home_focus(d).map(|f| f.elem);
+        if !chrome::editing() {
+            if key == Key::Ok && elem == Some(plx_ui::widgets::TAB_KEY_EDIT) {
+                chrome::begin_edit(self.directory.view());
+                return true;
+            }
+            return false;
+        }
+        // Focus left the sidebar (a click, a page that took it): the edit is over.
+        if elem.is_none_or(|e| e < plx_ui::dispatch::STRIP_BASE) {
+            chrome::end_edit();
+            return false;
+        }
+        let id = elem.and_then(|e| chrome::id_of_key(self.directory.view(), e));
+        match key {
+            Key::Back => { chrome::end_edit(); true }
+            Key::Ok => {
+                if elem == Some(plx_ui::widgets::TAB_KEY_EDIT) { chrome::end_edit(); }
+                else if id.is_some() { chrome::toggle_carry(); }
+                true
+            }
+            // Home cannot be hidden: it is where the app opens.
+            Key::Right { .. } => { if let Some(id) = id.filter(|id| id != "home") { chrome::toggle_hidden(&id); } true }
+            Key::Up | Key::Down if chrome::carrying() => {
+                if let Some(id) = id { chrome::step(&id, if key == Key::Up { -1 } else { 1 }); }
+                true
+            }
+            Key::Left { .. } => true,
+            _ => false,
+        }
+    }
+
     fn home_focus(d: &Dispatcher<AppHost>) -> Option<FocusKey<u32>> {
         let entry = d.nav.top_page()?.id;
         d.input.engine.current(InputOwner::Entry(entry))

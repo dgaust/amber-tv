@@ -2822,6 +2822,12 @@ pub const PAGE_SHIFT_CLOSED: f32 = 72.0;
 pub const PAGE_SHIFT_OPEN: f32 = RAIL_OPEN_W - 24.0;
 
 static RAIL_OPEN_BITS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static RAIL_CARRY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Amber: the sidebar's edit mode has the focused entry picked up (it moves with Up/Down).
+pub fn set_rail_carry(on: bool) {
+    RAIL_CARRY.store(on, std::sync::atomic::Ordering::Relaxed);
+}
 
 /// How open the sidebar is this frame (0 closed .. 1 open), as the bar's last update left it.
 pub fn rail_open_amount() -> f32 {
@@ -6871,6 +6877,8 @@ pub const TAB_KEY_WATCHLIST: u32 = crate::dispatch::STRIP_BASE + 5;
 /// Amber: the sidebar lists every library. Library `i` (its index in the directory's sections) is
 /// `TAB_KEY_LIB_BASE + i`, clear of every other strip key.
 pub const TAB_KEY_LIB_BASE: u32 = crate::dispatch::STRIP_BASE + 0x100;
+/// Amber: the sidebar's last entry, "Edit sidebar": it starts (and ends) the edit mode.
+pub const TAB_KEY_EDIT: u32 = crate::dispatch::STRIP_BASE + 6;
 /// How many libraries the sidebar can list.
 pub const TAB_KEY_LIB_MAX: u32 = 200;
 /// Which library a strip key names, if it names one.
@@ -8128,7 +8136,8 @@ impl StripRender {
                     let closed_w = cell.w;
                     let open_w = RAIL_OPEN_W - cell.x - theme::space::MD;
                     let plate = Rect::new(cell.x, cell.y, closed_w + (open_w - closed_w) * open, cell.h);
-                    p.rrect(plate, 8.0, 8.0, theme::ACCENT);
+                    let carried = RAIL_CARRY.load(std::sync::atomic::Ordering::Relaxed);
+                    p.rrect(plate, 8.0, 8.0, if carried { theme::RAIL_CURRENT } else { theme::ACCENT });
                 } else if showing {
                     let bar = Rect::new(cell.x - 12.0, cell.y + 16.0, 4.0, cell.h - 32.0);
                     p.rrect(bar, 2.0, 2.0, theme::RAIL_CURRENT);

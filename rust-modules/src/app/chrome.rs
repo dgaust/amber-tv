@@ -22,13 +22,94 @@ pub(crate) enum Pill {
 /// place that order is written; `refresh` publishes it and the pill maps below read it, so no
 /// map assumes which index Search holds.
 fn strip_keys(directory: DirectoryView<'_>) -> Vec<u32> {
-    let mut keys = vec![widgets::TAB_KEY_SEARCH, widgets::TAB_KEY_HOME];
-    // Amber: every library, in the directory's order.
-    let n = directory.sections().len().min(widgets::TAB_KEY_LIB_MAX as usize);
-    keys.extend((0..n).map(|i| widgets::TAB_KEY_LIB_BASE + i as u32));
-    keys.push(widgets::TAB_KEY_WATCHLIST);
-    keys
+    strip_entries(directory).into_iter().map(|(key, _)| key).collect()
 }
+
+// ---- Amber: the viewer's arrangement of the sidebar, and its edit mode ------------------------
+// Main-thread state: the strip's key list is derived in several places from the directory alone,
+// so the arrangement those derivations read lives beside them rather than on one caller.
+thread_local! {
+    static LAYOUT: std::cell::RefCell<crate::app::layout::Layout> = std::cell::RefCell::new(crate::app::layout::Layout::load());
+    static LAYOUT_GEN: std::cell::Cell<u32> = const { std::cell::Cell::new(1) };
+    static EDITING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static CARRYING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Every destination the sidebar can show, with its identity, in the default order.
+fn all_entries(directory: DirectoryView<'_>) -> Vec<(u32, String)> {
+    let mut all = vec![(widgets::TAB_KEY_SEARCH, "search".to_owned()), (widgets::TAB_KEY_HOME, "home".to_owned())];
+    let n = directory.sections().len().min(widgets::TAB_KEY_LIB_MAX as usize);
+    all.extend((0..n).map(|i| (widgets::TAB_KEY_LIB_BASE + i as u32, format!("lib:{}", directory.sections()[i].key))));
+    all.push((widgets::TAB_KEY_WATCHLIST, "watchlist".to_owned()));
+    all
+}
+
+/// The strip in the viewer's order, hidden entries left out (shown while editing), "Edit" last.
+fn strip_entries(directory: DirectoryView<'_>) -> Vec<(u32, String)> {
+    let all = all_entries(directory);
+    let ids: Vec<String> = all.iter().map(|(_, id)| id.clone()).collect();
+    let editing = EDITING.with(|e| e.get());
+    let mut out: Vec<(u32, String)> = LAYOUT.with(|l| {
+        let l = l.borrow();
+        crate::app::layout::Layout::arrange(&l.sidebar_order, &ids).into_iter()
+            .filter(|id| editing || !l.sidebar_hidden.contains(id))
+            .filter_map(|id| all.iter().find(|(_, x)| x == id).cloned())
+            .collect()
+    });
+    out.push((widgets::TAB_KEY_EDIT, "edit".to_owned()));
+    out
+}
+
+pub(crate) fn editing() -> bool { EDITING.with(|e| e.get()) }
+pub(crate) fn carrying() -> bool { CARRYING.with(|c| c.get()) }
+
+fn bump() { LAYOUT_GEN.with(|g| g.set(g.get().wrapping_add(1))); }
+
+/// The identity of the entry a strip key names, under this directory.
+pub(crate) fn id_of_key(directory: DirectoryView<'_>, key: u32) -> Option<String> {
+    all_entries(directory).into_iter().find(|(k, _)| *k == key).map(|(_, id)| id)
+}
+
+pub(crate) fn begin_edit(directory: DirectoryView<'_>) {
+    EDITING.with(|e| e.set(true));
+    // The whole current arrangement becomes the order being edited, so a step moves past
+    // entries the file never named.
+    let order: Vec<String> = { EDITING.with(|e| e.set(true)); strip_entries(directory) }
+        .into_iter().map(|(_, id)| id).filter(|id| id != "edit").collect();
+    LAYOUT.with(|l| l.borrow_mut().sidebar_order = order);
+    bump();
+}
+
+pub(crate) fn end_edit() {
+    EDITING.with(|e| e.set(false));
+    CARRYING.with(|c| c.set(false));
+    widgets::set_rail_carry(false);
+    LAYOUT.with(|l| l.borrow().save());
+    bump();
+}
+
+pub(crate) fn toggle_carry() {
+    let on = !CARRYING.with(|c| c.get());
+    CARRYING.with(|c| c.set(on));
+    widgets::set_rail_carry(on);
+}
+
+pub(crate) fn toggle_hidden(id: &str) {
+    LAYOUT.with(|l| { crate::app::layout::Layout::toggle(&mut l.borrow_mut().sidebar_hidden, id); l.borrow().save(); });
+    bump();
+}
+
+pub(crate) fn step(id: &str, dir: i32) {
+    LAYOUT.with(|l| {
+        let mut l = l.borrow_mut();
+        let visible = l.sidebar_order.clone();
+        crate::app::layout::Layout::step(&mut l.sidebar_order, &visible, id, dir);
+        l.save();
+    });
+    bump();
+}
+
+fn hidden(id: &str) -> bool { LAYOUT.with(|l| l.borrow().sidebar_hidden.iter().any(|x| x == id)) }
 
 pub(crate) fn pill_at(directory: DirectoryView<'_>, i: usize) -> Pill {
     pill_in(i, &strip_keys(directory))
@@ -37,6 +118,7 @@ pub(crate) fn pill_at(directory: DirectoryView<'_>, i: usize) -> Pill {
 /// The generation the strip is rebuilt on: its type tabs AND its list of libraries.
 fn strip_generation(directory: DirectoryView<'_>) -> u32 {
     directory.tabs_gen().wrapping_mul(65_599).wrapping_add(directory.sections_gen())
+        .wrapping_mul(31).wrapping_add(LAYOUT_GEN.with(|g| g.get()))
 }
 
 /// The destination a strip index names, by the KEY published at that index.
@@ -126,7 +208,22 @@ impl ChromeSnapshot {
         let strip_changed = self.tabs_generation != Some(generation);
         if strip_changed {
             self.keys = strip_keys(directory);
+            let editing = editing();
             self.faces = self.keys.iter().map(|&key| match key {
+                widgets::TAB_KEY_EDIT => TabFace::Entry(Icon::More, if editing { "Done editing".into() } else { "Edit sidebar".into() }),
+                key if editing && id_of_key(directory, key).is_some_and(|id| hidden(&id)) => {
+                    let base = match key {
+                        widgets::TAB_KEY_HOME => (Icon::Home, plx_platform::i18n::msg::browse_chrome_home().to_owned()),
+                        widgets::TAB_KEY_SEARCH => (Icon::Search, plx_platform::i18n::msg::browse_chrome_search().to_owned()),
+                        widgets::TAB_KEY_WATCHLIST => (Icon::Bookmark, "Watchlist".to_owned()),
+                        _ => {
+                            let section = directory.sections().get(widgets::library_of_key(key).unwrap_or(0) as usize);
+                            (match section.map(|s| s.kind) { Some(SecKind::Show) => Icon::Tv, _ => Icon::Film },
+                                section.map(|s| s.row.title.clone()).unwrap_or_default())
+                        }
+                    };
+                    TabFace::Entry(base.0, format!("{} (hidden)", base.1))
+                }
                 key if widgets::library_of_key(key).is_some() => {
                     let section = directory.sections().get(widgets::library_of_key(key).unwrap_or(0) as usize);
                     let icon = match section.map(|s| s.kind) { Some(SecKind::Show) => Icon::Tv, _ => Icon::Film };

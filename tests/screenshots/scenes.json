@@ -649,6 +649,146 @@
           "size": "1920x1080"
         }
       ]
+    },
+    {
+      "name": "amber-edit-mid",
+      "state": "Amber: amber-edit-mid",
+      "triggers": {
+        "library": "0"
+      },
+      "remote": [
+        [
+          3.5,
+          "left"
+        ],
+        [
+          4.2,
+          "down"
+        ],
+        [
+          4.8,
+          "down"
+        ],
+        [
+          5.4,
+          "down"
+        ],
+        [
+          6.0,
+          "ok"
+        ],
+        [
+          6.6,
+          "up"
+        ],
+        [
+          7.2,
+          "up"
+        ],
+        [
+          7.8,
+          "ok"
+        ],
+        [
+          8.4,
+          "up"
+        ],
+        [
+          9.0,
+          "ok"
+        ],
+        [
+          9.6,
+          "down"
+        ],
+        [
+          10.2,
+          "right"
+        ]
+      ],
+      "after_ms": 12500,
+      "settle_ms": 1200,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-edit-mid.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-edit-done",
+      "state": "Amber: amber-edit-done",
+      "triggers": {
+        "library": "0"
+      },
+      "remote": [
+        [
+          3.5,
+          "left"
+        ],
+        [
+          4.2,
+          "down"
+        ],
+        [
+          4.8,
+          "down"
+        ],
+        [
+          5.4,
+          "down"
+        ],
+        [
+          6.0,
+          "ok"
+        ],
+        [
+          6.6,
+          "up"
+        ],
+        [
+          7.2,
+          "up"
+        ],
+        [
+          7.8,
+          "ok"
+        ],
+        [
+          8.4,
+          "up"
+        ],
+        [
+          9.0,
+          "ok"
+        ],
+        [
+          9.6,
+          "down"
+        ],
+        [
+          10.2,
+          "right"
+        ],
+        [
+          10.8,
+          "back"
+        ],
+        [
+          11.6,
+          "up"
+        ]
+      ],
+      "after_ms": 14000,
+      "settle_ms": 1200,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-edit-done.jpg",
+          "size": "1920x1080"
+        }
+      ]
     }
   ]
 }
