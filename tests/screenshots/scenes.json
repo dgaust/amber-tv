@@ -1578,6 +1578,60 @@
           "size": "1920x1080"
         }
       ]
+    },
+    {
+      "name": "amber-lt-nav",
+      "state": "Amber: amber-lt-nav",
+      "triggers": {
+        "library": "0"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.2,
+          "down"
+        ],
+        [
+          5.8,
+          "down"
+        ],
+        [
+          6.4,
+          "ok"
+        ],
+        [
+          8.5,
+          "left"
+        ],
+        [
+          9.3,
+          "up"
+        ],
+        [
+          10.0,
+          "up"
+        ],
+        [
+          10.7,
+          "ok"
+        ]
+      ],
+      "after_ms": 14000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-lt-nav.jpg",
+          "size": "1920x1080"
+        }
+      ]
     }
   ]
 }

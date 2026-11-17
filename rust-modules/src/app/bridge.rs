@@ -1549,11 +1549,12 @@ impl Bridge {
     }
 
     /// Amber: OK on a sidebar entry from a page that does not route the strip itself (the item
-    /// pages: detail, person, collection), sent where the tab pages send it.
+    /// pages: detail, person, collection; the Live TV guide), sent where the tab pages send it.
     pub(crate) fn rail_nav_key(&mut self, d: &mut Dispatcher<AppHost>, key: plx_ui::consts::Key) -> bool {
         use plx_ui::widgets as w;
         if key != plx_ui::consts::Key::Ok || crate::app::chrome::editing() { return false; }
-        if !matches!(d.top_arg(), Some(AppArg::Content(_))) { return false; }
+        // The item pages and the Live TV guide do not route the strip's presses themselves.
+        if !matches!(d.top_arg(), Some(AppArg::Content(_) | AppArg::LiveTv)) { return false; }
         let Some(elem) = Self::home_focus(d).map(|f| f.elem) else { return false };
         if elem < plx_ui::dispatch::STRIP_BASE { return false; }
         let tab = match elem {
