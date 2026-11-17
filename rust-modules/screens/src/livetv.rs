@@ -451,9 +451,9 @@ impl<H: ContentLike> Screen<H> for LiveTvScreen {
         let active = f.focus.current.is_some_and(|k| k.entry == self.entry && k.elem == ELEM);
         self.draw_grid(p, active);
         if self.model.tuning.is_some() {
-            Self::text(p, "Tuning\u{2026}", RIGHT - 220.0, 104.0, theme::size::BODY, theme::RAIL_CURRENT, 1, 220.0);
+            Self::text(p, "Tuning\u{2026}", RIGHT - 220.0, 170.0, theme::size::BODY, theme::RAIL_CURRENT, 1, 220.0);
         } else if self.model.tune_failed {
-            Self::text(p, "Could not tune that channel", RIGHT - 420.0, 104.0, theme::size::CAPTION, theme::TEXT_SECONDARY, 0, 420.0);
+            Self::text(p, "Could not tune that channel", RIGHT - 420.0, 170.0, theme::size::CAPTION, theme::TEXT_SECONDARY, 0, 420.0);
         }
     }
     fn render(&self) -> RenderStrategy {

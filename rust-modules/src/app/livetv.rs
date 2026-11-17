@@ -106,7 +106,10 @@ fn meta_of(p: &LiveProgramme) -> String {
     if p.year > 0 { parts.push(p.year.to_string()); }
     let mins = (p.ends - p.begins) / 60;
     if mins > 0 { parts.push(if mins >= 60 { format!("{}h {}m", mins / 60, mins % 60) } else { format!("{mins}m") }); }
-    if !p.rating.is_empty() { parts.push(p.rating.clone()); }
+    // `au/M` reads as `M`; a bare country code (`au`, the guide had no rating) reads as nothing
+    let rating = p.rating.rsplit('/').next().unwrap_or("").trim();
+    let bare_country = rating.len() == 2 && rating.chars().all(|c| c.is_ascii_lowercase());
+    if !rating.is_empty() && !bare_country { parts.push(rating.to_string()); }
     parts.join("  \u{b7}  ")
 }
 
@@ -139,11 +142,28 @@ pub(crate) fn tune(channel: String) {
         s.dvr.clone()
     }) else { return };
     let title = with(|s| s.channels.iter().find(|c| c.id == channel).map(|c| c.title.clone()).unwrap_or_default());
+    // The forms this channel goes by, the tuner's own first: the guide's id alone is refused.
+    let candidates: Vec<String> = with(|s| {
+        let mut out: Vec<String> = Vec::new();
+        if let Some(d) = s.dvr.as_ref() {
+            for (lineup, device, key) in &d.mappings {
+                if *lineup == channel { out.push(device.clone()); out.push(key.clone()); }
+            }
+        }
+        if let Some(c) = s.channels.iter().find(|c| c.id == channel) {
+            out.push(c.number.clone());
+            out.push(c.grid_key.clone());
+        }
+        out.push(channel.clone());
+        let mut seen = std::collections::HashSet::new();
+        out.retain(|c| !c.is_empty() && seen.insert(c.clone()));
+        out
+    });
     // the server is read HERE, on the frame thread: a worker reads no statics
     let sid = plx_plex::plex::current_server();
     let spawned = std::thread::Builder::new().name("livetv-tune".into()).spawn(move || {
         let client = plx_plex::plex::client();
-        let session = client.livetv_tune(&dvr.key, &channel);
+        let session = client.livetv_tune_any(&dvr.key, &candidates);
         // The session's own record carries the Media/Part the player is built from; a live
         // airing is played as a one-off item (no queue, no resume), addressed by its session path.
         if let Err(why) = &session {

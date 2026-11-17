@@ -6,7 +6,9 @@
 //!   `callSign`, `thumb`;
 //! - `GET /<epg>/grid?type=1,4&sort=beginsAt&endsAt>=T0&beginsAt<=T1` -> `MediaContainer.Metadata[]`,
 //!   one per airing, its `Media[0]` naming `channelIdentifier`, `beginsAt`, `endsAt`;
-//! - `POST /livetv/dvrs/<key>/channels/<channel id>/tune` -> a subscription whose grab operation's
+//! - `POST /livetv/dvrs/<key>/channels/<channel>/tune` -> a subscription whose grab operation's
+//!   (an XMLTV guide id such as `C2.146.ersatztv.org` is refused with 400 on 1.43.5; the tuner's
+//!   own channel is tried first, `livetv_tune_any`)
 //!   metadata `key` is the live session, `/livetv/sessions/<uuid>`, playable like a library item.
 
 use super::Client;
@@ -16,12 +18,15 @@ use serde_json::Value;
 pub struct LiveDvr {
     pub key: String,
     pub epg: String,
+    /// `Device[].ChannelMapping[]`: (the guide's channel id, the tuner's own channel, its key).
+    pub mappings: Vec<(String, String, String)>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LiveChannel {
     pub id: String,
     pub number: String,
+    pub grid_key: String,
     pub title: String,
     pub thumb: String,
 }
@@ -73,7 +78,14 @@ pub fn item_path(rating_key: &str) -> String {
 pub fn parse_dvrs(body: &[u8]) -> Vec<LiveDvr> {
     let Ok(v) = serde_json::from_slice::<Value>(body) else { return Vec::new() };
     arr(&v, "/MediaContainer/Dvr").iter()
-        .map(|d| LiveDvr { key: s(d, "key"), epg: s(d, "epgIdentifier") })
+        .map(|d| LiveDvr {
+            key: s(d, "key"),
+            epg: s(d, "epgIdentifier"),
+            mappings: d.get("Device").and_then(|x| x.as_array()).map_or(&[][..], |a| a.as_slice()).iter()
+                .flat_map(|dev| dev.get("ChannelMapping").and_then(|x| x.as_array()).map_or(&[][..], |a| a.as_slice()))
+                .map(|m| (s(m, "lineupIdentifier"), s(m, "deviceIdentifier"), s(m, "channelKey")))
+                .collect(),
+        })
         .filter(|d| !d.key.is_empty() && !d.epg.is_empty())
         .collect()
 }
@@ -83,6 +95,7 @@ pub fn parse_channels(body: &[u8]) -> Vec<LiveChannel> {
     let mut out: Vec<LiveChannel> = arr(&v, "/MediaContainer/Channel").iter().map(|c| LiveChannel {
         id: s(c, "id"),
         number: s(c, "vcn"),
+        grid_key: s(c, "gridKey"),
         title: { let t = s(c, "title"); if t.is_empty() { s(c, "callSign") } else { t } },
         thumb: s(c, "thumb"),
     }).filter(|c| !c.id.is_empty()).collect();
@@ -185,11 +198,29 @@ impl Client {
     /// Tune `channel` on `dvr`: the live session to play, `/livetv/sessions/<uuid>`. `Err` says
     /// why not - the status and the head of the server's answer (never the request: the token is
     /// on it) - for the event log.
+    /// Tune the first of `candidates` (the forms one channel goes by: the tuner's channel, its
+    /// number, the guide's id...) the server accepts. Every refusal is in the `Err`, in order.
+    pub fn livetv_tune_any(&self, dvr: &str, candidates: &[String]) -> Result<String, String> {
+        let mut why = Vec::new();
+        for c in candidates.iter().filter(|c| !c.is_empty()) {
+            match self.livetv_tune(dvr, c) {
+                Ok(session) => {
+                    if !why.is_empty() {
+                        plx_base::eventlog::log(&format!("livetv: tune took channel form {c} after: {}", why.join(" | ")));
+                    }
+                    return Ok(session);
+                }
+                Err(e) => why.push(e),
+            }
+        }
+        Err(why.join(" | "))
+    }
+
     pub fn livetv_tune(&self, dvr: &str, channel: &str) -> Result<String, String> {
         let path = format!("/livetv/dvrs/{}/channels/{}/tune", enc(dvr), enc(channel));
         let reply = self.send(&path, crate::http::Method::Post, &[crate::http::ACCEPT_JSON])
             .ok_or_else(|| format!("no answer (channel {channel})"))?;
-        let head = || String::from_utf8_lossy(&reply.body[..reply.body.len().min(300)]).replace('\n', " ");
+        let head = || String::from_utf8_lossy(&reply.body[..reply.body.len().min(160)]).replace('\n', " ");
         if !reply.ok() {
             return Err(format!("HTTP {} (channel {channel}): {}", reply.status, head()));
         }
