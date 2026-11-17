@@ -152,7 +152,7 @@ SERVICEDIR   = /media/developer/apps/usr/palm/services/$(APPID).storage
 # name, never a hyphen, because `dev::any_trigger_present` scans the root for entries beginning
 # `plxnative-` and a sibling directory matching that prefix would silently suppress the OTHER
 # install's who's-watching picker.
-RUNDIR       = $(if $(filter stable,$(FLAVOR)),/tmp,/tmp/$(APPID))
+RUNDIR       = /tmp/$(APPID)
 EVENTLOG     = $(RUNDIR)/plxnative-events.log
 
 # Machine-readable answers, so no tool has to restate any of the above. `make -s print-appdir

@@ -15,6 +15,10 @@ pub const LEDGER_CAPACITY: usize = 16;
 
 // Install identities come from the packaging manifest via `build_support/install_identities.rs`,
 // called from each package's build.rs (the platform crate and the storage helper).
+// Amber: the ids are amber.stable/debug/night, not upstream's plxstate.* - DB8 _ids are global
+// across every kind on the television, so on a set that also has PlxNative installed the shared
+// id belonged to PlxNative's kind and every Amber put/del failed with -3963 (sign-in could not be
+// saved, sign-out could not erase). Upstream's note follows.
 // Compatibility: plxstate.stable/debug are live DB8 keys and must never change. The allowlist
 // landed in 6f78842e (2026-09-17), before nightly in 1c96bb7e (2026-09-19). Nightly now uses
 // plxstate.night (14 bytes): on webOS 4.10.2, the earlier 16-byte ID failed get with -995
@@ -1037,12 +1041,13 @@ mod tests {
 
     #[test]
     fn exact_ids_and_key_names() {
-        assert_eq!(Flavor::Stable.object_id().as_bytes(), b"plxstate.stable");
-        assert_eq!(Flavor::Debug.object_id().as_bytes(), b"plxstate.debug");
-        assert_eq!(Flavor::Nightly.object_id().as_bytes(), b"plxstate.night");
-        assert_eq!(Flavor::Stable.object_id().len(), 15);
-        assert_eq!(Flavor::Debug.object_id().len(), 14);
-        assert_eq!(Flavor::Nightly.object_id().len(), 14);
+        // Amber: its own ids - DB8 _ids are global, and PlxNative may hold plxstate.*.
+        assert_eq!(Flavor::Stable.object_id().as_bytes(), b"amber.stable");
+        assert_eq!(Flavor::Debug.object_id().as_bytes(), b"amber.debug");
+        assert_eq!(Flavor::Nightly.object_id().as_bytes(), b"amber.night");
+        assert_eq!(Flavor::Stable.object_id().len(), 12);
+        assert_eq!(Flavor::Debug.object_id().len(), 11);
+        assert_eq!(Flavor::Nightly.object_id().len(), 11);
         assert_eq!(Generation([0; 16]).key_name(), "a.AAAAAAAAAAAAAAAAAAAAAA");
         assert_eq!(Generation([255; 16]).key_name(), "a._____________________w");
     }

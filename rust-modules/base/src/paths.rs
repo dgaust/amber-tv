@@ -439,9 +439,9 @@ fn resolve_runtime_dir(
             return p;
         }
     }
-    if app_id == STABLE_APP_ID {
-        return PathBuf::from(DEFAULT_RUNTIME_DIR);
-    }
+    // Amber: every install, the stable one included, gets its own root. Upstream's stable app keeps
+    // `/tmp` itself, and on a set where PlxNative is installed its `/tmp/plxnative-*` files belong
+    // to PlxNative's uid - Amber could not open its own logs.
     Path::new(DEFAULT_RUNTIME_DIR).join(app_id)
 }
 

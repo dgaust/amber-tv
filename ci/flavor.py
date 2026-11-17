@@ -297,15 +297,13 @@ def _selftest() -> int:
     # "no line found", which this repository documents as indistinguishable from a total
     # regression. It cannot be caught on the television either: the harness's `install:` check can
     # only fire once it has found the log it is looking for.
-    mk_rundir = re.search(
-        r"(?m)^RUNDIR\s*=\s*\$\(if \$\(filter stable,\$\(FLAVOR\)\),(\S+),(\S+)\)", mk)
-    check(mk_rundir is not None
-          and mk_rundir.group(1) == "/tmp"
-          and mk_rundir.group(2) == "/tmp/$(APPID)",
-          "Makefile RUNDIR: stable is bare /tmp, a flavour is /tmp/<app id>")
+    # Amber: EVERY install, stable included, is /tmp/<app id> (upstream's stable app keeps bare /tmp,
+    # which on a set that also has PlxNative installed is PlxNative's files).
+    mk_rundir = re.search(r"(?m)^RUNDIR\s*=\s*(\S+)\s*$", mk)
+    check(mk_rundir is not None and mk_rundir.group(1) == "/tmp/$(APPID)",
+          "Makefile RUNDIR: every install is /tmp/<app id>")
     check('const DEFAULT_RUNTIME_DIR: &str = "/tmp"' in rust
-          and "if app_id == STABLE_APP_ID {" in rust
-          and "return PathBuf::from(DEFAULT_RUNTIME_DIR);" in rust
+          and "if app_id == STABLE_APP_ID {" not in rust
           and "Path::new(DEFAULT_RUNTIME_DIR).join(app_id)" in rust,
           "paths::resolve_runtime_dir spells the same rule as the Makefile's RUNDIR")
 

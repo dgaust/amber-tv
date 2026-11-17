@@ -2,16 +2,16 @@
   {
     "name": "stable",
     "app_id": "com.dgaust.amber",
-    "object_id": "plxstate.stable"
+    "object_id": "amber.stable"
   },
   {
     "name": "debug",
     "app_id": "com.dgaust.amber.debug",
-    "object_id": "plxstate.debug"
+    "object_id": "amber.debug"
   },
   {
     "name": "nightly",
     "app_id": "com.dgaust.amber.nightly",
-    "object_id": "plxstate.night"
+    "object_id": "amber.night"
   }
 ]
