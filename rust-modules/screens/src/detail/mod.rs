@@ -1472,7 +1472,7 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
             edge: [
                 EdgeRule::Stop,
                 EdgeRule::Geometric,
-                EdgeRule::Stop,
+                EdgeRule::Geometric,
                 EdgeRule::Stop,
             ],
             extent: Rect::new(
@@ -1495,7 +1495,7 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
                     kind: GroupKind::Row { wrap: false },
                     seat: Seat::Nearest,
                     reachable: AxisMask::BOTH,
-                    edge: [EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Stop, EdgeRule::Stop],
+                    edge: [EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Stop],
                     extent: Rect::new(
                         plx_ui::consts::MARGIN_X,
                         top,
@@ -1513,7 +1513,7 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
                     },
                     seat: Seat::Nearest,
                     reachable: AxisMask::BOTH,
-                    edge: [EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Stop, EdgeRule::Stop],
+                    edge: [EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Stop],
                     extent: Rect::new(
                         plx_ui::consts::MARGIN_X,
                         top,
@@ -1528,7 +1528,7 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
                     kind: GroupKind::Row { wrap: false },
                     seat: Seat::Remembered,
                     reachable: AxisMask::BOTH,
-                    edge: [EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Stop, EdgeRule::Stop],
+                    edge: [EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Stop],
                     extent: Rect::new(
                         plx_ui::consts::MARGIN_X,
                         top,
@@ -1543,7 +1543,7 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
                     kind: GroupKind::Row { wrap: false },
                     seat: Seat::Remembered,
                     reachable: AxisMask::BOTH,
-                    edge: [EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Stop, EdgeRule::Stop],
+                    edge: [EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Stop],
                     extent: Rect::new(
                         plx_ui::consts::MARGIN_X,
                         top,
@@ -1568,7 +1568,7 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
                             Seat::Remembered,
                         ),
                         reachable: AxisMask::BOTH,
-                        edge: [EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Stop, EdgeRule::Stop],
+                        edge: [EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Stop],
                         extent: Rect::new(
                             plx_ui::consts::MARGIN_X,
                             top + related::LABEL_H,
@@ -1584,7 +1584,7 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
                     kind: GroupKind::Row { wrap: false },
                     seat: Seat::Remembered,
                     reachable: AxisMask::BOTH,
-                    edge: [EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Stop, EdgeRule::Stop],
+                    edge: [EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Stop],
                     extent: Rect::new(
                         plx_ui::consts::MARGIN_X,
                         top,
@@ -1604,7 +1604,7 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
                         edge: [
                             EdgeRule::Geometric,
                             EdgeRule::Stop,
-                            EdgeRule::Stop,
+                            EdgeRule::Geometric,
                             EdgeRule::Stop,
                         ],
                         extent: Rect::new(

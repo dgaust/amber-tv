@@ -13,6 +13,8 @@ pub(crate) enum Pill {
     Section(SecKind),
     /// Amber: one library, by its index in the directory's sections.
     Library(usize),
+    /// Amber: the Live TV guide.
+    LiveTv,
     Watchlist,
     Search,
 }
@@ -39,6 +41,9 @@ fn all_entries(directory: DirectoryView<'_>) -> Vec<(u32, String)> {
     let n = directory.sections().len().min(widgets::TAB_KEY_LIB_MAX as usize);
     all.extend((0..n).map(|i| (widgets::TAB_KEY_LIB_BASE + i as u32, format!("lib:{}", directory.sections()[i].key))));
     all.push((widgets::TAB_KEY_WATCHLIST, "watchlist".to_owned()));
+    if crate::app::livetv::available() {
+        all.push((widgets::TAB_KEY_LIVETV, "livetv".to_owned()));
+    }
     all
 }
 
@@ -113,6 +118,7 @@ pub(crate) fn pill_at(directory: DirectoryView<'_>, i: usize) -> Pill {
 fn strip_generation(directory: DirectoryView<'_>) -> u32 {
     directory.tabs_gen().wrapping_mul(65_599).wrapping_add(directory.sections_gen())
         .wrapping_mul(31).wrapping_add(plx_data::layout::generation())
+        .wrapping_mul(31).wrapping_add(crate::app::livetv::generation())
         .wrapping_mul(31).wrapping_add(EDIT_GEN.with(|g| g.get()))
 }
 
@@ -125,6 +131,7 @@ fn pill_in(i: usize, keys: &[u32]) -> Pill {
         Some(widgets::TAB_KEY_MOVIES) => Pill::Section(SecKind::Movie),
         Some(widgets::TAB_KEY_SHOWS) => Pill::Section(SecKind::Show),
         Some(widgets::TAB_KEY_WATCHLIST) => Pill::Watchlist,
+        Some(widgets::TAB_KEY_LIVETV) => Pill::LiveTv,
         Some(widgets::TAB_KEY_SEARCH) => Pill::Search,
         _ => Pill::Home,
     }
@@ -142,6 +149,7 @@ pub(crate) fn pill_of(directory: DirectoryView<'_>, pill: Pill) -> Option<usize>
 fn pill_index(pill: Pill, keys: &[u32]) -> Option<usize> {
     let key = match pill {
         Pill::Library(i) => widgets::TAB_KEY_LIB_BASE + i as u32,
+        Pill::LiveTv => widgets::TAB_KEY_LIVETV,
         Pill::Home => widgets::TAB_KEY_HOME,
         Pill::Section(SecKind::Movie) => widgets::TAB_KEY_MOVIES,
         Pill::Section(SecKind::Show) => widgets::TAB_KEY_SHOWS,
@@ -206,11 +214,13 @@ impl ChromeSnapshot {
             let editing = editing();
             self.faces = self.keys.iter().map(|&key| match key {
                 widgets::TAB_KEY_EDIT => TabFace::Entry(Icon::More, if editing { "Done editing".into() } else { "Edit sidebar".into() }),
+                widgets::TAB_KEY_LIVETV if !(editing && hidden("livetv")) => TabFace::Entry(Icon::LiveTv, "Live TV".into()),
                 key if editing && id_of_key(directory, key).is_some_and(|id| hidden(&id)) => {
                     let base = match key {
                         widgets::TAB_KEY_HOME => (Icon::Home, plx_platform::i18n::msg::browse_chrome_home().to_owned()),
                         widgets::TAB_KEY_SEARCH => (Icon::Search, plx_platform::i18n::msg::browse_chrome_search().to_owned()),
                         widgets::TAB_KEY_WATCHLIST => (Icon::Bookmark, "Watchlist".to_owned()),
+                        widgets::TAB_KEY_LIVETV => (Icon::LiveTv, "Live TV".to_owned()),
                         _ => {
                             let section = directory.sections().get(widgets::library_of_key(key).unwrap_or(0) as usize);
                             (match section.map(|s| s.kind) { Some(SecKind::Show) => Icon::Tv, _ => Icon::Film },

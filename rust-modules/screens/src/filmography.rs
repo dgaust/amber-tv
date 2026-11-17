@@ -820,7 +820,7 @@ impl<H: ContentLike + PersonLike> Focusable<H> for FilmographyScreen {
                 edge: [
                     EdgeRule::Stop,
                     EdgeRule::Geometric,
-                    EdgeRule::Stop,
+                    EdgeRule::Geometric,
                     EdgeRule::Stop,
                 ],
                 extent: Rect::new(layout.content.x, layout.content.y, layout.content.w, PILL_H),
@@ -837,7 +837,7 @@ impl<H: ContentLike + PersonLike> Focusable<H> for FilmographyScreen {
                 edge: [
                     EdgeRule::Geometric,
                     EdgeRule::Stop,
-                    EdgeRule::Stop,
+                    EdgeRule::Geometric,
                     EdgeRule::Stop,
                 ],
                 extent: table_frame(cx.measure),

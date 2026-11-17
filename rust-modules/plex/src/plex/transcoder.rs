@@ -432,7 +432,7 @@ impl Client {
         let copy_ok = !hls && !(s.contract.no_video_copy && !s.contract.remux);
         let protocol = if hls { "hls" } else { "http" };
         let mut q = QueryBuilder::new("")
-            .str("path", &format!("/library/metadata/{}", s.rating_key))
+            .str("path", &super::livetv::item_path(&s.rating_key))
             .int("mediaIndex", s.media_index as i64)
             .int("partIndex", 0)
             .str("protocol", protocol)
@@ -581,7 +581,7 @@ impl Client {
         forced: bool,
     ) -> Option<MediaContainer> {
         let q = QueryBuilder::new("/video/:/transcode/universal/decision")
-            .str("path", &format!("/library/metadata/{rating_key}"))
+            .str("path", &super::livetv::item_path(rating_key))
             .int("mediaIndex", media_index as i64)
             .int("partIndex", 0)
             .str("protocol", "http")

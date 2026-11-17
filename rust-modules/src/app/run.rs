@@ -1301,6 +1301,10 @@ unsafe fn ingest_sdl_event_with_window(app: &mut App, fr: &mut Frame,
             app.note_presentation_damage(plx_machine::present::Provenance::Lifecycle);
             return;
         }
+        if (state & 0xff) == 1 && app.boot_initial.is_none() && app.bridge.rail_nav_key(&mut app.pages, key) {
+            app.note_presentation_damage(plx_machine::present::Provenance::Lifecycle);
+            return;
+        }
         if app.boot_initial.is_some() {
             let event = super::bridge::key_input(sym, wcode, state,
                 plx_machine::machine::Tick { ms: clock::now(), dt_us: 0 }, plx_machine::machine::Source::Sdl);
@@ -2951,6 +2955,15 @@ pub(crate) unsafe fn update(app: &mut App, fr: &mut Frame) {
         let endpoints = app.bridge.stops_pump();
         super::bridge::execute_endpoint_outcomes(&mut app.pages, endpoints);
         app.bridge.catalog_feed(&mut app.pages);
+        app.bridge.livetv_feed(&mut app.pages);
+        if let Some(mm) = super::livetv::take_ready() {
+            plx_base::eventlog::log("livetv: starting playback of the tuned session");
+            // A live session plays as a film would: from its start (it has no resume point).
+            unsafe {
+                super::playback::play_item_now(&mut app.player.session, &mut app.adapters.player, &mm, true,
+                    super::playback::Origin::Here, HUD_LINGER_MS, None, &mut app.pages, &mut app.bridge);
+            }
+        }
         let endpoints = app.bridge.viewstate_pump();
         super::bridge::execute_endpoint_outcomes(&mut app.pages, endpoints);
         // …and the read-back it owes: what the server now says about the item(s) just written, on
@@ -3427,6 +3440,8 @@ pub(crate) unsafe fn report(app: &mut App, fr: &mut Frame) {
                     crate::focusprobe::Screen::Catalog,
                 AppArg::Search => crate::focusprobe::Screen::Search,
                 AppArg::Watchlist => crate::focusprobe::Screen::Watchlist,
+                // Amber: the guide fingerprints as the Watchlist does - a strip destination page.
+                AppArg::LiveTv => crate::focusprobe::Screen::Watchlist,
                 // The same words the heartbeat's `overlay=` uses, and — since phase 9 — from the
                 // same place: the SURFACE that is up. There is no second table; see
                 // `heartbeat_word_tests::focusprobe_player_overlay_delegates_to_the_shared_overlay_word_function`.

@@ -75,6 +75,8 @@ pub enum AppFx {
     /// page asks of the app that has no existing effect spelling.
     Watchlist(crate::watchlist::page::WatchlistOut),
     Catalog(crate::catalog::CatalogOut),
+    /// Amber: the Live TV guide's requests.
+    LiveTv(crate::livetv::LiveTvOut),
     /// Player-route commands requiring the MainThread capability, route or navigation stack.
     /// The app runner executes each at its FIFO head, outside the screen's machine step.
     Player(PlayerReq),
@@ -327,6 +329,8 @@ pub enum HomeReq {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum HomeTab {
     Home,
+    /// Amber: the Live TV guide.
+    LiveTv,
     /// Amber: one library, by its index in the directory's sections.
     Library(u16),
     Movies,
@@ -1914,6 +1918,7 @@ pub mod page_id {
     pub const SEARCH: ScreenId = ScreenId(10);
     pub const COLLECTION: ScreenId = ScreenId(23);
     pub const WATCHLIST: ScreenId = ScreenId(25);
+    pub const LIVETV: ScreenId = ScreenId(40);
     pub const LIBRARY_COLLECTIONS: ScreenId = ScreenId(28);
     pub const LIBRARY_RECOMMENDED: ScreenId = ScreenId(29);
 }
@@ -2015,6 +2020,8 @@ pub enum AppArg {
     /// from the bookmark mark. It carries nothing — the list is the store's, the order is the
     /// store's sort and filter.
     Watchlist,
+    /// Amber: the Live TV guide.
+    LiveTv,
     /// Playback. Its panels are NOT here — they are entries on the player page's own
     /// `ModalStack` ([`Self::PlayerOverlay`]), and the container owns which one is up.
     Player,
@@ -2083,6 +2090,8 @@ impl LogicalState for AppArg {
             Self::Search => { c.u32(0).u32(9); }
             // 11, after Player's 10: a page tag is a screen's identity in a recording, allocated forward.
             Self::Watchlist => { c.u32(0).u32(11); }
+            // Amber: 40, clear of everything upstream may still allocate.
+            Self::LiveTv => { c.u32(0).u32(40); }
             Self::Player => { c.u32(0).u32(10); }
             // 12 and 13, forward of Watchlist's 11 (both are in `ARG_SHAPE`).
             Self::LibraryCollections { section } => { c.u32(0).u32(12).u32(*section); }
@@ -2103,14 +2112,15 @@ impl plx_ui::screen::ScreenArg for AppArg {
     /// them fade the bar with the page.
     fn chrome(&self) -> Chrome {
         match self {
-            AppArg::Home | AppArg::Library | AppArg::Search | AppArg::Watchlist => Chrome::TabBar,
+            AppArg::Home | AppArg::Library | AppArg::Search | AppArg::Watchlist | AppArg::LiveTv => Chrome::TabBar,
             // The two sub-pages of a library keep the bar, as the Library they are pushed over.
             AppArg::LibraryCollections { .. } | AppArg::LibraryRecommended { .. } => Chrome::TabBar,
+            // Amber: the sidebar stands beside every page but the player, the item pages included.
+            AppArg::Content(_) => Chrome::TabBar,
             AppArg::Login
             | AppArg::Profiles
             | AppArg::Onboard
             | AppArg::Player
-            | AppArg::Content(_)
             | AppArg::Settings(_)
             | AppArg::FirstRunConsent(_)
             | AppArg::LibraryMenu(_)
@@ -2151,6 +2161,7 @@ impl plx_ui::screen::ScreenArg for AppArg {
             AppArg::ItemMenu(_) => 20,
             // 25 and 26, forward of Collection's 24: the Watchlist page and its Sort & Filter menu.
             AppArg::Watchlist => page_id::WATCHLIST.0,
+            AppArg::LiveTv => page_id::LIVETV.0,
             AppArg::WatchlistMenu(_) => 26,
             // The seven page ids are the ones `Legacy(Route)` computed, unchanged: an id is a
             // screen's identity in a recorded state and in `same_instance`, so they are allocated
@@ -2409,6 +2420,7 @@ where
             // The list is the store's: the page mounts on "loading" and the application feeds it
             // the rows, the options and the matched facts (`WatchlistIn`) on its first frames.
             AppArg::Watchlist => Box::new(crate::watchlist::page::WatchlistScreen::loading(entry)),
+            AppArg::LiveTv => Box::new(crate::livetv::LiveTvScreen::new(entry)),
             // Phase 9: the player is an OWNED screen — the instance that holds the HUD, the scrub
             // gesture, the held-key timer, the control row's springs and the Up Next countdown,
             // and that answers `RenderStrategy::VideoPlane`. Its transport is pinned from the
@@ -2543,6 +2555,7 @@ pub fn every_surface_arg() -> Vec<AppArg> {
             | AppArg::LibraryRecommended { .. }
             | AppArg::Search
             | AppArg::Watchlist
+            | AppArg::LiveTv
             | AppArg::Player
             | AppArg::Content(_) => {
                 panic!("a page argument is not a surface: its word is `route=`")
@@ -2884,10 +2897,6 @@ mod arg_tests {
             AppArg::LibraryRecommended { section: 0 },
             AppArg::Search,
             AppArg::Watchlist,
-        ] {
-            assert!((r.chrome() == Chrome::TabBar), "a bar-wearing page carries the chip");
-        }
-        for r in [
             AppArg::Content(crate::registry::ContentArg::Detail {
                 sid: plx_plex::plex::ServerId::UNSET, rk: String::new(),
             }),
@@ -2898,6 +2907,10 @@ mod arg_tests {
             AppArg::Content(crate::registry::ContentArg::Collection(
                 plx_plex::plex::collections::CollectionRef::by_tag(plx_plex::plex::ServerId::UNSET, 0, 1, ""),
             )),
+        ] {
+            assert!((r.chrome() == Chrome::TabBar), "a bar-wearing page carries the chip");
+        }
+        for r in [
             AppArg::Login,
             AppArg::Profiles,
             AppArg::Onboard,

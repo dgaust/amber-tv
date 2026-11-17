@@ -1096,6 +1096,7 @@ impl LibraryScreen {
         use plx_ui::widgets::{TAB_KEY_CHIP, TAB_KEY_HOME, TAB_KEY_MOVIES, TAB_KEY_SEARCH, TAB_KEY_SHOWS, TAB_KEY_WATCHLIST};
         let req = match elem {
             TAB_KEY_HOME => Some(LibraryReq::Tab(HomeTab::Home)),
+            k if k == plx_ui::widgets::TAB_KEY_LIVETV => Some(LibraryReq::Tab(HomeTab::LiveTv)),
             k if plx_ui::widgets::library_of_key(k).is_some() => Some(LibraryReq::Tab(HomeTab::Library(plx_ui::widgets::library_of_key(k).unwrap_or(0)))),
             TAB_KEY_MOVIES => Some(LibraryReq::Tab(HomeTab::Movies)),
             TAB_KEY_SHOWS => Some(LibraryReq::Tab(HomeTab::Shows)),

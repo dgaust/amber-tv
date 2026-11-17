@@ -6879,6 +6879,8 @@ pub const TAB_KEY_WATCHLIST: u32 = crate::dispatch::STRIP_BASE + 5;
 pub const TAB_KEY_LIB_BASE: u32 = crate::dispatch::STRIP_BASE + 0x100;
 /// Amber: the sidebar's last entry, "Edit sidebar": it starts (and ends) the edit mode.
 pub const TAB_KEY_EDIT: u32 = crate::dispatch::STRIP_BASE + 6;
+/// Amber: the Live TV guide.
+pub const TAB_KEY_LIVETV: u32 = crate::dispatch::STRIP_BASE + 7;
 /// How many libraries the sidebar can list.
 pub const TAB_KEY_LIB_MAX: u32 = 200;
 /// Which library a strip key names, if it names one.

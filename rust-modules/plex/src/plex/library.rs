@@ -241,7 +241,7 @@ impl Client {
     /// time, so anything it computed itself would change with the selected season tab. Verified live
     /// 2026-07-30 on rk 437 → S2E2 at 635510/3130720 while season 1 was the loaded tab.
     pub fn metadata(&self, rating_key: &str) -> Option<Metadata> {
-        let path = QueryBuilder::new(format!("/library/metadata/{rating_key}"))
+        let path = QueryBuilder::new(super::livetv::item_path(rating_key))
             .int("includeChapters", 1)
             .int("includeMarkers", 1)
             .int("includeOnDeck", 1)

@@ -1001,6 +1001,343 @@
           "size": "1920x1080"
         }
       ]
+    },
+    {
+      "name": "amber-lt-rail",
+      "state": "Amber: amber-lt-rail",
+      "triggers": {
+        "library": "0"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ]
+      ],
+      "after_ms": 7000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-lt-rail.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-lt-guide",
+      "state": "Amber: amber-lt-guide",
+      "triggers": {
+        "library": "0"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.2,
+          "down"
+        ],
+        [
+          5.8,
+          "down"
+        ],
+        [
+          6.4,
+          "ok"
+        ]
+      ],
+      "after_ms": 10000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-lt-guide.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-lt-move",
+      "state": "Amber: amber-lt-move",
+      "triggers": {
+        "library": "0"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.2,
+          "down"
+        ],
+        [
+          5.8,
+          "down"
+        ],
+        [
+          6.4,
+          "ok"
+        ],
+        [
+          8.0,
+          "right"
+        ],
+        [
+          8.8,
+          "right"
+        ],
+        [
+          9.6,
+          "down"
+        ]
+      ],
+      "after_ms": 12000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-lt-move.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-lt-tune",
+      "state": "Amber: amber-lt-tune",
+      "triggers": {
+        "library": "0"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.2,
+          "down"
+        ],
+        [
+          5.8,
+          "down"
+        ],
+        [
+          6.4,
+          "ok"
+        ],
+        [
+          8.0,
+          "ok"
+        ]
+      ],
+      "after_ms": 15000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-lt-tune.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-det-movie",
+      "state": "Amber: amber-det-movie",
+      "triggers": {
+        "detail": "105"
+      },
+      "remote": [],
+      "after_ms": 8000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-det-movie.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-det-left",
+      "state": "Amber: amber-det-left",
+      "triggers": {
+        "detail": "105"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ]
+      ],
+      "after_ms": 8000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-det-left.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-det-pick",
+      "state": "Amber: amber-det-pick",
+      "triggers": {
+        "detail": "105"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.2,
+          "down"
+        ],
+        [
+          5.8,
+          "ok"
+        ]
+      ],
+      "after_ms": 10000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-det-pick.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-det-show",
+      "state": "Amber: amber-det-show",
+      "triggers": {
+        "library": "1"
+      },
+      "remote": [
+        [
+          4.0,
+          "ok"
+        ]
+      ],
+      "after_ms": 9000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-det-show.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-det-show-left",
+      "state": "Amber: amber-det-show-left",
+      "triggers": {
+        "library": "1"
+      },
+      "remote": [
+        [
+          4.0,
+          "ok"
+        ],
+        [
+          7.0,
+          "left"
+        ]
+      ],
+      "after_ms": 10000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-det-show-left.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-det-season",
+      "state": "Amber: amber-det-season",
+      "triggers": {
+        "library": "1"
+      },
+      "remote": [
+        [
+          4.0,
+          "ok"
+        ],
+        [
+          7.0,
+          "down"
+        ],
+        [
+          7.8,
+          "ok"
+        ]
+      ],
+      "after_ms": 11000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-det-season.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-det-episode",
+      "state": "Amber: amber-det-episode",
+      "triggers": {
+        "library": "1"
+      },
+      "remote": [
+        [
+          4.0,
+          "ok"
+        ],
+        [
+          7.0,
+          "down"
+        ],
+        [
+          7.8,
+          "ok"
+        ],
+        [
+          10.5,
+          "left"
+        ]
+      ],
+      "after_ms": 13000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-det-episode.jpg",
+          "size": "1920x1080"
+        }
+      ]
     }
   ]
 }

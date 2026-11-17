@@ -266,6 +266,7 @@ impl SearchScreen {
         if elem >= plx_ui::dispatch::STRIP_BASE {
             let request = match elem {
                 TAB_KEY_HOME => SearchReq::Tab(HomeTab::Home),
+                k if k == plx_ui::widgets::TAB_KEY_LIVETV => SearchReq::Tab(HomeTab::LiveTv),
                 k if plx_ui::widgets::library_of_key(k).is_some() => SearchReq::Tab(HomeTab::Library(plx_ui::widgets::library_of_key(k).unwrap_or(0))),
                 TAB_KEY_MOVIES => SearchReq::Tab(HomeTab::Movies),
                 TAB_KEY_SHOWS => SearchReq::Tab(HomeTab::Shows),

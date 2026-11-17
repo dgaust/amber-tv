@@ -33,7 +33,7 @@ fn home_command(command: &plx_screens::registry::HomeCmd) -> Value {
         HomeCmd::Hero => json!("hero"),
         HomeCmd::FocusStrip(HomeTab::Library(i)) => json!({"focus_strip":{"library":i}}),
         HomeCmd::FocusStrip(tab) => json!({"focus_strip":match tab {
-            HomeTab::Home | HomeTab::Library(_) => "home", HomeTab::Movies => "movies", HomeTab::Shows => "shows", HomeTab::Search => "search",
+            HomeTab::Home | HomeTab::Library(_) | HomeTab::LiveTv => "home", HomeTab::Movies => "movies", HomeTab::Shows => "shows", HomeTab::Search => "search",
             HomeTab::Watchlist => "watchlist" }}),
         HomeCmd::Flip(delta) => json!({"flip":delta}),
         HomeCmd::SelectHero(index) => json!({"select_hero":index}),

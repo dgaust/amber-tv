@@ -1151,6 +1151,9 @@ fn home_tab_available(
     if let HomeTab::Library(i) = tab {
         return (i as usize) < directory.sections().len();
     }
+    if tab == HomeTab::LiveTv {
+        return crate::app::livetv::available();
+    }
     let kind = match tab {
         HomeTab::Movies => Some(plx_data::stores::browse::SecKind::Movie),
         HomeTab::Shows => Some(plx_data::stores::browse::SecKind::Show),

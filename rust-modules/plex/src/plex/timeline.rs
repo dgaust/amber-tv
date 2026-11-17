@@ -39,7 +39,7 @@ impl Client {
     fn timeline_query(&self, r: &TimelineReport) -> String {
         let q = QueryBuilder::new("/:/timeline")
             .str("ratingKey", r.rating_key)
-            .str("key", &format!("/library/metadata/{}", r.rating_key))
+            .str("key", &super::livetv::item_path(&r.rating_key))
             .str("identifier", "com.plexapp.plugins.library")
             .str("state", r.state.as_str())
             .int("time", r.time_ms)
@@ -156,7 +156,7 @@ fn show_queue_query(machine_id: &str, show_rk: &str, rating_key: &str, session: 
     QueryBuilder::new("/playQueues")
         .str("type", "video")
         .str("uri", &item_uri(machine_id, show_rk))
-        .str("key", &format!("/library/metadata/{rating_key}"))
+        .str("key", &super::livetv::item_path(rating_key))
         .int("shuffle", 0)
         .int("repeat", 0)
         .str("X-Plex-Session-Identifier", session)

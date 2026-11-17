@@ -54,6 +54,7 @@ mod transcoder;
 // (`app::diagnostics`, `player::error_shape`) — and deliberately nothing else: see its module doc for
 // why subscription state must never become a routing input.
 pub mod serverinfo;
+pub mod livetv; // Amber: the DVR's channels, guide grid and tuning
 
 // The plex.tv ACCOUNT surface (login/discovery/home-users) — a separate service from the PMS
 // `Client` above (own host + HTTPS transport), so it's its own `AccountClient`, not an `impl`.

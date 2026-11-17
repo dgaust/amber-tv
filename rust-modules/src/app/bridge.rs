@@ -1548,6 +1548,43 @@ impl Bridge {
         }
     }
 
+    /// Amber: OK on a sidebar entry from a page that does not route the strip itself (the item
+    /// pages: detail, person, collection), sent where the tab pages send it.
+    pub(crate) fn rail_nav_key(&mut self, d: &mut Dispatcher<AppHost>, key: plx_ui::consts::Key) -> bool {
+        use plx_ui::widgets as w;
+        if key != plx_ui::consts::Key::Ok || crate::app::chrome::editing() { return false; }
+        if !matches!(d.top_arg(), Some(AppArg::Content(_))) { return false; }
+        let Some(elem) = Self::home_focus(d).map(|f| f.elem) else { return false };
+        if elem < plx_ui::dispatch::STRIP_BASE { return false; }
+        let tab = match elem {
+            k if k == w::TAB_KEY_HOME => HomeTab::Home,
+            k if k == w::TAB_KEY_SEARCH => HomeTab::Search,
+            k if k == w::TAB_KEY_WATCHLIST => HomeTab::Watchlist,
+            k if k == w::TAB_KEY_MOVIES => HomeTab::Movies,
+            k if k == w::TAB_KEY_SHOWS => HomeTab::Shows,
+            k if k == w::TAB_KEY_LIVETV => HomeTab::LiveTv,
+            k => match w::library_of_key(k) { Some(i) => HomeTab::Library(i), None => return false },
+        };
+        nav_tab(d, self, tab, None, None);
+        true
+    }
+
+    /// Amber: Live TV's load clock, and the guide page's snapshot when it is up.
+    pub(crate) fn livetv_feed(&mut self, d: &mut Dispatcher<AppHost>) {
+        let now = crate::app::clock::unix_ms().map_or(0, |ms| ms / 1000);
+        if now <= 0 { return; }
+        let top = d.nav.top_page().map(|e| e.id).filter(|_| d.top_arg() == Some(&AppArg::LiveTv));
+        crate::app::livetv::tick(now, top.is_some());
+        let Some(id) = top else { return };
+        let Some(inst) = d.nav.entry_mut(id).and_then(|e| e.inst.as_mut()) else { return };
+        let Some(screen) = inst.screen.as_any_mut().and_then(|a| a.downcast_mut::<plx_screens::livetv::LiveTvScreen>())
+            else { return };
+        if screen.input(crate::app::livetv::model(now), now) {
+            d.present.note_in_scope(plx_machine::present::Scope::Page,
+                plx_machine::present::PresentEvent::Damage(plx_machine::present::Provenance::Lifecycle));
+        }
+    }
+
     fn home_focus(d: &Dispatcher<AppHost>) -> Option<FocusKey<u32>> {
         let entry = d.nav.top_page()?.id;
         d.input.engine.current(InputOwner::Entry(entry))
@@ -1622,6 +1659,7 @@ impl Bridge {
             d.nav.tabs.strip_fallback = Some(match route {
                 AppArg::Search => plx_ui::widgets::TAB_KEY_SEARCH,
                 AppArg::Watchlist => plx_ui::widgets::TAB_KEY_WATCHLIST,
+                AppArg::LiveTv => plx_ui::widgets::TAB_KEY_LIVETV,
                 _ => plx_screens::home::STRIP_HOME_ELEM,
             });
             if let Some(io) = &self.home_io {
@@ -1631,7 +1669,13 @@ impl Bridge {
                 refresh_chrome(&mut self.chrome, &self.measure, self.directory.view(), None);
             }
             // The page's own pill: Home's is the first, and a library page's is its library's type.
-            self.chrome_selection = pill_of_arg(route, self.directory.view()).unwrap_or(0) as u32;
+            // Amber: an item page has no entry of its own; it marks the one the user came from.
+            let own = pill_of_arg(route, self.directory.view()).or_else(|| {
+                matches!(route, AppArg::Content(_)).then(|| {
+                    d.nav.tabs.stack.entries.iter().rev().find_map(|e| pill_of_arg(&e.arg, self.directory.view()))
+                }).flatten()
+            });
+            self.chrome_selection = own.unwrap_or(0) as u32;
             let selected = self.navigation_presentation(&d.nav).view_tab.unwrap_or(self.chrome_selection) as i32;
             self.publish_strip(d, selected);
         } else {
@@ -3230,6 +3274,10 @@ impl Bridge {
                 if outcome == AppCommandOutcome::Completed { self.completed_screen_commands.push(label); }
                 outcome
             }
+            Ok(AppFx::LiveTv(plx_screens::livetv::LiveTvOut::Tune { channel })) => {
+                super::livetv::tune(channel);
+                AppCommandOutcome::Completed
+            }
             Ok(AppFx::Search(request)) => {
                 #[cfg(test)]
                 let label = format!("search:{request:?}");
@@ -3388,7 +3436,8 @@ impl Rig<AppHost> for Bridge {
             // On its own dark capsule: a page scrolls its content up under the top right, and a
             // bare clock over a poster would be unreadable.
             let cy = plx_ui::widgets::CHIP_FRAME.y + plx_ui::widgets::CHIP_FRAME.h * 0.5;
-            let w = 150.0;
+            // sized to the reading, so a longer locale's time never spills past the capsule
+            let w = (plx_gfx::text::text_width(clock.as_ptr(), sz, 0) + 2.0 * plx_ui::theme::space::MD).max(120.0);
             let h = 48.0;
             let right = plx_ui::consts::SCR_W - plx_ui::consts::MARGIN_X + plx_ui::theme::space::SM;
             let cap = plx_ui::Rect::new(right - w, cy - h * 0.5, w, h);
@@ -3468,7 +3517,7 @@ impl Rig<AppHost> for Bridge {
         self.app_effect(from, fx, out);
     }
     fn external_app_fx(&self, fx: &AppFx) -> bool {
-        matches!(fx, AppFx::Watchlist(_) | AppFx::Search(_) | AppFx::Library(_) | AppFx::Home(_) | AppFx::Content(_) | AppFx::ItemMenu(_)
+        matches!(fx, AppFx::Watchlist(_) | AppFx::LiveTv(_) | AppFx::Search(_) | AppFx::Library(_) | AppFx::Home(_) | AppFx::Content(_) | AppFx::ItemMenu(_)
                     | AppFx::SessionEffect(_) | AppFx::Preferences(_) | AppFx::Catalog(_) | AppFx::Loop(_) | AppFx::Player(_))
     }
     #[cfg(test)]
@@ -3611,6 +3660,7 @@ impl Bridge {
             // The catalog page's pill: the same write the item menu's rows make, so an Add pulses
             // the tab here too. The page flips nothing itself; the store's ledger flips the face.
             AppFx::Catalog(_) => unreachable!("Catalog commands yield to the FIFO runner"),
+            AppFx::LiveTv(_) => unreachable!("Live TV commands yield to the FIFO runner"),
         }
     }
 
@@ -4938,6 +4988,7 @@ fn pill_of_arg(arg: &AppArg, directory: plx_data::stores::browse::DirectoryView<
         AppArg::Home => pill_of(directory, Pill::Home),
         AppArg::Search => pill_of(directory, Pill::Search),
         AppArg::Watchlist => pill_of(directory, Pill::Watchlist),
+        AppArg::LiveTv => pill_of(directory, Pill::LiveTv),
         // The grid and the two pages its header pushes (Collections, Recommended) are all the
         // library's: they select its type's pill, the pill they were opened from.
         arg if arg.is_library_family() => {
@@ -4989,6 +5040,7 @@ pub(crate) fn nav_tab(
                 let want = match pill {
                     Pill::Home => HomeTab::Home,
                     Pill::Library(i) => HomeTab::Library(i as u16),
+                    Pill::LiveTv => HomeTab::LiveTv,
                     Pill::Search => HomeTab::Search,
                     Pill::Watchlist => HomeTab::Watchlist,
                     Pill::Section(plx_data::browse::SecKind::Movie) => HomeTab::Movies,
@@ -5044,6 +5096,7 @@ pub(crate) fn nav_tab(
         }
         HomeTab::Search => AppArg::Search,
         HomeTab::Watchlist => AppArg::Watchlist,
+        HomeTab::LiveTv => AppArg::LiveTv,
     };
     nav_peer(d, arg, ret);
 }

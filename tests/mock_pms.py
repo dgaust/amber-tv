@@ -3665,11 +3665,56 @@ class MockPms:
                                     version="1.41.0.0000-synthetic",
                                     myPlexSubscription=self.plex_pass,
                                     platform="Linux", myPlex=True))
-        # Amber: Live TV. The demo server has no DVR until the Live TV work gives it one.
+        # Amber: Live TV - one demo DVR whose eight channels play the demo films round the clock.
+        # Times follow the real clock (the app's guide does), so a capture shows "now".
+        EPG = "tv.plex.providers.epg.xmltv:9"
+        def lt_films():
+            return sorted((it for it in lib.items.values() if it.get("type") == "movie"),
+                          key=lambda it: int(it["ratingKey"]))
+        def lt_channels():
+            names = ["Blender Classics", "Animation", "Silent Cinema", "Sci-Fi", "Comedy", "Shorts", "Family", "Late Night"]
+            return [{"id": f"C{i + 1}.demo", "gridKey": f"C{i + 1}.demo", "vcn": str(i + 1),
+                     "title": n, "callSign": n, "thumb": ""} for i, n in enumerate(names)]
         if p == "/media/providers":
-            return j(self.container(MediaProvider=[]))
+            return j(self.container(MediaProvider=[{"identifier": EPG, "title": "Live TV & DVR"}]))
         if p == "/livetv/dvrs":
-            return j(self.container(Dvr=[]))
+            return j(self.container(Dvr=[{"key": "9", "epgIdentifier": EPG, "lineupTitle": "Demo Streams",
+                                          "Device": [{"key": "1", "title": "Demo tuner"}]}]))
+        if p == f"/{EPG}/lineups/dvr/channels":
+            return j(self.container(Channel=lt_channels()))
+        if p == f"/{EPG}/grid":
+            films = lt_films()
+            now = int(time.time())
+            lo = int(q.get("endsAt>", now - 1800)) if str(q.get("endsAt>", "")).isdigit() else now - 1800
+            hi = int(q.get("beginsAt<", now + 4 * 3600)) if str(q.get("beginsAt<", "")).isdigit() else now + 4 * 3600
+            rows = []
+            for ci, ch in enumerate(lt_channels()):
+                t = (now // 1800) * 1800 - 5400 + ci * 300
+                k = ci * 3
+                while t < hi:
+                    f = films[k % len(films)] if films else {"title": "Programme", "ratingKey": "0"}
+                    dur = 1200 + ((k * 7919 + ci * 104729) % 4) * 900
+                    if t + dur > lo:
+                        rows.append({"type": "movie", "title": f.get("title", ""), "summary": f.get("summary", ""),
+                                     "year": f.get("year", 0), "contentRating": f.get("contentRating", ""),
+                                     "thumb": f.get("thumb", ""), "duration": dur * 1000,
+                                     "Media": [{"channelIdentifier": ch["id"], "channelVcn": ch["vcn"],
+                                                "channelTitle": ch["title"], "beginsAt": t, "endsAt": t + dur,
+                                                "onAir": t <= now < t + dur}]})
+                    t += dur
+                    k += 1
+            return j(self.container(Metadata=rows, size=len(rows)))
+        if method == "POST" and p.startswith("/livetv/dvrs/9/channels/") and p.endswith("/tune"):
+            films = lt_films()
+            ch = p.split("/")[5]
+            idx = next((i for i, c in enumerate(lt_channels()) if c["id"] == urllib.parse.unquote(ch)), 0)
+            rk = films[idx % len(films)]["ratingKey"] if films else "0"
+            return j(self.container(MediaSubscription=[{"MediaGrabOperation": [{"Metadata": {
+                "key": f"/livetv/sessions/demo{rk}/1/index.m3u8", "title": "live"}}]}]))
+        if p.startswith("/livetv/sessions/demo"):
+            rk = int(p.split("/")[3][4:] or 0)
+            item = lib.items.get(rk)
+            return j(self.container(Metadata=[item] if item else []))
         if p == "/livetv/sessions":
             return j(self.container(Metadata=[]))
         if p == "/library/sections":
@@ -4023,7 +4068,7 @@ class MockPms:
             # its failure read-out, which is the player screen a simulator can reach
             return (404, "text/plain", b"mock_pms: no transcoder")
         if p == "/video/:/transcode/universal/decision":
-            wanted = q.get("path", "").rsplit("/", 1)[-1]
+            wanted = q.get("path", "").rsplit("/", 1)[-1].replace("demo", "")
             rk = int(wanted) if wanted.isdigit() else -1
             item = lib.items.get(rk)
             part_id = (item.get("Media", [{}])[0].get("Part", [{}])[0].get("id")

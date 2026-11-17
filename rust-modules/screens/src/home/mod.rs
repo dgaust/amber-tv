@@ -2121,6 +2121,7 @@ impl HomeScreen {
     fn request_for_strip(elem: u32) -> Option<HomeReq> {
         Some(match elem {
             STRIP_HOME_ELEM => HomeReq::Tab(HomeTab::Home),
+            k if k == plx_ui::widgets::TAB_KEY_LIVETV => HomeReq::Tab(HomeTab::LiveTv),
             k if plx_ui::widgets::library_of_key(k).is_some() => HomeReq::Tab(HomeTab::Library(plx_ui::widgets::library_of_key(k).unwrap_or(0))),
             STRIP_MOVIES_ELEM => HomeReq::Tab(HomeTab::Movies),
             STRIP_SHOWS_ELEM => HomeReq::Tab(HomeTab::Shows),
@@ -2201,6 +2202,7 @@ impl HomeScreen {
                 let elem = match tab {
                     HomeTab::Home => STRIP_HOME_ELEM,
                     HomeTab::Library(i) => plx_ui::widgets::TAB_KEY_LIB_BASE + i as u32,
+                    HomeTab::LiveTv => plx_ui::widgets::TAB_KEY_LIVETV,
                     HomeTab::Movies => STRIP_MOVIES_ELEM,
                     HomeTab::Shows => STRIP_SHOWS_ELEM,
                     HomeTab::Search => STRIP_SEARCH_ELEM,
