@@ -1778,7 +1778,9 @@ where
                         let full_alpha = capture || source_capture;
                         let mut page_navigation = navigation;
                         if full_alpha { page_navigation.page_alpha = 1.0; }
-                        let mut f = DrawFrame::with_navigation(&page_cx, Painter::root(), page_navigation);
+                        // Amber: a page stands beside the sidebar, never under it.
+                        let page_painter = Painter::root().translate(crate::widgets::page_shift(navigation.chrome_alpha), 0.0);
+                        let mut f = DrawFrame::with_navigation(&page_cx, page_painter, page_navigation);
                         f.lifted = lifted;
                         // The stack's page alpha is already in `navigation`; apply it once.
                         let drawn_from = super::placeholder::mark();
@@ -1970,7 +1972,8 @@ where
                         // page pass, so a redraw reads the same views the page drew with
                         let lift_cx = lift_parts.page_cx::<H>(
                             views, measure, entry, lift_parts.focus.clone(), nav.tabs.stack.beneath_id(entry));
-                        let mut frame = DrawFrame::with_navigation(&lift_cx, Painter::root(), navigation);
+                        let lift_painter = Painter::root().translate(crate::widgets::page_shift(navigation.chrome_alpha), 0.0);
+                        let mut frame = DrawFrame::with_navigation(&lift_cx, lift_painter, navigation);
                         screen.redraw_focused(&mut frame, focus);
                         frame.apply_frame_requests(present);
                     }

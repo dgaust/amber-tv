@@ -2812,6 +2812,30 @@ pub const RAIL_OPEN_W: f32 = 400.0;
 /// How fast the panel opens and closes.
 const K_RAIL: f32 = 260.0;
 
+/// The closed sidebar's column: the dark strip the marks stand in, always on screen beside the page.
+pub const RAIL_COL_W: f32 = 96.0;
+/// How far a page moves right to stand beside the closed column. Less than [`RAIL_COL_W`] because a
+/// page already keeps its own `MARGIN_X` of air on the left; what slides under the column is only
+/// that air (and full-bleed artwork).
+pub const PAGE_SHIFT_CLOSED: f32 = 72.0;
+/// ...and beside the open panel.
+pub const PAGE_SHIFT_OPEN: f32 = RAIL_OPEN_W - 24.0;
+
+static RAIL_OPEN_BITS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// How open the sidebar is this frame (0 closed .. 1 open), as the bar's last update left it.
+pub fn rail_open_amount() -> f32 {
+    f32::from_bits(RAIL_OPEN_BITS.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// **Where a page stands this frame**: beside the sidebar, never under it. Scales with the chrome's
+/// own opacity, so a page that wears no sidebar (the player, a detail page) stands at 0 and a
+/// route change between the two slides rather than jumps.
+pub fn page_shift(chrome_alpha: f32) -> f32 {
+    let open = rail_open_amount();
+    (PAGE_SHIFT_CLOSED + (PAGE_SHIFT_OPEN - PAGE_SHIFT_CLOSED) * open) * chrome_alpha.clamp(0.0, 1.0)
+}
+
 /// Destination `i`'s cell.
 pub fn rail_cell(i: usize) -> Rect {
     Rect::new(RAIL_X, RAIL_TOP + i as f32 * (RAIL_CELL + RAIL_GAP), RAIL_CELL, RAIL_CELL)
@@ -7977,6 +8001,7 @@ impl StripRender {
         self.rail_selected = selected;
         self.rail_focus = focus;
         self.rail_open.step(if matches!(focus, TopFocus::Away) { 0.0 } else { 1.0 }, K_RAIL, dt);
+        RAIL_OPEN_BITS.store(self.rail_open.pos.clamp(0.0, 1.0).to_bits(), std::sync::atomic::Ordering::Relaxed);
         // The chip is the bar's other stop, so its unfurl is stepped here rather than by whichever
         // screen happens to own the focus this frame — the same reason the capsules and the track's
         // weight are. It is also why [`TopFocus`] is one value: with a separate `chip: bool` beside
@@ -8068,8 +8093,8 @@ impl StripRender {
             }
             // The gutter the marks stand in at rest, then the panel: a dark sheet from the
             // screen's edge, behind the chip and the column.
-            let gutter = Rect::new(0.0, 0.0, crate::consts::MARGIN_X, crate::consts::SCR_H);
-            p.alpha(1.0 - open).rrect(gutter, 0.0, 0.0, theme::RAIL_GUTTER);
+            let column = Rect::new(0.0, 0.0, RAIL_COL_W, crate::consts::SCR_H);
+            p.rrect(column, 0.0, 0.0, theme::RAIL_PANEL);
             if open > 0.01 {
                 let sheet = Rect::new(0.0, 0.0, RAIL_OPEN_W, crate::consts::SCR_H);
                 p.alpha(open).rrect(sheet, 0.0, 0.0, theme::RAIL_PANEL);
