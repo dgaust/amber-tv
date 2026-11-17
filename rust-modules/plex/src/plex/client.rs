@@ -493,7 +493,7 @@ impl Client {
     /// wrapper this used to call folded every non-2xx into `None` for everybody, which is why a
     /// probe could not tell a 401 from a dead router.
     #[track_caller]
-    fn send(&self, path_no_token: &str, method: Method, headers: &[&str]) -> Option<http::Reply> {
+    pub(super) fn send(&self, path_no_token: &str, method: Method, headers: &[&str]) -> Option<http::Reply> {
         if !self.may_send() { return None; }
         let owned = pms_headers(headers);
         let headers: Vec<&str> = owned.iter().map(String::as_str).collect();

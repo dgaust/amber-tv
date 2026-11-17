@@ -299,7 +299,9 @@ impl LiveTvScreen {
         }
     }
 
-    fn draw_grid(&self, p: Painter) {
+    /// `active`: focus is in the guide. Once Left has handed it to the sidebar the guide shows no
+    /// focused plate, so the page never looks as if it still held focus.
+    fn draw_grid(&self, p: Painter, active: bool) {
         let visible = rows_visible();
         let idle = theme::with_a(theme::TEXT_PRIMARY, 0.08);
         let aired = theme::scrim(0.35);
@@ -316,7 +318,7 @@ impl LiveTvScreen {
                 let w = right - x - CELL_GAP;
                 if w < 4.0 { continue; }
                 let cell = Rect::new(x, y, w, ROW_H);
-                let focused = r == self.row && i == self.slot;
+                let focused = active && r == self.row && i == self.slot;
                 if focused {
                     p.rrect(cell, 6.0, 6.0, theme::ACCENT);
                 } else {
@@ -367,7 +369,10 @@ impl LogicalState for LiveTvScreen {
 impl<H: ContentLike> Machine<H> for LiveTvScreen {
     type Ev = ScreenEvent<H>;
 
-    fn step(&mut self, ev: &Self::Ev, _cx: &Cx<'_, H>, fx: &mut Effects<'_, H>) -> Handled {
+    fn step(&mut self, ev: &Self::Ev, cx: &Cx<'_, H>, fx: &mut Effects<'_, H>) -> Handled {
+        // The guide answers keys only while it HOLDS focus: once Left has handed focus to the
+        // sidebar, Up/Down/Right/OK are the sidebar's, never the grid's underneath it.
+        let holds = cx.focus.current.is_some_and(|k| k.entry == self.entry && k.elem == ELEM);
         match ev {
             ScreenEvent::Enter(_) | ScreenEvent::Uncover | ScreenEvent::StoreChanged(..) => {
                 fx.invalidate(Provenance::Nav);
@@ -378,8 +383,9 @@ impl<H: ContentLike> Machine<H> for LiveTvScreen {
                 Handled::Yes
             }
             // OK on a control commits as a press (or, by pointer, an activation)
-            ScreenEvent::Activate(_) | ScreenEvent::PressCommit(_) => self.key_press(Key::Ok, fx),
-            ScreenEvent::Input(input) => match input.kind {
+            ScreenEvent::Activate(e) if *e == ELEM => self.key_press(Key::Ok, fx),
+            ScreenEvent::PressCommit(_) if holds => self.key_press(Key::Ok, fx),
+            ScreenEvent::Input(input) if holds => match input.kind {
                 InputKind::Key { key, edge: Edge::Down | Edge::Repeat, at_edge: false, .. }
                     if matches!(key, Key::Up | Key::Down | Key::Left | Key::Right) => self.key_press(key, fx),
                 _ => Handled::No,
@@ -442,7 +448,8 @@ impl<H: ContentLike> Screen<H> for LiveTvScreen {
         }
         self.draw_details(p, f.measure);
         self.draw_ruler(p);
-        self.draw_grid(p);
+        let active = f.focus.current.is_some_and(|k| k.entry == self.entry && k.elem == ELEM);
+        self.draw_grid(p, active);
         if self.model.tuning.is_some() {
             Self::text(p, "Tuning\u{2026}", RIGHT - 220.0, 104.0, theme::size::BODY, theme::RAIL_CURRENT, 1, 220.0);
         } else if self.model.tune_failed {

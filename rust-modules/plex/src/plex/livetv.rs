@@ -182,10 +182,18 @@ impl Client {
         Some(parse_grid(&body))
     }
 
-    /// Tune `channel` on `dvr`: the live session to play, `/livetv/sessions/<uuid>`.
-    pub fn livetv_tune(&self, dvr: &str, channel: &str) -> Option<String> {
-        let body = self.post_accepting_json(&format!("/livetv/dvrs/{}/channels/{}/tune", enc(dvr), enc(channel)))?;
-        parse_tune(&body)
+    /// Tune `channel` on `dvr`: the live session to play, `/livetv/sessions/<uuid>`. `Err` says
+    /// why not - the status and the head of the server's answer (never the request: the token is
+    /// on it) - for the event log.
+    pub fn livetv_tune(&self, dvr: &str, channel: &str) -> Result<String, String> {
+        let path = format!("/livetv/dvrs/{}/channels/{}/tune", enc(dvr), enc(channel));
+        let reply = self.send(&path, crate::http::Method::Post, &[crate::http::ACCEPT_JSON])
+            .ok_or_else(|| format!("no answer (channel {channel})"))?;
+        let head = || String::from_utf8_lossy(&reply.body[..reply.body.len().min(300)]).replace('\n', " ");
+        if !reply.ok() {
+            return Err(format!("HTTP {} (channel {channel}): {}", reply.status, head()));
+        }
+        parse_tune(&reply.body).ok_or_else(|| format!("no session in the answer (channel {channel}): {}", head()))
     }
 }
 

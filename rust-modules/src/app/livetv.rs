@@ -91,8 +91,9 @@ pub(crate) fn tick(now: i64, active: bool) {
             }
         });
         if had != available() { GEN.fetch_add(1, Ordering::Relaxed); }
-        plx_base::eventlog::log(&format!("livetv: guide loaded — dvr={} channels={} airings={}",
-            available(), with(|s| s.channels.len()), with(|s| s.grid.len())));
+        plx_base::eventlog::log(&format!("livetv: guide loaded — dvr={} channels={} airings={} first={}",
+            available(), with(|s| s.channels.len()), with(|s| s.grid.len()),
+            with(|s| s.channels.first().map(|c| format!("{}#{}", c.id, c.number)).unwrap_or_default())));
     });
     if spawned.is_err() {
         with(|s| s.loading = false);
@@ -145,7 +146,10 @@ pub(crate) fn tune(channel: String) {
         let session = client.livetv_tune(&dvr.key, &channel);
         // The session's own record carries the Media/Part the player is built from; a live
         // airing is played as a one-off item (no queue, no resume), addressed by its session path.
-        let item = session.as_deref().map(|path| {
+        if let Err(why) = &session {
+            plx_base::eventlog::log(&format!("livetv: tune refused - {why}"));
+        }
+        let item = session.as_deref().ok().map(|path| {
             let mut m = client.metadata(path).map(|it| plx_data::pms::parse_item(&it, sid)).unwrap_or_default();
             m.sid = sid;
             m.rk = path.to_string();

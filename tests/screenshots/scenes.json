@@ -1338,6 +1338,140 @@
           "size": "1920x1080"
         }
       ]
+    },
+    {
+      "name": "amber-lt-left",
+      "state": "Amber: amber-lt-left",
+      "triggers": {
+        "library": "0"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.2,
+          "down"
+        ],
+        [
+          5.8,
+          "down"
+        ],
+        [
+          6.4,
+          "ok"
+        ],
+        [
+          8.5,
+          "left"
+        ]
+      ],
+      "after_ms": 11000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-lt-left.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-lt-left-down",
+      "state": "Amber: amber-lt-left-down",
+      "triggers": {
+        "library": "0"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.2,
+          "down"
+        ],
+        [
+          5.8,
+          "down"
+        ],
+        [
+          6.4,
+          "ok"
+        ],
+        [
+          8.5,
+          "left"
+        ],
+        [
+          9.3,
+          "down"
+        ]
+      ],
+      "after_ms": 12000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-lt-left-down.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-lt-left-back",
+      "state": "Amber: amber-lt-left-back",
+      "triggers": {
+        "library": "0"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.2,
+          "down"
+        ],
+        [
+          5.8,
+          "down"
+        ],
+        [
+          6.4,
+          "ok"
+        ],
+        [
+          8.5,
+          "left"
+        ],
+        [
+          9.3,
+          "right"
+        ]
+      ],
+      "after_ms": 12000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-lt-left-back.jpg",
+          "size": "1920x1080"
+        }
+      ]
     }
   ]
 }
