@@ -303,15 +303,15 @@
       "outputs": []
     },
     {
-      "name": "amber-rail-home",
-      "state": "Amber: amber-rail-home",
+      "name": "amber-rail-up",
+      "state": "Amber: amber-rail-up",
       "triggers": {
         "heropin": "0"
       },
       "remote": [
         [
           3.5,
-          "left"
+          "up"
         ]
       ],
       "after_ms": 7000,
@@ -319,21 +319,21 @@
       "expect": [],
       "outputs": [
         {
-          "file": "amber-rail-home.jpg",
+          "file": "amber-rail-up.jpg",
           "size": "1920x1080"
         }
       ]
     },
     {
-      "name": "amber-rail-down",
-      "state": "Amber: amber-rail-down",
+      "name": "amber-rail-pick",
+      "state": "Amber: amber-rail-pick",
       "triggers": {
         "heropin": "0"
       },
       "remote": [
         [
           3.5,
-          "left"
+          "up"
         ],
         [
           4.2,
@@ -342,6 +342,36 @@
         [
           4.9,
           "down"
+        ],
+        [
+          5.6,
+          "ok"
+        ]
+      ],
+      "after_ms": 9500,
+      "settle_ms": 1200,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-rail-pick.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-rail-leave",
+      "state": "Amber: amber-rail-leave",
+      "triggers": {
+        "library": "0"
+      },
+      "remote": [
+        [
+          3.5,
+          "left"
+        ],
+        [
+          4.3,
+          "right"
         ]
       ],
       "after_ms": 7000,
@@ -349,7 +379,33 @@
       "expect": [],
       "outputs": [
         {
-          "file": "amber-rail-down.jpg",
+          "file": "amber-rail-leave.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-rail-shelf",
+      "state": "Amber: amber-rail-shelf",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          3.5,
+          "down"
+        ],
+        [
+          4.3,
+          "left"
+        ]
+      ],
+      "after_ms": 7000,
+      "settle_ms": 1200,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-rail-shelf.jpg",
           "size": "1920x1080"
         }
       ]
@@ -372,66 +428,6 @@
       "outputs": [
         {
           "file": "amber-rail-lib.jpg",
-          "size": "1920x1080"
-        }
-      ]
-    },
-    {
-      "name": "amber-rail-go",
-      "state": "Amber: amber-rail-go",
-      "triggers": {
-        "heropin": "0"
-      },
-      "remote": [
-        [
-          3.5,
-          "left"
-        ],
-        [
-          4.2,
-          "down"
-        ],
-        [
-          4.9,
-          "ok"
-        ]
-      ],
-      "after_ms": 9000,
-      "settle_ms": 1200,
-      "expect": [],
-      "outputs": [
-        {
-          "file": "amber-rail-go.jpg",
-          "size": "1920x1080"
-        }
-      ]
-    },
-    {
-      "name": "amber-rail-back",
-      "state": "Amber: amber-rail-back",
-      "triggers": {
-        "heropin": "0"
-      },
-      "remote": [
-        [
-          3.5,
-          "left"
-        ],
-        [
-          4.2,
-          "down"
-        ],
-        [
-          4.9,
-          "right"
-        ]
-      ],
-      "after_ms": 7000,
-      "settle_ms": 1200,
-      "expect": [],
-      "outputs": [
-        {
-          "file": "amber-rail-back.jpg",
           "size": "1920x1080"
         }
       ]

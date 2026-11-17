@@ -2983,10 +2983,11 @@ impl<H: HomeLike> Focusable<H> for HomeScreen {
                     Seat::Nearest
                 },
                 reachable: AxisMask::BOTH,
+                // Amber: LEFT from a shelf's first card opens the sidebar.
                 edge: [
                     EdgeRule::Geometric,
                     EdgeRule::Geometric,
-                    EdgeRule::Stop,
+                    EdgeRule::Geometric,
                     EdgeRule::Stop,
                 ],
                 extent: Rect::new(
@@ -3647,7 +3648,8 @@ impl<H: HomeLike> Screen<H> for HomeScreen {
         RenderStrategy::Page
     }
     fn strip_reachable(&self) -> bool {
-        self.snap.pos < 0.5
+        // Amber: the sidebar stands beside the page wherever it is scrolled to.
+        true
     }
     fn links(&self, out: &mut Vec<Link>) {
         out.push(Link {
