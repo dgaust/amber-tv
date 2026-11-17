@@ -575,4 +575,25 @@ fn livetv_probe(i: u16, c: &Client) {
         "livetv: server {i} epg_providers={:?} dvrs={} lineups={:?} dvrs_answered={}",
         providers, dvr_list.len(), lineups, dvrs.is_some()
     ));
+    // The raw shapes the guide is built against: the DVR record, the provider's channel list and a
+    // three-hour slice of its grid. Programme listings and channel names, never an address or token.
+    let sample = |label: &str, path: &str| {
+        let body = c.body_2xx_bulk(path, &[crate::http::ACCEPT_JSON]);
+        let text = body.as_deref().map(String::from_utf8_lossy).unwrap_or_default();
+        let text: String = text.chars().filter(|ch| *ch != '\n').take(1600).collect();
+        plx_base::eventlog::log(&format!("livetv-shape {label} ok={} len={} {text}", body.is_some(),
+            body.as_ref().map_or(0, |b| b.len())));
+    };
+    sample("dvrs", "/livetv/dvrs");
+    if let Some(epg) = dvr_list.first().and_then(|d| d.get("epgIdentifier")).and_then(|x| x.as_str()) {
+        sample("channels", &format!("/{epg}/lineups/dvr/channels"));
+        let now = plx_platform_now_secs();
+        sample("grid", &format!("/{epg}/grid?type=1%2C4&sort=beginsAt&endsAt%3E={now}&beginsAt%3C={}", now + 3 * 3600));
+        sample("sections", &format!("/{epg}/sections"));
+    }
+    sample("sessions", "/livetv/sessions");
+}
+
+fn plx_platform_now_secs() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
 }

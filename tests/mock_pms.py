@@ -3665,6 +3665,13 @@ class MockPms:
                                     version="1.41.0.0000-synthetic",
                                     myPlexSubscription=self.plex_pass,
                                     platform="Linux", myPlex=True))
+        # Amber: Live TV. The demo server has no DVR until the Live TV work gives it one.
+        if p == "/media/providers":
+            return j(self.container(MediaProvider=[]))
+        if p == "/livetv/dvrs":
+            return j(self.container(Dvr=[]))
+        if p == "/livetv/sessions":
+            return j(self.container(Metadata=[]))
         if p == "/library/sections":
             return j(self.container(Directory=[dict(s, agent="tv.plex.agents.movie",
                                                     scanner="Plex Movie", language="en-US",

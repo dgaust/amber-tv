@@ -95,7 +95,7 @@ impl<H: Host> TabContainer<H> {
             id: STRIP,
             kind: GroupKind::Column,
             seat: Seat::Nearest,
-            reachable: AxisMask::BOTH,
+            reachable: AxisMask::HORIZONTAL,
             // Amber: the strip is a column down the left edge. Its top and bottom are terminal
             // and nothing is to its left; RIGHT crosses into the page.
             edge: [EdgeRule::Stop, EdgeRule::Stop, EdgeRule::Stop, EdgeRule::Geometric],

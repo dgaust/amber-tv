@@ -8128,12 +8128,12 @@ impl StripRender {
                     let closed_w = cell.w;
                     let open_w = RAIL_OPEN_W - cell.x - theme::space::MD;
                     let plate = Rect::new(cell.x, cell.y, closed_w + (open_w - closed_w) * open, cell.h);
-                    p.rrect(plate, cell.h * 0.5, cell.h * 0.5, theme::ACCENT);
+                    p.rrect(plate, 8.0, 8.0, theme::ACCENT);
                 } else if showing {
                     let bar = Rect::new(cell.x - 12.0, cell.y + 16.0, 4.0, cell.h - 32.0);
-                    p.rrect(bar, 2.0, 2.0, theme::ACCENT);
+                    p.rrect(bar, 2.0, 2.0, theme::RAIL_CURRENT);
                 }
-                let ink = if focused { theme::ACCENT_INK } else if showing { theme::ACCENT } else { theme::RAIL_INK };
+                let ink = if focused { theme::ACCENT_INK } else if showing { theme::RAIL_CURRENT } else { theme::RAIL_INK };
                 let icon = match face {
                     TabFace::Icon(icon) | TabFace::Entry(icon, _) => Some(*icon),
                     TabFace::Label(_) => None,
@@ -8152,7 +8152,7 @@ impl StripRender {
                     let bold = if focused || showing { 1 } else { 0 };
                     let x = cell.x + cell.w + theme::space::SM;
                     let y = plx_gfx::text::text_vcenter_y(sz, bold, cell.y + cell.h * 0.5);
-                    let label_ink = if focused { theme::ACCENT_INK } else if showing { theme::ACCENT } else { theme::TEXT_PRIMARY };
+                    let label_ink = if focused { theme::ACCENT_INK } else if showing { theme::RAIL_CURRENT } else { theme::TEXT_PRIMARY };
                     // A name never runs past the panel: it is elided to the room left of the
                     // plate's own right padding.
                     let budget = RAIL_OPEN_W - theme::space::MD - theme::space::SM - x;

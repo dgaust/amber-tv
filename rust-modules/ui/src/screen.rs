@@ -856,7 +856,11 @@ impl NavPresentation {
     /// the chrome's alpha falls to 0 and it lifts by [`chrome_lift`] as the tuck reaches 1. The dispatcher hands the chrome pass
     /// this value for the page that answers a tuck; every other page answers 0 and is unchanged.
     pub fn tucked(self, tuck: f32) -> Self {
-        Self { chrome_alpha: self.chrome_alpha * (1.0 - tuck.clamp(0.0, 1.0)), chrome_lift: self.chrome_lift + chrome_lift(tuck), ..self }
+        // Amber: the navigation is a sidebar beside the page, not a bar over its top, so a page
+        // that scrolls its content away no longer fades it out. (A tuck was a top-bar idea: the
+        // bar got out of the way of the rows scrolling up under it.)
+        let _ = tuck;
+        self
     }
 
     /// **Is the shared top bar drawn under this presentation?** The ONE answer, asked of a presentation

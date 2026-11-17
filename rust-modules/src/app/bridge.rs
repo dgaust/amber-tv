@@ -3333,6 +3333,24 @@ impl Rig<AppHost> for Bridge {
             chrome.chip_expand,
             glass.tab_face(),
         );
+        // Amber: the profile's name beside its avatar while the sidebar is open.
+        let open = plx_ui::widgets::rail_open_amount();
+        if open > 0.01 && !chrome.profile.name.to_bytes().is_empty() {
+            let chip = plx_ui::widgets::CHIP_FRAME;
+            let sz = plx_ui::theme::size::BODY;
+            let y = plx_gfx::text::text_vcenter_y(sz, 0, chip.y + chip.h * 0.5);
+            p.alpha(open).text(chrome.profile.name.as_ptr(), chip.x + chip.w + plx_ui::theme::space::SM, y, sz,
+                plx_ui::theme::TEXT_PRIMARY, 0, 0);
+        }
+        // Amber: the clock, top right, on every page that wears the sidebar.
+        let clock = crate::app::clock::unix_ms()
+            .and_then(|ms| crate::app::clock::local_end_time(ms / 1000))
+            .and_then(|hm| plx_platform::i18n::current().time_of_day(hm));
+        if let Some(clock) = clock.and_then(|c| std::ffi::CString::new(c).ok()) {
+            let sz = plx_ui::theme::size::LABEL;
+            let y = plx_gfx::text::text_vcenter_y(sz, 0, plx_ui::widgets::CHIP_FRAME.y + plx_ui::widgets::CHIP_FRAME.h * 0.5);
+            p.text(clock.as_ptr(), plx_ui::consts::SCR_W - plx_ui::consts::MARGIN_X, y, sz, plx_ui::theme::CLOCK_INK, 2, 0);
+        }
     }
     /// The chip's DRAWN rect: `chip_cap` at the strip's live unfurl and the captured name's width,
     /// through the host page's tuck (`presented`), exactly what [`Bridge::draw_chrome`] draws.

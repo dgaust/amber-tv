@@ -22,12 +22,11 @@ pub(crate) enum Pill {
 /// place that order is written; `refresh` publishes it and the pill maps below read it, so no
 /// map assumes which index Search holds.
 fn strip_keys(directory: DirectoryView<'_>) -> Vec<u32> {
-    let mut keys = vec![widgets::TAB_KEY_HOME];
+    let mut keys = vec![widgets::TAB_KEY_SEARCH, widgets::TAB_KEY_HOME];
     // Amber: every library, in the directory's order.
     let n = directory.sections().len().min(widgets::TAB_KEY_LIB_MAX as usize);
     keys.extend((0..n).map(|i| widgets::TAB_KEY_LIB_BASE + i as u32));
     keys.push(widgets::TAB_KEY_WATCHLIST);
-    keys.push(widgets::TAB_KEY_SEARCH);
     keys
 }
 
