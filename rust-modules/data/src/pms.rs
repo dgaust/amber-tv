@@ -2418,47 +2418,75 @@ fn merge_with_scope(srcs: &[Src], scope: &BrowseScope) -> HubBuild {
     }
 
     // ---- 3. the rotating hero pool ----
-    // Continue Watching items first, then Recently Added, deduped by the item's IDENTITY. Require
-    // landscape `art` (the hero draws a full-bleed backdrop) and skip seasons (a bare "Season 1"
-    // makes a poor billboard). Capped at HERO_MAX.
+    // Amber: the billboard is the Continue Watching row's art. With fewer than HERO_MIN of those it
+    // is topped up with art from the rest of the catalog, in an order shuffled once a launch, rated
+    // M or under (`rated_m_or_under`: an unrated card is not shown). Every card needs landscape
+    // `art` (a full-bleed backdrop); seasons and collections make poor billboards and are skipped.
     let mut new_pool: Vec<HeroSlot> = Vec::new();
-    for hub in &new_hubs {
-        // Match on the locale-independent hubIdentifier, not the localized display title:
-        // "home.continue" plus every Recently Added variant (home.movies.recent,
-        // home.television.recent, promoted <type>.recentlyadded.<id>) all carry "recent".
-        let eligible = hub.hub_id == "home.continue" || hub.hub_id.contains("recent");
-        if !eligible {
-            continue;
-        }
+    let usable = |m: &PmsMovie| !m.art.is_empty() && m.kind != 2 && m.kind != KIND_COLLECTION;
+    let pooled = |pool: &[HeroSlot], m: &PmsMovie| pool.iter().any(|s| {
+        plx_plex::plex::same_item((new_cat[s.idx].sid, &new_cat[s.idx].rk), (m.sid, &m.rk))
+    });
+    for hub in new_hubs.iter().filter(|h| h.hub_id == "home.continue") {
         for idx in hub.start..hub.start + hub.len {
-            if new_pool.len() >= HERO_MAX {
-                break;
-            }
+            if new_pool.len() >= HERO_MAX { break; }
             let m = &new_cat[idx];
-            if m.art.is_empty() || m.kind == 2 {
-                continue; // need landscape art; skip seasons
-            }
-            // dedup by the item's IDENTITY, not by its bare key: two shelves merged from two
-            // servers can each contribute a different film numbered 1, and a bare-key dedup would
-            // silently drop the second from the hero rotation.
-            //
-            // NB the pool holds `HeroSlot`s, so the index is `s.idx` — unit 12's hero-ordering work
-            // and unit 3's identity work landed in this same expression from opposite directions.
-            if new_pool.iter().any(|s| {
-                plx_plex::plex::same_item((new_cat[s.idx].sid, &new_cat[s.idx].rk), (m.sid, &m.rk))
-            }) {
-                continue;
-            }
-            new_pool.push(HeroSlot {
-                idx,
-                source: row_handle[idx].to_string(),
-            });
+            // dedup by IDENTITY: two servers can each have a film numbered 1
+            if !usable(m) || pooled(&new_pool, m) { continue; }
+            new_pool.push(HeroSlot { idx, source: row_handle[idx].to_string() });
         }
     }
-    // …and only now is the order decided: the pool is assembled shelf by shelf, so which server
-    // opens the door is not knowable until every shelf has contributed.
     own_items_first(&mut new_pool);
+    if new_pool.len() < HERO_MIN {
+        let mut fill: Vec<usize> = (0..new_cat.len())
+            .filter(|&i| usable(&new_cat[i]) && rated_m_or_under(&new_cat[i].rating))
+            .collect();
+        fill.sort_by_key(|&i| hero_shuffle_key(&new_cat[i]));
+        for idx in fill {
+            if new_pool.len() >= HERO_FILL_TO { break; }
+            if pooled(&new_pool, &new_cat[idx]) { continue; }
+            new_pool.push(HeroSlot { idx, source: row_handle[idx].to_string() });
+        }
+    }
     (new_cat, new_hubs, new_pool)
+}
+
+/// Amber: fewer Continue Watching cards than this and the billboard is topped up.
+const HERO_MIN: usize = 3;
+/// …up to this many cards in all.
+const HERO_FILL_TO: usize = 5;
+
+#[cfg(test)]
+#[test]
+fn ratings_m_or_under_pass_and_adult_or_unrated_do_not() {
+    for r in ["au/M", "au/PG", "G", "PG-13", "TV-14", "TV-PG", "gb/12A", "nz/NZ-M"] { assert!(rated_m_or_under(r), "{r}"); }
+    for r in ["au/MA15+", "au/R18+", "R", "NC-17", "TV-MA", "gb/18", "", "NR"] { assert!(!rated_m_or_under(r), "{r}"); }
+}
+
+/// A content rating of M or under (Australian M; US PG-13 / TV-14 and their equivalents). Ratings
+/// arrive as `au/M`, `PG-13`, `gb/12A`: the country prefix is dropped. An empty or unknown rating is
+/// NOT under M: the billboard shows only what it can vouch for.
+pub fn rated_m_or_under(rating: &str) -> bool {
+    let r = rating.rsplit('/').next().unwrap_or("").trim().to_ascii_uppercase();
+    matches!(r.as_str(),
+        "G" | "PG" | "M" | "E" | "C" | "P" | "U" | "UC" | "PG-13" | "12" | "12A" | "7" | "10" | "13"
+        | "TV-Y" | "TV-Y7" | "TV-Y7-FV" | "TV-G" | "TV-PG" | "TV-14" | "NZ-G" | "NZ-PG" | "NZ-M")
+}
+
+/// The fill's order: a hash of the card under a seed drawn once a launch, so the top-up differs
+/// from one launch to the next but holds still while the app runs (a refresh must not reshuffle
+/// the billboard under the viewer).
+fn hero_shuffle_key(m: &PmsMovie) -> u64 {
+    use std::hash::{Hash, Hasher};
+    static SEED: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    let seed = *SEED.get_or_init(|| {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64)
+    });
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    seed.hash(&mut h);
+    m.sid.raw().hash(&mut h);
+    m.rk.hash(&mut h);
+    h.finish()
 }
 
 // ---- fetch state machine: PER SOURCE loading / ready / failed + the automatic-retry backoff ----

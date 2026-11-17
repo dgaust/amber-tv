@@ -229,7 +229,7 @@ fn every_row_a_source_projects_is_stamped_with_the_server_it_was_asked_of() {
         format!(
             r#"{{"MediaContainer":{{"Hub":[{{"type":"movie","hubIdentifier":"home.movies.recent",
                "title":"Recently Added","Metadata":[{{"ratingKey":"{rk}","type":"movie","title":"{title}",
-               "thumb":"/t.jpg","art":"/a.jpg"}}]}}]}}}}"#
+               "thumb":"/t.jpg","art":"/a.jpg","contentRating":"PG"}}]}}]}}}}"#
         )
     };
     let parse = |s: String| {

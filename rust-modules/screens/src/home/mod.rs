@@ -9,6 +9,9 @@
 //! The container's first-`Cover`/last-`Uncover` lifecycle pauses hero auto-rotation beneath every
 //! modal style and restarts its countdown when the page becomes active again.
 
+// Amber: the billboard's controls (Play / Info, the pager) are not drawn or reachable any more;
+// their code stays, unused outside the upstream tests that still exercise it.
+#![allow(dead_code)]
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
@@ -1608,6 +1611,15 @@ impl HomeScreen {
         ))
     }
 
+    /// Amber: the first row's first card, where focus goes in place of the billboard.
+    fn first_card_key(&self) -> Option<FocusKey<u32>> {
+        let mut best: Option<(u32, u32)> = None;
+        for (&elem, &(row, col)) in &self.elem_at {
+            if row == 0 && best.is_none_or(|(_, c)| col < c) { best = Some((elem, col)); }
+        }
+        best.map(|(elem, _)| FocusKey { entry: self.entry, elem })
+    }
+
     fn locate(&self, elem: u32) -> Option<Located> {
         match elem {
             HERO_PLAY_ELEM => return Some(Located::Hero(0)),
@@ -1971,7 +1983,7 @@ impl HomeScreen {
             // countdown here and restart it exactly once when the last surface is dismissed.
         } else if self.hero_pinned {
             // Held by `HomeCmd::PinHero`: no countdown, no flip.
-        } else if self.snap.pos < 0.05 && !self.row_holds_focus(cx.focus.current) && view.hero_count() > 1 {
+        } else if self.snap.pos < 0.05 && view.hero_count() > 1 {
             // Spelled as an assignment, not `-= dt`: bit-for-bit identical arithmetic to the
             // pre-D4 accumulator, deliberately UNCHANGED — `hero_auto` is HASHED `LogicalState`
             // (`SHAPE`'s `hero_auto:f32`) across three committed replay fixtures, and a
@@ -2451,16 +2463,15 @@ impl HomeScreen {
             if let Some(old) = self.outgoing_hero(view) {
                 let po = p.translate(out_x, 0.0);
                 hero_content(old.item, po, out_x, measure);
-                self.draw_hero_actions(old.item, env, po, out_x, false, page_alpha, focus, measure, press_scale);
             }
             let pi = p.translate(in_x, 0.0);
             hero_content(hero.item, pi, in_x, measure);
-            self.draw_hero_actions(hero.item, env, pi, in_x, true, page_alpha, focus, measure, press_scale);
         } else {
             hero_content(hero.item, p, 0.0, measure);
-            self.draw_hero_actions(hero.item, env, p, 0.0, true, page_alpha, focus, measure, press_scale);
         }
-        self.draw_pagers(view, hero.item, env, p, measure);
+        // Amber: the billboard is pictures only - no Play / Info and no pager, which stood in the
+        // way of moving around the page. It turns over on its own timer.
+        let _ = (env, page_alpha, focus, press_scale);
     }
 
     /// **The pagers: one per page, drawn on the page they belong to.** The dots and chevron are part
@@ -3192,6 +3203,10 @@ impl<H: HomeLike> Focusable<H> for HomeScreen {
             return key;
         }
         if group == HERO_GROUP {
+            // Amber: the billboard holds no controls; whatever seats it lands on the first row.
+            if let Some(key) = self.first_card_key() {
+                return key;
+            }
             return FocusKey {
                 entry: self.entry,
                 elem: HERO_PLAY_ELEM,
@@ -3502,6 +3517,13 @@ impl<H: HomeLike> Machine<H> for HomeScreen {
                     self.free = false;
                     match to_loc {
                         Some(Located::Hero(_)) => self.snap_target = 0.0,
+                        // Amber: the first row stands under the billboard; arriving in it from
+                        // another row (Up) shows the billboard again. A move along it keeps the page.
+                        Some(Located::Item(0, _) | Located::Heading(0))
+                            if from_loc.is_some_and(|l| !matches!(l, Located::Item(0, _) | Located::Heading(0))) =>
+                        {
+                            self.snap_target = 0.0
+                        }
                         // the Continue Watching row is in view on either page: it does not move it
                         Some(Located::Item(row, _) | Located::Heading(row)) if self.holds_page(row) => {}
                         Some(Located::Item(_, _) | Located::Heading(_)) => self.snap_target = 1.0,
@@ -3656,16 +3678,7 @@ impl<H: HomeLike> Screen<H> for HomeScreen {
         true
     }
     fn links(&self, out: &mut Vec<Link>) {
-        out.push(Link {
-            from: plx_ui::containers::tabs::STRIP,
-            dir: Dir::Down,
-            to: HERO_GROUP,
-        });
-        out.push(Link {
-            from: HERO_GROUP,
-            dir: Dir::Up,
-            to: plx_ui::containers::tabs::STRIP,
-        });
+        // Amber: the billboard is not a focus stop, so nothing links into it.
         // A collection shelf's linked heading sits between the shelf above and its own cards:
         // UP from any card reaches it, DOWN returns to the remembered card, and it is the next
         // stop DOWN from the shelf above. The engine takes the FIRST matching link, so these
@@ -3676,21 +3689,10 @@ impl<H: HomeLike> Screen<H> for HomeScreen {
             }
             let heading = heading_group(projection.group);
             out.extend(linked_heading::links(heading, projection.group));
-            let above = row.checked_sub(1).map_or(HERO_GROUP, |r| self.rows[r].group);
-            out.push(Link { from: heading, dir: Dir::Up, to: above });
-            out.push(Link { from: above, dir: Dir::Down, to: heading });
-        }
-        if let Some(first) = self.rows.first() {
-            out.push(Link {
-                from: HERO_GROUP,
-                dir: Dir::Down,
-                to: first.group,
-            });
-            out.push(Link {
-                from: first.group,
-                dir: Dir::Up,
-                to: HERO_GROUP,
-            });
+            if let Some(above) = row.checked_sub(1).map(|r| self.rows[r].group) {
+                out.push(Link { from: heading, dir: Dir::Up, to: above });
+                out.push(Link { from: above, dir: Dir::Down, to: heading });
+            }
         }
     }
     fn memory(&self) -> H::Memory {

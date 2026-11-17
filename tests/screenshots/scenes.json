@@ -1472,6 +1472,112 @@
           "size": "1920x1080"
         }
       ]
+    },
+    {
+      "name": "amber-home-rest",
+      "state": "Amber: amber-home-rest",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [],
+      "after_ms": 7000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-home-rest.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-home-down",
+      "state": "Amber: amber-home-down",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          3.5,
+          "down"
+        ]
+      ],
+      "after_ms": 8000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-home-down.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-home-downup",
+      "state": "Amber: amber-home-downup",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          3.5,
+          "down"
+        ],
+        [
+          4.5,
+          "up"
+        ]
+      ],
+      "after_ms": 9000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-home-downup.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-home-right",
+      "state": "Amber: amber-home-right",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          3.5,
+          "right"
+        ],
+        [
+          4.1,
+          "right"
+        ]
+      ],
+      "after_ms": 8000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-home-right.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-home-auto",
+      "state": "Amber: amber-home-auto",
+      "triggers": {},
+      "remote": [],
+      "after_ms": 16000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-home-auto.jpg",
+          "size": "1920x1080"
+        }
+      ]
     }
   ]
 }

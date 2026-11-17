@@ -306,7 +306,8 @@ fn merge_held_equals_a_merge_of_the_settled_ring() {
         let mut sh = pageable_shelf(id.raw(), row);
         if hero_rows.contains(&row) {
             sh.hub_id = format!("x.recent.{row}");
-            for item in &mut sh.items { Arc::make_mut(item).art = format!("/art/{row}"); }
+            // Amber: rated, so the billboard's top-up (no Continue Watching here) may take them
+            for item in &mut sh.items { let m = Arc::make_mut(item); m.art = format!("/art/{row}"); m.rating = "PG".into(); }
         }
         sh
     }).collect();
