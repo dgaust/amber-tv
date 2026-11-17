@@ -2836,10 +2836,19 @@ pub fn page_shift(chrome_alpha: f32) -> f32 {
     (PAGE_SHIFT_CLOSED + (PAGE_SHIFT_OPEN - PAGE_SHIFT_CLOSED) * open) * chrome_alpha.clamp(0.0, 1.0)
 }
 
-/// Destination `i`'s cell.
-pub fn rail_cell(i: usize) -> Rect {
-    Rect::new(RAIL_X, RAIL_TOP + i as f32 * (RAIL_CELL + RAIL_GAP), RAIL_CELL, RAIL_CELL)
+/// Destination `i`'s cell, of `n`. The column fits inside the safe area whatever the count: the
+/// pitch shrinks (down to [`RAIL_PITCH_MIN`]) before the last entry would cross the bottom margin,
+/// and the cell shrinks with it so two cells never touch.
+pub fn rail_cell(i: usize, n: usize) -> Rect {
+    let avail = crate::consts::SCR_H - crate::consts::MARGIN_Y - RAIL_TOP;
+    let pitch = (avail / n.max(1) as f32).clamp(RAIL_PITCH_MIN, RAIL_CELL + RAIL_GAP);
+    let h = (pitch - RAIL_GAP_MIN).min(RAIL_CELL);
+    Rect::new(RAIL_X, RAIL_TOP + i as f32 * pitch + (RAIL_CELL - h) * 0.5, RAIL_CELL, h)
 }
+/// The tightest the column packs: a cell still holds its mark with air above and below.
+pub const RAIL_PITCH_MIN: f32 = 50.0;
+/// The least air between two cells.
+pub const RAIL_GAP_MIN: f32 = 8.0;
 
 /// **The focused capsule's rect — the ONE expression, drawn and priced from the same place.**
 ///
@@ -7946,14 +7955,14 @@ impl TabGeometry<'_> {
     /// Pill `i` given its content-space x, for a caller that walks the stack once ([`Self::pill`]
     /// finds the x itself, which is a walk per call).
     fn pill_at(&self, _x: f32, i: usize) -> Rect {
-        rail_cell(i)
+        rail_cell(i, self.widths.len())
     }
 }
 
 /// The one geometry expression consumed by both paint and the container's keyed members.
 fn tab_geometry(widths: &[f32], scroll: f32) -> TabGeometry<'_> {
-    let n = widths.len().max(1) as f32;
-    let clip = Rect::new(RAIL_X, RAIL_TOP, RAIL_CELL, n * RAIL_CELL + (n - 1.0) * RAIL_GAP);
+    let last = rail_cell(widths.len().saturating_sub(1), widths.len());
+    let clip = Rect::new(RAIL_X, RAIL_TOP, RAIL_CELL, (last.y + last.h - RAIL_TOP).max(RAIL_CELL));
     TabGeometry { widths, scroll, clip, track: clip }
 }
 /// Content-space x of pill `i`'s left edge (0 = the strip's start).
@@ -8108,8 +8117,9 @@ impl StripRender {
                 let sheet = Rect::new(0.0, 0.0, RAIL_OPEN_W, crate::consts::SCR_H);
                 p.alpha(open).rrect(sheet, 0.0, 0.0, theme::RAIL_PANEL);
             }
+            let count = faces.len();
             for (i, face) in faces.iter().enumerate() {
-                let cell = rail_cell(i);
+                let cell = rail_cell(i, count);
                 let focused = focus == TopFocus::Pill(i);
                 let showing = selected == i as c_int;
                 // The focused destination wears the accent as a plate that reaches across the
@@ -8129,7 +8139,7 @@ impl StripRender {
                     TabFace::Label(_) => None,
                 };
                 if let Some(icon) = icon {
-                    let d = TAB_ICON_D;
+                    let d = TAB_ICON_D.min(cell.h - 12.0);
                     let ir = Rect::new(cell.x + (cell.w - d) * 0.5, cell.y + (cell.h - d) * 0.5, d, d);
                     let env = pulse.filter(|&(at, _)| at == i).map_or(0.0, |(_, e)| e);
                     let look = tab_pulse_look(ir, env);
@@ -8143,7 +8153,13 @@ impl StripRender {
                     let x = cell.x + cell.w + theme::space::SM;
                     let y = plx_gfx::text::text_vcenter_y(sz, bold, cell.y + cell.h * 0.5);
                     let label_ink = if focused { theme::ACCENT_INK } else if showing { theme::ACCENT } else { theme::TEXT_PRIMARY };
-                    p.alpha(open).text(words[i].as_ptr(), x, y, sz, label_ink, 0, bold);
+                    // A name never runs past the panel: it is elided to the room left of the
+                    // plate's own right padding.
+                    let budget = RAIL_OPEN_W - theme::space::MD - theme::space::SM - x;
+                    let full = words[i].to_string_lossy();
+                    let shown = plx_gfx::text::elide(&full, budget, sz, bold, false);
+                    let shown = CString::new(shown).unwrap_or_default();
+                    p.alpha(open).text(shown.as_ptr(), x, y, sz, label_ink, 0, bold);
                 }
             }
         })
