@@ -66,11 +66,20 @@ xvfb-run -a -s "-screen 0 1920x1080x24" python3 tools/screenshots.py \
   tunes it - by the tuner's channel from the DVR's mapping; PMS 1.43.5 refuses the guide's own id
   with 400 - and plays `/livetv/sessions/<uuid>` through the ordinary player path.
 - **A clock** top right on every page with the sidebar.
+- **Captions under every poster**, title always on, each row keeping the caption's room so nothing
+  slides as focus moves (`caption_policy::CAPTIONS_ALWAYS`; off under `test-support`, where the host
+  suites grade upstream's focused-band geometry).
+- **INFO** (the LG remote's, scancode 499) opens the focused item's actions at once, as a held OK
+  does, for remotes that cannot hold.
+- **Home's On Now row**: what is airing on each Live TV channel; OK tunes it, INFO offers its row's
+  options. **The billboard** follows the focused card and does not turn over by itself.
+- **Live playback holds**: a live session reports its timeline (the player had skipped samples with no
+  duration, and PMS ended the grab after ~3 minutes) and pings its transcoder every 20 s; every live
+  report and ping is in the event log (`livetv:` lines).
 
 ## Not done
 
-- **Live TV playback is not yet confirmed on a television**: the guide loads from the real server;
-  the tune by the tuner's channel is the build after `e12b00ea`.
+- **Live TV: no automatic re-tune** when a live stream does fail; the guide's OK tunes it again.
 - Live TV's *What's On* rows, the live player overlay (channel up/down, next programme) and Plex's
   free channels.
 - The library page's filter row, item count and Play / Shuffle; the detail page's round icon

@@ -1752,6 +1752,36 @@
           "size": "1920x1080"
         }
       ]
+    },
+    {
+      "name": "amber-onnow-menu",
+      "state": "Amber: amber-onnow-menu",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          4.5,
+          "down"
+        ],
+        [
+          5.3,
+          "okdown"
+        ],
+        [
+          6.1,
+          "okup"
+        ]
+      ],
+      "after_ms": 9000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-onnow-menu.jpg",
+          "size": "1920x1080"
+        }
+      ]
     }
   ]
 }

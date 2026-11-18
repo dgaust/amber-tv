@@ -723,7 +723,11 @@ impl ItemMenuScreen {
             return;
         }
         self.built = true;
+        // Amber: a Live TV card (Home's On Now row) is a channel, not a title: no title actions,
+        // only its row's
+        let live = self.arg.rk.starts_with(plx_data::pms::LIVE_KEY_PREFIX);
         let form = match &self.arg.kind {
+            _ if live => Form::new(),
             ItemMenuKind::Card { row, from_deck } => {
                 let trailer = cached_trailer(self.arg.sid, row, meta);
                 // A Watchlist tile with a reachable copy is a card of that copy, and Remove joins it.
@@ -745,8 +749,9 @@ impl ItemMenuScreen {
             Some(id) => {
                 let hidden = plx_data::layout::get().home_hidden.len();
                 let act = |op: u8| Action::HomeRow { op, id: id.clone() };
-                form.section(FormSection::new("")
-                    .separator()
+                let section = FormSection::new("");
+                let section = if live { section } else { section.separator() };
+                form.section(section
                     .item(ItemRow::MoveRowUp, RowKind::Button, act(0), Row::new("Move row up").licon(Icon::ChevronUp))
                     .item(ItemRow::MoveRowDown, RowKind::Button, act(1), Row::new("Move row down").licon(Icon::ChevronDown))
                     .item(ItemRow::HideRow, RowKind::Button, act(2), Row::new("Hide row").licon(Icon::Minus))
