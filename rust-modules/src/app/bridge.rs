@@ -1566,7 +1566,14 @@ impl Bridge {
             k if k == w::TAB_KEY_LIVETV => HomeTab::LiveTv,
             k => match w::library_of_key(k) { Some(i) => HomeTab::Library(i), None => return false },
         };
-        nav_tab(d, self, tab, None, None);
+        // Home through the door the tab pages use for it: it seats Home's focus. Without that seat
+        // focus stayed in the sidebar, on the entry of the page just left (the white plate jumped
+        // back to Live TV after Home was picked).
+        if tab == HomeTab::Home {
+            nav_home_pill(d, self, None);
+        } else {
+            nav_tab(d, self, tab, None, None);
+        }
         true
     }
 

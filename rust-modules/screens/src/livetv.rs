@@ -32,6 +32,9 @@ pub struct LiveSlot {
     /// "S4 E3 · 22m · M" - composed by the application.
     pub meta: String,
     pub summary: String,
+    /// Landscape art for the details panel, else a poster; a server path.
+    pub art: String,
+    pub poster: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -39,6 +42,8 @@ pub struct LiveRow {
     pub id: String,
     pub number: String,
     pub title: String,
+    /// The channel's logo, a server path (may be empty).
+    pub logo: String,
     pub slots: Vec<LiveSlot>,
 }
 
@@ -60,6 +65,8 @@ pub struct LiveTvModel {
     pub tuning: Option<String>,
     /// The last tune failed.
     pub tune_failed: bool,
+    /// The server the art paths belong to (raw id).
+    pub sid: u16,
 }
 
 /// What the guide asks of the application.
@@ -79,7 +86,7 @@ const RULER_H: f32 = 34.0;
 const GRID_Y: f32 = RULER_Y + RULER_H + 10.0;
 const ROW_H: f32 = 84.0;
 const ROW_GAP: f32 = 8.0;
-const CHANNEL_W: f32 = 150.0;
+const CHANNEL_W: f32 = 200.0;
 const CELL_GAP: f32 = 6.0;
 const X0: f32 = LEFT + CHANNEL_W + CELL_GAP;
 /// The guide shows two hours across.
@@ -113,20 +120,35 @@ impl LiveTvScreen {
     pub fn input(&mut self, model: LiveTvModel, now: i64) -> bool {
         let minute_moved = now / 60 != self.now / 60;
         self.now = now;
-        if model == self.model {
-            return minute_moved;
+        // what focus is on, by identity: a refresh may add or drop airings before it
+        let held = self.focused().map(|(row, s)| (row.id.clone(), s.begins));
+        let changed = model != self.model;
+        if changed {
+            let first = self.model.rows.is_empty() && !model.rows.is_empty();
+            self.model = model;
+            if first {
+                self.row = 0;
+                self.window = (now / HALF_HOUR) * HALF_HOUR;
+                self.slot = self.slot_at(0, now);
+            } else if let Some((id, begins)) = held {
+                if let Some(r) = self.model.rows.iter().position(|r| r.id == id) {
+                    self.row = r;
+                    self.slot = self.model.rows[r].slots.iter().position(|s| s.begins == begins)
+                        .unwrap_or_else(|| self.slot_at(r, begins));
+                }
+            }
+            self.row = self.row.min(self.model.rows.len().saturating_sub(1));
+            let n = self.model.rows.get(self.row).map_or(0, |r| r.slots.len());
+            self.slot = self.slot.min(n.saturating_sub(1));
         }
-        let first = self.model.rows.is_empty() && !model.rows.is_empty();
-        self.model = model;
-        if first {
-            self.row = 0;
-            self.window = (now / HALF_HOUR) * HALF_HOUR;
-            self.slot = self.slot_at(0, now);
+        // a programme that finishes while focused hands focus on to what follows it
+        let live = self.first_live(self.row);
+        let moved_on = self.slot < live;
+        if moved_on {
+            self.slot = live;
+            self.follow();
         }
-        self.row = self.row.min(self.model.rows.len().saturating_sub(1));
-        let n = self.model.rows.get(self.row).map_or(0, |r| r.slots.len());
-        self.slot = self.slot.min(n.saturating_sub(1));
-        true
+        changed || minute_moved || moved_on
     }
 
     fn focused(&self) -> Option<(&LiveRow, &LiveSlot)> {
@@ -140,6 +162,14 @@ impl LiveTvScreen {
         row.slots.iter().position(|s| s.begins <= t && t < s.ends)
             .or_else(|| row.slots.iter().position(|s| s.begins >= t))
             .unwrap_or(row.slots.len().saturating_sub(1))
+            .max(self.first_live(r))
+    }
+
+    /// The first airing of row `r` that has not finished: nothing before it can take focus
+    /// (the guide shows what has aired, dimmed, but offers only what is on now or later).
+    fn first_live(&self, r: usize) -> usize {
+        let Some(row) = self.model.rows.get(r) else { return 0 };
+        row.slots.iter().position(|s| s.ends > self.now).unwrap_or(row.slots.len().saturating_sub(1))
     }
 
     fn floor_now(&self) -> i64 {
@@ -170,7 +200,7 @@ impl LiveTvScreen {
         if self.model.rows.is_empty() {
             return Handled::No;
         }
-        let anchor = self.focused().map_or(self.now, |(_, s)| s.begins.max(self.window).max(self.floor_now()));
+        let anchor = self.focused().map_or(self.now, |(_, s)| s.begins.max(self.window).max(self.now));
         match key {
             Key::Up if self.row > 0 => {
                 self.row -= 1;
@@ -187,7 +217,7 @@ impl LiveTvScreen {
             }
             Key::Left => {
                 // the earliest programme still on the guide: Left goes on to the sidebar
-                let earliest = self.slot == 0 || self.model.rows[self.row].slots[self.slot - 1].ends <= self.floor_now();
+                let earliest = self.slot <= self.first_live(self.row);
                 if earliest { return Handled::No; }
                 self.slot -= 1;
             }
@@ -235,9 +265,37 @@ impl LiveTvScreen {
         plx_platform::i18n::current().time_of_day(hm).unwrap_or_default().replace('\u{202f}', " ")
     }
 
+    /// The details panel's artwork card: right of the text, under the clock.
+    fn art_rect() -> Rect {
+        let (w, h) = (416.0, 234.0);
+        Rect::new(RIGHT - w, RULER_Y - 20.0 - h, w, h)
+    }
+
+    fn draw_art(&self, p: Painter) {
+        let Some((_, s)) = self.focused() else { return };
+        let r = Self::art_rect();
+        p.rrect(r, 16.0, 16.0, theme::SURFACE_PANEL);
+        let (path, landscape) = if !s.art.is_empty() { (&s.art, true) } else { (&s.poster, false) };
+        if path.is_empty() { return; }
+        let (tex, iw, ih) = plx_ui::widgets::resolve_tex_wh_on(self.model.sid, path, if landscape { 960 } else { 400 },
+            if landscape { 540 } else { 600 }, 0);
+        if tex == 0 || iw <= 0.0 || ih <= 0.0 { return; }
+        // cover the card: crop the image to the card's shape
+        let (ra, ia) = (r.w / r.h, iw / ih);
+        let uv = if ia > ra {
+            let u = (1.0 - ra / ia) * 0.5;
+            [u, 0.0, 1.0 - u, 1.0]
+        } else {
+            let v = (1.0 - ia / ra) * 0.5;
+            [0.0, v, 1.0, 1.0 - v]
+        };
+        p.tex_uv(tex, uv, r, 16.0, [1.0, 1.0, 1.0, 1.0]);
+    }
+
     fn draw_details(&self, p: Painter, measure: &dyn plx_machine::machine::Measure) {
         let Some((row, s)) = self.focused() else { return };
-        let w = 1080.0;
+        // the text stops short of the artwork card
+        let w = (Self::art_rect().x - 48.0 - LEFT).min(1080.0);
         Self::text(p, &s.title, LEFT, 104.0, theme::size::TITLE, theme::TEXT_PRIMARY, 1, w);
         let mut y = 152.0;
         if !s.subtitle.is_empty() {
@@ -309,8 +367,21 @@ impl LiveTvScreen {
             let row = &self.model.rows[r];
             let y = self.row_y(r);
             p.rrect(Rect::new(LEFT, y, CHANNEL_W, ROW_H), 6.0, 6.0, theme::with_a(theme::TEXT_PRIMARY, 0.05));
-            Self::text(p, &row.number, LEFT + 14.0, y + 26.0, theme::size::CAPTION, theme::RAIL_CURRENT, 1, CHANNEL_W - 20.0);
-            Self::text(p, &row.title, LEFT + 14.0, y + 58.0, theme::size::MICRO, theme::TEXT_SECONDARY, 0, CHANNEL_W - 24.0);
+            // the logo, fitted into a box on the left; the number (and the name, without a logo) beside it
+            let logo = Rect::new(LEFT + 10.0, y + 12.0, 80.0, ROW_H - 24.0);
+            let drew = !row.logo.is_empty() && {
+                let (tex, iw, ih) = plx_ui::widgets::resolve_tex_wh_on(self.model.sid, &row.logo, 160, 120, 1);
+                if tex != 0 && iw > 0.0 && ih > 0.0 {
+                    let k = (logo.w / iw).min(logo.h / ih);
+                    let (w, h) = (iw * k, ih * k);
+                    p.tex(tex, Rect::new(logo.x + (logo.w - w) * 0.5, logo.y + (logo.h - h) * 0.5, w, h), 0.0, [1.0, 1.0, 1.0, 1.0]);
+                    true
+                } else { false }
+            };
+            let tx = if drew { logo.x + logo.w + 12.0 } else { LEFT + 14.0 };
+            let tw = LEFT + CHANNEL_W - 10.0 - tx;
+            Self::text(p, &row.number, tx, y + 26.0, theme::size::CAPTION, theme::RAIL_CURRENT, 1, tw);
+            Self::text(p, &row.title, tx, y + 58.0, theme::size::MICRO, theme::TEXT_SECONDARY, 0, tw);
             for (i, s) in row.slots.iter().enumerate() {
                 if s.ends <= self.window || s.begins >= self.window + WINDOW_S { continue; }
                 let x = self.x_of(s.begins).max(X0);
@@ -446,14 +517,19 @@ impl<H: ContentLike> Screen<H> for LiveTvScreen {
             self.draw_status(p);
             return;
         }
+        self.draw_art(p);
         self.draw_details(p, f.measure);
         self.draw_ruler(p);
         let active = f.focus.current.is_some_and(|k| k.entry == self.entry && k.elem == ELEM);
         self.draw_grid(p, active);
         if self.model.tuning.is_some() {
-            Self::text(p, "Tuning\u{2026}", RIGHT - 220.0, 170.0, theme::size::BODY, theme::RAIL_CURRENT, 1, 220.0);
+            let r = Self::art_rect();
+            p.rrect(Rect::new(r.x + 12.0, r.y + r.h - 64.0, r.w - 24.0, 52.0), 12.0, 12.0, theme::scrim(0.78));
+            Self::text(p, "Tuning\u{2026}", r.x + 30.0, r.y + r.h - 52.0, theme::size::BODY, theme::RAIL_CURRENT, 1, r.w - 40.0);
         } else if self.model.tune_failed {
-            Self::text(p, "Could not tune that channel", RIGHT - 420.0, 170.0, theme::size::CAPTION, theme::TEXT_SECONDARY, 0, 420.0);
+            let r = Self::art_rect();
+            p.rrect(Rect::new(r.x + 12.0, r.y + r.h - 64.0, r.w - 24.0, 52.0), 12.0, 12.0, theme::scrim(0.78));
+            Self::text(p, "Could not tune that channel", r.x + 30.0, r.y + r.h - 50.0, theme::size::CAPTION, theme::TEXT_PRIMARY, 0, r.w - 40.0);
         }
     }
     fn render(&self) -> RenderStrategy {

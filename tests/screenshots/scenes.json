@@ -1632,6 +1632,126 @@
           "size": "1920x1080"
         }
       ]
+    },
+    {
+      "name": "amber-lt-home",
+      "state": "Amber: amber-lt-home",
+      "triggers": {
+        "library": "0"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.2,
+          "down"
+        ],
+        [
+          5.8,
+          "down"
+        ],
+        [
+          6.4,
+          "ok"
+        ],
+        [
+          8.5,
+          "left"
+        ],
+        [
+          9.2,
+          "up"
+        ],
+        [
+          9.8,
+          "up"
+        ],
+        [
+          10.4,
+          "up"
+        ],
+        [
+          11.0,
+          "up"
+        ],
+        [
+          11.8,
+          "ok"
+        ]
+      ],
+      "after_ms": 16000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-lt-home.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-lt-movies",
+      "state": "Amber: amber-lt-movies",
+      "triggers": {
+        "library": "0"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.2,
+          "down"
+        ],
+        [
+          5.8,
+          "down"
+        ],
+        [
+          6.4,
+          "ok"
+        ],
+        [
+          8.5,
+          "left"
+        ],
+        [
+          9.2,
+          "up"
+        ],
+        [
+          9.8,
+          "up"
+        ],
+        [
+          10.4,
+          "up"
+        ],
+        [
+          11.2,
+          "ok"
+        ]
+      ],
+      "after_ms": 15000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-lt-movies.jpg",
+          "size": "1920x1080"
+        }
+      ]
     }
   ]
 }

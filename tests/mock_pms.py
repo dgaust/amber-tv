@@ -3673,8 +3673,12 @@ class MockPms:
                           key=lambda it: int(it["ratingKey"]))
         def lt_channels():
             names = ["Blender Classics", "Animation", "Silent Cinema", "Sci-Fi", "Comedy", "Shorts", "Family", "Late Night"]
+            films = lt_films()
+            # a stand-in logo per channel: a film's poster (the demo library has no channel art)
             return [{"id": f"C{i + 1}.demo", "gridKey": f"C{i + 1}.demo", "vcn": str(i + 1),
-                     "title": n, "callSign": n, "thumb": ""} for i, n in enumerate(names)]
+                     "title": n, "callSign": n,
+                     "thumb": films[(i * 5) % len(films)].get("thumb", "") if films else ""}
+                    for i, n in enumerate(names)]
         if p == "/media/providers":
             return j(self.container(MediaProvider=[{"identifier": EPG, "title": "Live TV & DVR"}]))
         if p == "/livetv/dvrs":
@@ -3700,7 +3704,7 @@ class MockPms:
                     if t + dur > lo:
                         rows.append({"type": "movie", "title": f.get("title", ""), "summary": f.get("summary", ""),
                                      "year": f.get("year", 0), "contentRating": f.get("contentRating", ""),
-                                     "thumb": f.get("thumb", ""), "duration": dur * 1000,
+                                     "thumb": f.get("thumb", ""), "art": f.get("art", ""), "duration": dur * 1000,
                                      "Media": [{"channelIdentifier": ch["id"], "channelVcn": ch["vcn"],
                                                 "channelTitle": ch["title"], "beginsAt": t, "endsAt": t + dur,
                                                 "onAir": t <= now < t + dur}]})

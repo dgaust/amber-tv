@@ -47,6 +47,8 @@ pub struct LiveProgramme {
     pub summary: String,
     pub rating: String,
     pub thumb: String,
+    /// Landscape art: the airing's fan art, its show's, else an episode's still.
+    pub art: String,
 }
 
 fn s(v: &Value, k: &str) -> String {
@@ -123,6 +125,9 @@ pub fn parse_grid(body: &[u8]) -> Vec<LiveProgramme> {
             let title = if episode { s(m, "grandparentTitle") } else { s(m, "title") };
             let thumb = [s(m, "grandparentThumb"), s(m, "thumb"), s(m, "parentThumb")]
                 .into_iter().find(|t| !t.is_empty()).unwrap_or_default();
+            let still = if episode { s(m, "thumb") } else { String::new() };
+            let art = [s(m, "art"), s(m, "grandparentArt"), still]
+                .into_iter().find(|t| !t.is_empty()).unwrap_or_default();
             out.push(LiveProgramme {
                 channel,
                 begins,
@@ -135,6 +140,7 @@ pub fn parse_grid(body: &[u8]) -> Vec<LiveProgramme> {
                 summary: s(m, "summary"),
                 rating: s(m, "contentRating"),
                 thumb,
+                art,
             });
         }
     }

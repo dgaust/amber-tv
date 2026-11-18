@@ -120,6 +120,7 @@ pub(crate) fn model(now: i64) -> LiveTvModel {
             id: c.id.clone(),
             number: c.number.clone(),
             title: c.title.clone(),
+            logo: c.thumb.clone(),
             slots: s.grid.iter().filter(|p| p.channel == c.id && p.ends > now - 3600).map(|p| LiveSlot {
                 begins: p.begins,
                 ends: p.ends,
@@ -127,9 +128,12 @@ pub(crate) fn model(now: i64) -> LiveTvModel {
                 subtitle: p.subtitle.clone(),
                 meta: meta_of(p),
                 summary: p.summary.clone(),
+                art: p.art.clone(),
+                poster: p.thumb.clone(),
             }).collect(),
         }).filter(|r| !r.slots.is_empty()).collect();
-        LiveTvModel { status: s.status, rows, tuning: s.tuning.clone(), tune_failed: s.tune_failed }
+        LiveTvModel { status: s.status, rows, tuning: s.tuning.clone(), tune_failed: s.tune_failed,
+            sid: plx_plex::plex::current_server().raw() }
     })
 }
 
