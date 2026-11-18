@@ -1616,9 +1616,14 @@ pub const UNDER_LABEL_H: f32 = TileLabel::block_h(true);
 /// this constant is whatever is left of it once `consts::UNDER_LABEL_AIR` (already inside the pitch,
 /// below the block) is taken out. Authoring the 18 directly would be a number nobody could check;
 /// authoring the rung makes the claim falsifiable, and the test beside it does.
+/// Upstream's collapsed band (40 px of gap with the air): what a row that carries its own footer
+/// and no caption (the Continue Watching stills) keeps when every poster row reserves a caption.
+pub const LABEL_BAND_COLLAPSED_BARE: f32 = crate::theme::space::LG - crate::consts::UNDER_LABEL_AIR;
+
 pub const LABEL_BAND_COLLAPSED: f32 = if crate::caption_policy::CAPTIONS_ALWAYS {
-    // Amber: every row keeps the room of a two-line caption, focused or not
-    crate::caption_policy::BAND_TWO_LINES - crate::consts::UNDER_LABEL_AIR
+    // Amber: every row keeps the room of a two-line caption, focused or not, and the air under it
+    // matches the air between the next row's heading and its posters
+    crate::caption_policy::BAND_TWO_LINES + 24.0 - crate::consts::UNDER_LABEL_AIR
 } else {
     crate::theme::space::LG - crate::consts::UNDER_LABEL_AIR
 };

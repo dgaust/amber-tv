@@ -4055,7 +4055,12 @@ impl<D: Fn(usize) -> bool> ShelfColumn<D> {
     /// **The SETTLED top of shelf `row`**, with `band_row`'s band open by `open` and every other
     /// shelf collapsed.
     fn top(&self, row: usize, band_row: Option<usize>, open: f32) -> f32 {
-        ui_cards::settled_top_by(row, band_row, open, |i| self.style(i).pitch_fixed())
+        // Amber: the stills carry their own footer and no caption, so they keep the bare gap
+        // while every poster row reserves a caption's room
+        let bare = ui_cards::LABEL_BAND_COLLAPSED_BARE - ui_cards::LABEL_BAND_COLLAPSED;
+        ui_cards::settled_top_by(row, band_row, open, |i| {
+            self.style(i).pitch_fixed() + if (self.is_deck)(i) { bare } else { 0.0 }
+        })
     }
 
     /// **The scroll a focused shelf RESTS at: the Library's rest rule** (`poster_grid::rest_scroll`,

@@ -1782,6 +1782,84 @@
           "size": "1920x1080"
         }
       ]
+    },
+    {
+      "name": "amber-head-1",
+      "state": "Amber: amber-head-1",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          4.5,
+          "down"
+        ]
+      ],
+      "after_ms": 8000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-head-1.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-head-2",
+      "state": "Amber: amber-head-2",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          4.5,
+          "down"
+        ],
+        [
+          5.3,
+          "down"
+        ]
+      ],
+      "after_ms": 9000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-head-2.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-head-3",
+      "state": "Amber: amber-head-3",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          4.5,
+          "down"
+        ],
+        [
+          5.3,
+          "down"
+        ],
+        [
+          6.1,
+          "down"
+        ]
+      ],
+      "after_ms": 10000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-head-3.jpg",
+          "size": "1920x1080"
+        }
+      ]
     }
   ]
 }

@@ -216,6 +216,13 @@ impl Handoff {
 /// is continuous under a reversal and a jump, and it has no clock and no state: a heading that
 /// rides up the page fades by where it stands and is gone before it reaches the chip.
 pub fn clearance_under_shown_chrome(top: f32) -> f32 {
+    // Amber: no bar stands across the top (the navigation is a sidebar; the clock is in the right
+    // corner, clear of the left-aligned headings), so a heading rides the page to the screen's top
+    // edge instead of vanishing at the old bar's bottom (y 130) while its row is still on screen.
+    if crate::caption_policy::CAPTIONS_ALWAYS {
+        let t = (top / CLEARANCE_RAMP).clamp(0.0, 1.0);
+        return t * t * (3.0 - 2.0 * t);
+    }
     Handoff::new().clearance(top)
 }
 
