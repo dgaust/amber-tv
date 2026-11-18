@@ -1633,6 +1633,12 @@ impl Bridge {
         let Some(inst) = d.nav.entry_mut(id).and_then(|e| e.inst.as_mut()) else { return };
         let Some(screen) = inst.screen.as_any_mut().and_then(|a| a.downcast_mut::<plx_screens::livetv::LiveTvScreen>())
             else { return };
+        // the snapshot is rebuilt only when the guide, the tune or the minute moved, or the page
+        // is new (an empty page takes one at once)
+        thread_local! { static FED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) }; }
+        let stamp = crate::app::livetv::model_stamp(now);
+        if !screen.wants_model() && FED.with(|f| f.get()) == stamp { return; }
+        FED.with(|f| f.set(stamp));
         if screen.input(crate::app::livetv::model(now), now) {
             d.present.note_in_scope(plx_machine::present::Scope::Page,
                 plx_machine::present::PresentEvent::Damage(plx_machine::present::Provenance::Lifecycle));

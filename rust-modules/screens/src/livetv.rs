@@ -116,6 +116,11 @@ impl LiveTvScreen {
         Self { entry, model: LiveTvModel::default(), now: 0, row: 0, slot: 0, first_row: 0, window: 0 }
     }
 
+    /// Amber: a page that has had no snapshot yet; the feed rebuilds one for it whatever its stamp.
+    pub fn wants_model(&self) -> bool {
+        self.now == 0
+    }
+
     /// The application's snapshot and clock. `true` when what the page shows changed.
     pub fn input(&mut self, model: LiveTvModel, now: i64) -> bool {
         let minute_moved = now / 60 != self.now / 60;

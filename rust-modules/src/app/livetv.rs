@@ -113,6 +113,26 @@ fn meta_of(p: &LiveProgramme) -> String {
     parts.join("  \u{b7}  ")
 }
 
+/// A cheap fingerprint of everything [`model`] reads: the last load, the tune state and the minute.
+/// The guide page rebuilds its snapshot only when this moves. Rebuilding it every frame (every
+/// channel against every airing, every title and summary cloned, then compared whole) cost about
+/// 8 ms a frame on the TV and held the guide's loop at ~42 Hz with nothing on screen moving.
+pub(crate) fn model_stamp(now: i64) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    with(|s| {
+        s.loaded_at.hash(&mut h);
+        (s.status as u8).hash(&mut h);
+        s.channels.len().hash(&mut h);
+        s.grid.len().hash(&mut h);
+        s.tuning.hash(&mut h);
+        s.tune_failed.hash(&mut h);
+    });
+    (now / 60).hash(&mut h);
+    plx_plex::plex::current_server().raw().hash(&mut h);
+    h.finish()
+}
+
 /// What the guide page draws: every channel with its airings from an hour ago on.
 pub(crate) fn model(now: i64) -> LiveTvModel {
     with(|s| {
