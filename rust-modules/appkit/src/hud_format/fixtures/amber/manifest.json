@@ -1,0 +1,16 @@
+{
+  "package_format": "1.0",
+  "id": "com.dgaust.amber.hud",
+  "version": "1.0.0",
+  "name": "Amber",
+  "author": "Amber (from PlxNative's Classic)",
+  "license": "GPL-3.0-or-later",
+  "hud": {
+    "format": "1.1",
+    "entry": "hud.json"
+  },
+  "resources": {
+    "back10": "assets/back10.svg",
+    "fwd30": "assets/fwd30.svg"
+  }
+}

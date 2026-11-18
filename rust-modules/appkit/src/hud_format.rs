@@ -59,6 +59,9 @@ pub use reach::{check, Checked, Fold, Slot};
 /// (`include_str!`). The player compiles exactly these bytes ([`crate::player_hud::loaded`]), the
 /// tests parse exactly these bytes, and `--hud-export builtin:classic` prints exactly these bytes.
 pub const CLASSIC_PACKAGE: &[u8] = include_bytes!("hud_format/fixtures/classic.plxhud");
+/// Amber's player HUD: Classic with a transport row under the playbar (back 10 s, play/pause, forward
+/// 30 s). Previous / next stay in the top row and are absent without a queue neighbour.
+pub const AMBER_PACKAGE: &[u8] = include_bytes!("hud_format/fixtures/amber.plxhud");
 
 #[cfg(any(test, feature = "test-support"))]
 pub const CLASSIC_HUD: &str = include_str!("hud_format/fixtures/classic/hud.json");

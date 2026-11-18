@@ -478,7 +478,7 @@ mod tests {
     #[test]
     fn source_fixtures_use_the_canonical_writer() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/hud_format/fixtures");
-        for name in ["classic", "minimal", "reference", "hero-center", "tabs", "palette", "rising-tabs"] {
+        for name in ["classic", "minimal", "reference", "hero-center", "tabs", "palette", "rising-tabs", "amber"] {
             let source = root.join(name);
             let manifest_bytes = std::fs::read(source.join("manifest.json")).unwrap();
             let manifest = manifest::read(&manifest_bytes, &Budget::new(JSON_DECODE_BYTES)).unwrap();

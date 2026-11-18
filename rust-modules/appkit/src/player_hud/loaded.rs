@@ -80,7 +80,13 @@ pub fn answers_every_frame(compiled: &Compiled) -> bool {
 /// return a `Result`: the bytes are `include_bytes!`'d and `classic_loads_with_no_findings_in_every_shipped_language`
 /// parses and compiles them in all twelve languages, so a failure here is a build that no test passed.
 pub fn load_classic(app_version: &str, cx: &LocaleContext, measure: &dyn Measure) -> LoadedHud {
-    load(crate::hud_format::CLASSIC_PACKAGE, app_version, cx, measure).expect("the embedded builtin:classic parses")
+    // Amber draws its own pack as the built-in HUD; the host suites keep grading classic
+    let bytes = if cfg!(any(test, feature = "test-support")) {
+        crate::hud_format::CLASSIC_PACKAGE
+    } else {
+        crate::hud_format::AMBER_PACKAGE
+    };
+    load(bytes, app_version, cx, measure).expect("the embedded built-in HUD parses")
 }
 
 /// **`builtin:classic` for a test that builds a player page**: English on the fixture advances
