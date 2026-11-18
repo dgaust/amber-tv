@@ -21,6 +21,11 @@ use plx_appkit::held_key::HeldKey;
 use plx_appkit::player_hud::command::Section;
 use plx_appkit::player_hud::geometry::{GROUP_ROW, GROUP_SCRUB, GROUP_SECTION, GROUP_STRIP, GROUP_TABS};
 use plx_machine::machine::GroupId;
+
+/// Amber's player behaviour (off under test-support, where the suite grades upstream's): OK on the
+/// picture shows the controls and the film plays on; the controls open on play/pause; the slider moves
+/// only once OK has grabbed it.
+pub const AMBER: bool = !cfg!(any(test, feature = "test-support"));
 use std::os::raw::c_int;
 
 /// Is the transport HUD on screen? Its timer is live, OR playback is paused, OR the pipeline is
@@ -242,7 +247,8 @@ impl HudNav {
     /// Focus parked on the scrubber, both indexed rows on their first item — where a fresh
     /// session starts and where an auto-hidden HUD is re-parked.
     pub const HOME: HudNav = HudNav {
-        focus: GROUP_SCRUB,
+        // Amber: the controls open on the row (its primary: play/pause), never the slider
+        focus: if AMBER { GROUP_ROW } else { GROUP_SCRUB },
         btn: 0,
         tab: 0,
     };

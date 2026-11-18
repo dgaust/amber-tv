@@ -4746,6 +4746,26 @@ pub(crate) fn open_item_menu(d: &mut Dispatcher<AppHost>, arg: plx_screens::regi
     if surface_up(d, |a| matches!(a, AppArg::ItemMenu(_))) {
         return;
     }
+    // Amber: PLAY on a card plays it - the menu's own Play row, without the menu
+    if plx_ui::dispatch::take_play_hold() {
+        if let ItemMenuKind::Card { row, .. } = &arg.kind {
+            if let Some(channel) = row.rk.strip_prefix(plx_data::pms::LIVE_KEY_PREFIX) {
+                crate::app::livetv::tune(channel.to_string());
+                return;
+            }
+            if let Some(inst) = d.nav.instance_of(arg.host) {
+                d.emit(MachineId::Instance(inst), Fx::App(AppFx::ItemMenu(plx_screens::registry::ItemMenuReq {
+                    act: plx_screens::item_menu::Action::Play(row.rk.clone()),
+                    sid: arg.sid,
+                    item: Some((**row).clone()),
+                    season: None,
+                    loaded_episode: arg.loaded_episode,
+                    from_home: arg.from_home,
+                })));
+                return;
+            }
+        }
+    }
     d.nav.next_style = Style::Compact;
     d.request(MachineId::Nav, NavOp::Present(AppArg::ItemMenu(arg)));
 }

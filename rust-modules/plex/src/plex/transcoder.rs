@@ -501,9 +501,13 @@ impl Client {
                 .int("subtitleStreamID", s.subtitle_stream_id)
                 .int("subtitleSize", 100)
                 .str("subtitles", "burn");
-        } else if s.client_subtitles {
+        } else if s.client_subtitles || s.rating_key.starts_with("/livetv/") {
             // UNMEASURED on a transcode leg (docs/pms-api.md M8): the spelling is the MDE
             // handshake's client-rendered mode (`mde_decision`), not a value first sent here.
+            //
+            // Amber: a LIVE session names its subtitles too: left on `auto`, PMS burnt a channel's
+            // broadcast captions into the picture - a full video re-encode that sent nothing for
+            // 10-12 s before the server gave the stream up (and refused its reopen with 400).
             q = q.int("subtitleStreamID", 0).str("subtitles", "none");
         }
         q = q

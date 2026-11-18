@@ -43,6 +43,16 @@ use super::{Painter, Rect};
 
 /// The strip's control namespace: `of_index(STRIP_BASE + stable_id)`, never display position.
 /// A removed pill therefore cannot renumber another destination or collide with a page's tile.
+/// Amber: when PLAY last asked for an item's hold (the app plays it instead of opening its menu).
+static PLAY_HOLD: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+/// Amber: did PLAY ask for the hold now being answered? Spent by the asking (one press, one answer),
+/// and stale after a second so a hold no page answered can never turn a later INFO into a play.
+pub fn take_play_hold() -> bool {
+    PLAY_HOLD.lock().unwrap_or_else(|e| e.into_inner()).take()
+        .is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(1))
+}
+
 pub const STRIP_BASE: u32 = 0xFFFF_0000;
 const _: () = assert!(STRIP_BASE >= super::geom::NAMESPACE_FLOOR);
 
@@ -2523,7 +2533,7 @@ where
                 }
             }
             ScreenEvent::Input(InputEvent {
-                kind: InputKind::Key { key, edge, at_edge, wcode, .. },
+                kind: InputKind::Key { key, edge, at_edge, wcode, sym, .. },
                 ..
             }) if handled == Handled::No && engine && *edge != Edge::Up => {
                 if let Some(dir) = Dir::of_key(*key) {
@@ -2660,7 +2670,13 @@ where
                         }),
                         None => fate = KeyFate::Dead,
                     }
-                } else if *edge == Edge::Down && *wcode == super::consts::WCODE_INFO {
+                } else if *edge == Edge::Down && (*wcode == super::consts::WCODE_INFO
+                    || matches!(super::consts::classify(*sym, *wcode), super::consts::Key::Play | super::consts::Key::PlayPause)) {
+                    // Amber: PLAY on an item plays it, through the same door: the hold names the item,
+                    // and the app plays it instead of opening its menu (`take_play_hold`)
+                    if *wcode != super::consts::WCODE_INFO {
+                        *PLAY_HOLD.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
+                    }
                     // Amber: INFO is a held OK at once - the focused item's actions, on a remote
                     // that cannot hold (a universal remote sends no repeats to time a hold by).
                     let focused = {

@@ -2578,6 +2578,54 @@
           "size": "1920x1080"
         }
       ]
+    },
+    {
+      "name": "amber-playkey-home",
+      "state": "Amber: amber-playkey-home",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          4.5,
+          "down"
+        ],
+        [
+          5.3,
+          "play"
+        ]
+      ],
+      "after_ms": 9000,
+      "settle_ms": 1000,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-playkey-home.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-playkey-lib",
+      "state": "Amber: amber-playkey-lib",
+      "triggers": {
+        "library": "0"
+      },
+      "remote": [
+        [
+          4.5,
+          "play"
+        ]
+      ],
+      "after_ms": 8000,
+      "settle_ms": 1000,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-playkey-lib.jpg",
+          "size": "1920x1080"
+        }
+      ]
     }
   ]
 }

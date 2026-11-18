@@ -74,35 +74,6 @@
         "z": 1,
         "cells": [
           {
-            "align": "start",
-            "segment": {
-              "id": "left",
-              "gap": "SM",
-              "items": [
-                {
-                  "id": "subs",
-                  "command": "open_tracks",
-                  "widget": "disc",
-                  "size": 56,
-                  "rest": "bare",
-                  "focus": "accent",
-                  "face": "builtin:cc",
-                  "tab": "subtitles"
-                },
-                {
-                  "id": "audio",
-                  "command": "open_tracks",
-                  "widget": "disc",
-                  "size": 56,
-                  "rest": "bare",
-                  "focus": "accent",
-                  "face": "builtin:audio",
-                  "tab": "audio"
-                }
-              ]
-            }
-          },
-          {
             "align": "center",
             "segment": {
               "id": "center",
@@ -150,6 +121,26 @@
               "id": "right",
               "gap": "SM",
               "items": [
+                {
+                  "id": "subs",
+                  "command": "open_tracks",
+                  "widget": "disc",
+                  "size": 56,
+                  "rest": "bare",
+                  "focus": "accent",
+                  "face": "builtin:cc",
+                  "tab": "subtitles"
+                },
+                {
+                  "id": "audio",
+                  "command": "open_tracks",
+                  "widget": "disc",
+                  "size": 56,
+                  "rest": "bare",
+                  "focus": "accent",
+                  "face": "builtin:audio",
+                  "tab": "audio"
+                },
                 {
                   "id": "chapters",
                   "command": "toggle_section",

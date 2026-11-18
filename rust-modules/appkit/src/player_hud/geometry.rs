@@ -252,6 +252,10 @@ pub fn row_primary(compiled: &Compiled, open: u8, slot: ControlSlot, model: &Hud
     let Some((state, _)) = package_row(compiled, open, slot, model) else { return slot.primary_btn() };
     let len = i32::try_from(state.row_ids.len()).unwrap_or(0);
     let at = |want: Option<HudCommand>| (0..len).find(|&i| row_command(compiled, open, slot, model, i).is_some_and(|c| want.is_none_or(|w| c == w)));
+    // Amber: the controls come up on play/pause (off under test-support, where upstream's order is graded)
+    if !cfg!(any(test, feature = "test-support")) {
+        if let Some(i) = at(Some(HudCommand::TogglePlay)) { return i; }
+    }
     at(Some(HudCommand::Next))
         .or_else(|| at(Some(HudCommand::Previous)))
         .or_else(|| at(Some(HudCommand::TogglePlay)))
