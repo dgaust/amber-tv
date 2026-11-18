@@ -242,6 +242,20 @@ mod tests {
         }
     }
 
+    /// Amber's own built-in HUD loads as cleanly as classic, in every shipped language, and answers
+    /// every frame the player can be in.
+    #[test]
+    fn amber_loads_with_no_findings_in_every_shipped_language() {
+        for language in SHIPPED {
+            let cx = LocaleContext::resolve(language, None, None, None, None);
+            let hud = load(crate::hud_format::AMBER_PACKAGE, "0.0.0-test", &cx, &ShippedMeasure)
+                .unwrap_or_else(|e| panic!("{}: {e:?}", language.tag()));
+            assert!(hud.compiled.findings().is_empty(), "{}: {:?}", language.tag(), hud.compiled.findings());
+            assert!(!hud.compiled.states().is_empty(), "{}", language.tag());
+            assert!(answers_every_frame(&hud.compiled), "{}", language.tag());
+        }
+    }
+
     /// **Classic answers every frame the player can be in**, in every shipped language: for every slot the
     /// HUD can hold, with and without chapters, as an episode or a movie, paused or playing, the compact
     /// state (`open == 0`) and its geometry exist. This is the proof that `frame_state` returning `None`

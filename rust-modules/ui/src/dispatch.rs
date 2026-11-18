@@ -1778,7 +1778,9 @@ where
                         let full_alpha = capture || source_capture;
                         let mut page_navigation = navigation;
                         if full_alpha { page_navigation.page_alpha = 1.0; }
-                        // Amber: a page stands beside the sidebar, never under it.
+                        // Amber: a page stands beside the sidebar, never under it; through a page
+                        // change it stands where it will rest.
+                        crate::widgets::note_page_transition(navigation.page_alpha < 0.999);
                         let page_painter = Painter::root().translate(crate::widgets::page_shift(navigation.chrome_alpha), 0.0);
                         let mut f = DrawFrame::with_navigation(&page_cx, page_painter, page_navigation);
                         f.lifted = lifted;

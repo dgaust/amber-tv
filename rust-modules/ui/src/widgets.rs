@@ -2825,6 +2825,13 @@ static RAIL_OPEN_BITS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU
 /// Amber: how far the PAGE is pushed by the sidebar (0 closed .. 1 open): the sidebar's own amount,
 /// except after a pick, when the page rests at once and the sidebar shrinks over it.
 static PAGE_OPEN_BITS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// Amber: a page transition (the dip) is running this frame (`dispatch` notes it before drawing).
+static PAGE_TRANSITION: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Amber: note whether a page transition is running, once a frame before the page is drawn.
+pub fn note_page_transition(on: bool) {
+    PAGE_TRANSITION.store(on, std::sync::atomic::Ordering::Relaxed);
+}
 static RAIL_CARRY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Amber: the sidebar's edit mode has the focused entry picked up (it moves with Up/Down).
@@ -2841,7 +2848,14 @@ pub fn rail_open_amount() -> f32 {
 /// own opacity, so a page that wears no sidebar (the player, a detail page) stands at 0 and a
 /// route change between the two slides rather than jumps.
 pub fn page_shift(chrome_alpha: f32) -> f32 {
-    let open = f32::from_bits(PAGE_OPEN_BITS.load(std::sync::atomic::Ordering::Relaxed));
+    // Through a page change the page stands at the closed sidebar's edge: the dip captures the
+    // arriving page as an image and holds it, so an offset still on its way would be filmed into
+    // that image and then jump (or slide) when the live page takes over.
+    let open = if PAGE_TRANSITION.load(std::sync::atomic::Ordering::Relaxed) {
+        0.0
+    } else {
+        f32::from_bits(PAGE_OPEN_BITS.load(std::sync::atomic::Ordering::Relaxed))
+    };
     // Amber: every page but the player wears the sidebar, so the page stays beside it through a
     // transition rather than sliding with the chrome's fade; only a page with no chrome (the
     // player) stands at 0.
@@ -8052,7 +8066,9 @@ impl StripRender {
         self.rail_focus = focus;
         // The new page takes focus at the transition's floor (both pages faded out): from there the
         // page stands where it will rest, and only the sidebar shrinks, over it.
-        if away && self.rail_snap {
+        // …and the same whenever focus leaves the sidebar while a page change is running, however
+        // the selection arrived (it can land after focus has left: the pick alone was not enough)
+        if away && (self.rail_snap || PAGE_TRANSITION.load(std::sync::atomic::Ordering::Relaxed)) {
             self.page_pinned = true;
             self.rail_snap = false;
         }
