@@ -4600,7 +4600,11 @@ pub(crate) fn open_content_panel(
 /// headless trigger) resolves to the panel's own centred fallback HERE, once, rather than every
 /// frame inside the screen.
 fn anchor_bits(rect: Option<plx_ui::Rect>) -> [u32; 4] {
-    let r = rect.unwrap_or_else(plx_screens::item_menu::fallback_anchor);
+    // Amber: a card's rect is in PAGE space and the page is drawn right of the sidebar; the menu
+    // is a surface drawn in screen space, so it hangs from where the card is SEEN (it opened
+    // 72 px to the left, under the focused poster).
+    let r = rect.map(|r| plx_ui::Rect::new(r.x + plx_ui::widgets::PAGE_SHIFT_CLOSED, r.y, r.w, r.h))
+        .unwrap_or_else(plx_screens::item_menu::fallback_anchor);
     [r.x.to_bits(), r.y.to_bits(), r.w.to_bits(), r.h.to_bits()]
 }
 

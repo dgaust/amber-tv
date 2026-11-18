@@ -273,12 +273,16 @@ impl LiveTvScreen {
 
     fn draw_art(&self, p: Painter) {
         let Some((_, s)) = self.focused() else { return };
-        let r = Self::art_rect();
-        p.rrect(r, 16.0, 16.0, theme::SURFACE_PANEL);
-        let (path, landscape) = if !s.art.is_empty() { (&s.art, true) } else { (&s.poster, false) };
+        let path = if !s.art.is_empty() { &s.art } else { &s.poster };
         if path.is_empty() { return; }
-        let (tex, iw, ih) = plx_ui::widgets::resolve_tex_wh_on(self.model.sid, path, if landscape { 960 } else { 400 },
-            if landscape { 540 } else { 600 }, 0);
+        let (tex, iw, ih) = plx_ui::widgets::resolve_tex_wh_on(self.model.sid, path, 960, 960, 0);
+        let slot = Self::art_rect();
+        // the card takes the picture's shape: a guide's art is often a poster, and cropping a poster
+        // to a landscape card cut it to its middle third. Right-aligned, the slot's height.
+        let shape = if tex != 0 && iw > 0.0 && ih > 0.0 { (iw / ih).clamp(0.5, 16.0 / 9.0) } else { 2.0 / 3.0 };
+        let w = slot.h * shape;
+        let r = Rect::new(slot.x + slot.w - w, slot.y, w, slot.h);
+        p.rrect(r, 16.0, 16.0, theme::SURFACE_PANEL);
         if tex == 0 || iw <= 0.0 || ih <= 0.0 { return; }
         // cover the card: crop the image to the card's shape
         let (ra, ia) = (r.w / r.h, iw / ih);
