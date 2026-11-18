@@ -2822,6 +2822,9 @@ pub const PAGE_SHIFT_CLOSED: f32 = 72.0;
 pub const PAGE_SHIFT_OPEN: f32 = RAIL_OPEN_W - 24.0;
 
 static RAIL_OPEN_BITS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// Amber: how far the PAGE is pushed by the sidebar (0 closed .. 1 open): the sidebar's own amount,
+/// except after a pick, when the page rests at once and the sidebar shrinks over it.
+static PAGE_OPEN_BITS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 static RAIL_CARRY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Amber: the sidebar's edit mode has the focused entry picked up (it moves with Up/Down).
@@ -2838,8 +2841,12 @@ pub fn rail_open_amount() -> f32 {
 /// own opacity, so a page that wears no sidebar (the player, a detail page) stands at 0 and a
 /// route change between the two slides rather than jumps.
 pub fn page_shift(chrome_alpha: f32) -> f32 {
-    let open = rail_open_amount();
-    (PAGE_SHIFT_CLOSED + (PAGE_SHIFT_OPEN - PAGE_SHIFT_CLOSED) * open) * chrome_alpha.clamp(0.0, 1.0)
+    let open = f32::from_bits(PAGE_OPEN_BITS.load(std::sync::atomic::Ordering::Relaxed));
+    // Amber: every page but the player wears the sidebar, so the page stays beside it through a
+    // transition rather than sliding with the chrome's fade; only a page with no chrome (the
+    // player) stands at 0.
+    let shown = if chrome_alpha > 0.001 { 1.0 } else { 0.0 };
+    (PAGE_SHIFT_CLOSED + (PAGE_SHIFT_OPEN - PAGE_SHIFT_CLOSED) * open) * shown
 }
 
 /// Destination `i`'s cell, of `n`. The column fits inside the safe area whatever the count: the
@@ -7026,6 +7033,10 @@ pub struct StripRender {
     rail_focus: TopFocus,
     /// How open the sidebar's panel is, 0..1.
     rail_open: crate::Spring,
+    /// Amber: a pick in the sidebar changed the page; set until focus lands in the new page.
+    rail_snap: bool,
+    /// Amber: the page stands at the closed sidebar's edge while the sidebar shrinks over it.
+    page_pinned: bool,
     /// A running tab pulse (see [`TAB_PULSE_S`]): the pill's index in the captured faces and how
     /// long it has run. Time-driven rather than a spring on purpose: it is a one-shot ornament
     /// that must start and end at exactly rest, and it asks for its frames as motion
@@ -7115,6 +7126,8 @@ impl StripRender {
             rail_selected: 0,
             rail_focus: TopFocus::Away,
             rail_open: crate::Spring::at(0.0),
+            rail_snap: false,
+            page_pinned: false,
             pulse: None,
         }
     }
@@ -8028,9 +8041,27 @@ fn tab_scroll_target(widths: &[f32], idx: usize, cur: f32) -> f32 {
 impl StripRender {
     pub fn update(&mut self, data: TabLabels<'_>, selected: c_int, focus: TopFocus, dt: f32) {
         let focused = focus.pill();
+        // Amber: a pick that changes the page closes the sidebar at once as focus lands in the new
+        // page: animated, it slid the arriving page 300 px left while that page faded in, which read
+        // as the page jumping. Focus moving between the sidebar and the same page still glides.
+        let away = matches!(focus, TopFocus::Away);
+        if selected != self.rail_selected && !away {
+            self.rail_snap = true;
+        }
         self.rail_selected = selected;
         self.rail_focus = focus;
-        self.rail_open.step(if matches!(focus, TopFocus::Away) { 0.0 } else { 1.0 }, K_RAIL, dt);
+        // The new page takes focus at the transition's floor (both pages faded out): from there the
+        // page stands where it will rest, and only the sidebar shrinks, over it.
+        if away && self.rail_snap {
+            self.page_pinned = true;
+            self.rail_snap = false;
+        }
+        if !away || self.rail_open.pos <= 0.001 {
+            self.page_pinned = false;
+        }
+        self.rail_open.step(if away { 0.0 } else { 1.0 }, K_RAIL, dt);
+        let page = if self.page_pinned { 0.0 } else { self.rail_open.pos.clamp(0.0, 1.0) };
+        PAGE_OPEN_BITS.store(page.to_bits(), std::sync::atomic::Ordering::Relaxed);
         RAIL_OPEN_BITS.store(self.rail_open.pos.clamp(0.0, 1.0).to_bits(), std::sync::atomic::Ordering::Relaxed);
         // The chip is the bar's other stop, so its unfurl is stepped here rather than by whichever
         // screen happens to own the focus this frame — the same reason the capsules and the track's

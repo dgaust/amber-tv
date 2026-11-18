@@ -2368,6 +2368,216 @@
           "size": "1920x1080"
         }
       ]
+    },
+    {
+      "name": "amber-libopen-6000",
+      "state": "Amber: amber-libopen-6000",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.2,
+          "down"
+        ],
+        [
+          5.8,
+          "ok"
+        ]
+      ],
+      "after_ms": 6000,
+      "settle_ms": 0,
+      "max_delta": 255,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-libopen-6000.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-libopen-6150",
+      "state": "Amber: amber-libopen-6150",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.2,
+          "down"
+        ],
+        [
+          5.8,
+          "ok"
+        ]
+      ],
+      "after_ms": 6150,
+      "settle_ms": 0,
+      "max_delta": 255,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-libopen-6150.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-libopen-6300",
+      "state": "Amber: amber-libopen-6300",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.2,
+          "down"
+        ],
+        [
+          5.8,
+          "ok"
+        ]
+      ],
+      "after_ms": 6300,
+      "settle_ms": 0,
+      "max_delta": 255,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-libopen-6300.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-libopen-6500",
+      "state": "Amber: amber-libopen-6500",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.2,
+          "down"
+        ],
+        [
+          5.8,
+          "ok"
+        ]
+      ],
+      "after_ms": 6500,
+      "settle_ms": 0,
+      "max_delta": 255,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-libopen-6500.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-libopen-6800",
+      "state": "Amber: amber-libopen-6800",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.2,
+          "down"
+        ],
+        [
+          5.8,
+          "ok"
+        ]
+      ],
+      "after_ms": 6800,
+      "settle_ms": 0,
+      "max_delta": 255,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-libopen-6800.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-libopen-7300",
+      "state": "Amber: amber-libopen-7300",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.2,
+          "down"
+        ],
+        [
+          5.8,
+          "ok"
+        ]
+      ],
+      "after_ms": 7300,
+      "settle_ms": 0,
+      "max_delta": 255,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-libopen-7300.jpg",
+          "size": "1920x1080"
+        }
+      ]
     }
   ]
 }
