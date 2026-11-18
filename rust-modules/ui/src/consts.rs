@@ -319,6 +319,10 @@ pub enum Key {
 /// `decode_key` reads them off a single event and its `remote_token_key` builds each synthetic
 /// pair from a single token — so a pair naming two DIFFERENT keys is not a shape either path is
 /// built to carry; the order above settles it rather than leaving it to whichever test came first.
+/// Amber: the LG remote's INFO key as the webOS SDL port reports it (scancode 499, no sym),
+/// measured on an OLED65B9 (webOS 4.x). It opens the focused item's actions, as a held OK does.
+pub const WCODE_INFO: c_uint = 499;
+
 pub fn classify(sym: c_uint, wcode: c_uint) -> Key {
     match sym {
         SDLK_UP => return Key::Up,

@@ -2521,7 +2521,7 @@ where
                 }
             }
             ScreenEvent::Input(InputEvent {
-                kind: InputKind::Key { key, edge, at_edge, .. },
+                kind: InputKind::Key { key, edge, at_edge, wcode, .. },
                 ..
             }) if handled == Handled::No && engine && *edge != Edge::Up => {
                 if let Some(dir) = Dir::of_key(*key) {
@@ -2657,6 +2657,28 @@ where
                             }),
                         }),
                         None => fate = KeyFate::Dead,
+                    }
+                } else if *edge == Edge::Down && *wcode == super::consts::WCODE_INFO {
+                    // Amber: INFO is a held OK at once - the focused item's actions, on a remote
+                    // that cannot hold (a universal remote sends no repeats to time a hold by).
+                    let focused = {
+                        let Dispatcher { nav, input, .. } = self;
+                        let Some(view) = Self::owner_view(nav, entry) else {
+                            return KeyFate::Acted;
+                        };
+                        let Split { views, measure, .. } = rig.split();
+                        let cx = parts.cx::<H>(views, measure);
+                        input.engine.kind_of(owner, &view, &cx)
+                    };
+                    if let Some((k, _)) = focused {
+                        self.input.cancel_press();
+                        let press = self.input.mint_press_id();
+                        out.push(Stamped {
+                            from: MachineId::Input,
+                            fx: Fx::Deliver(MachineId::Instance(id), Delivery::Press { id: press, key: k, held: true }),
+                        });
+                    } else {
+                        fate = KeyFate::Dead;
                     }
                 }
             }

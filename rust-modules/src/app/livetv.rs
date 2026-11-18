@@ -203,3 +203,61 @@ pub(crate) fn tune(channel: String) {
 pub(crate) fn take_ready() -> Option<plx_data::pms::PmsMovie> {
     with(|s| s.ready.take())
 }
+
+/// Amber: what is airing now on each channel, as Home's "On Now" row (`plx_data::pms::set_live_row`).
+/// Called every frame; the data layer ignores a list equal to the one it holds.
+pub(crate) fn publish_on_now(now: i64) {
+    static LAST: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(-1);
+    let stamp = now / 30 + i64::from(generation()) * 1_000_000_007;
+    if LAST.swap(stamp, Ordering::Relaxed) == stamp { return; }
+    let sid = plx_plex::plex::current_server();
+    let items = with(|s| {
+        s.channels.iter().filter_map(|c| {
+            let p = s.grid.iter().find(|p| p.channel == c.id && p.begins <= now && now < p.ends)?;
+            Some(plx_data::pms::PmsMovie {
+                sid,
+                rk: format!("{}{}", plx_data::pms::LIVE_KEY_PREFIX, c.id),
+                title: if p.subtitle.is_empty() { p.title.clone() } else { format!("{} \u{b7} {}", p.title, p.subtitle) },
+                summary: p.summary.clone(),
+                year: p.year,
+                rating: p.rating.clone(),
+                thumb: if p.thumb.is_empty() { c.thumb.clone() } else { p.thumb.clone() },
+                art: p.art.clone(),
+                dur_ns: (p.ends - p.begins) * 1_000_000_000,
+                ..Default::default()
+            })
+        }).collect::<Vec<_>>()
+    });
+    plx_data::pms::set_live_row(items);
+}
+
+/// Amber: keep a playing live session alive. PMS ends a live transcode it hears nothing about for
+/// about three minutes (measured: the stream closed at 184 s and 188 s and its reopen was a 400).
+/// Plex Web pings the transcoder through playback; this does the same every 20 s while the player
+/// is on a `/livetv/sessions/` item, and logs every answer.
+pub(crate) fn keepalive(now_ms: u64) {
+    static LAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    static BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let Some((rk, session)) = plx_media::route::timeline_identity() else { return };
+    if !rk.starts_with("/livetv/sessions/") { return; }
+    let last = LAST.load(Ordering::Relaxed);
+    if last != 0 && now_ms.saturating_sub(last) < 20_000 { return; }
+    if BUSY.swap(true, Ordering::AcqRel) { return; }
+    LAST.store(now_ms.max(1), Ordering::Relaxed);
+    let encoder = plx_media::route::active_encoder_session();
+    let client = plx_plex::plex::client();
+    let spawned = std::thread::Builder::new().name("livetv-keepalive".into()).spawn(move || {
+        let ping = |id: &str| client.transcode_session_present(id);
+        let a = if encoder.is_empty() { None } else { ping(&encoder) };
+        let b = if session.is_empty() || session == encoder { None } else { ping(&session) };
+        plx_base::eventlog::log(&format!(
+            "livetv: keepalive encoder={} -> {:?} session={} -> {:?}",
+            short(&encoder), a, short(&session), b));
+        BUSY.store(false, Ordering::Release);
+    });
+    if spawned.is_err() { BUSY.store(false, Ordering::Release); }
+}
+
+fn short(id: &str) -> &str {
+    &id[..id.len().min(13)]
+}

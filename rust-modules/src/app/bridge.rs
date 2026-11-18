@@ -1583,6 +1583,8 @@ impl Bridge {
         if now <= 0 { return; }
         let top = d.nav.top_page().map(|e| e.id).filter(|_| d.top_arg() == Some(&AppArg::LiveTv));
         crate::app::livetv::tick(now, top.is_some());
+        crate::app::livetv::publish_on_now(now);
+        crate::app::livetv::keepalive(crate::app::clock::unix_ms().unwrap_or(0) as u64);
         let Some(id) = top else { return };
         let Some(inst) = d.nav.entry_mut(id).and_then(|e| e.inst.as_mut()) else { return };
         let Some(screen) = inst.screen.as_any_mut().and_then(|a| a.downcast_mut::<plx_screens::livetv::LiveTvScreen>())

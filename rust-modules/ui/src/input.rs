@@ -116,6 +116,13 @@ impl<K: Copy + Eq + Hash> InputMachine<K> {
         id
     }
 
+    /// Amber: a press id for a hold delivered without a press (the INFO key's), so it is never
+    /// mistaken for an armed press's.
+    pub fn mint_press_id(&mut self) -> PressId {
+        self.next_press += 1;
+        PressId(self.next_press)
+    }
+
     /// Abandon the press: navigation, an owner change, a pointer that left the arm. The dip owner
     /// stays (see [`dip_owner`](Self::dip_owner)); [`tick`](Self::tick) releases it once the spring
     /// has settled.

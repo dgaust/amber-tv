@@ -752,6 +752,52 @@ struct HubRow {
     #[serde(skip)]
     epoch: u32,
 }
+// ---- Amber: Live TV's "On Now" row ------------------------------------------------------------------
+// The application hands over what is airing on each channel (`set_live_row`); every Home merge adds
+// it as one row, which the viewer can move or hide like any other. Its cards' keys are
+// `livetv:<channel>`: OK on one tunes that channel (`app::content`).
+static LIVE_ROW: std::sync::Mutex<Vec<PmsMovie>> = std::sync::Mutex::new(Vec::new());
+static LIVE_GEN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+thread_local! { static SEEN_LIVE: std::cell::Cell<u32> = const { std::cell::Cell::new(0) }; }
+pub const LIVE_ROW_ID: &str = "amber.livetv.onnow";
+pub const LIVE_KEY_PREFIX: &str = "livetv:";
+
+/// Replace the On Now row's cards (an empty list removes the row). A list equal to the one held
+/// (same channels, titles and art) changes nothing, so a per-minute call costs no Home rebuild.
+pub fn set_live_row(items: Vec<PmsMovie>) {
+    let mut held = LIVE_ROW.lock().unwrap_or_else(|e| e.into_inner());
+    let same = held.len() == items.len() && held.iter().zip(&items).all(|(a, b)|
+        a.rk == b.rk && a.title == b.title && a.thumb == b.thumb && a.art == b.art && a.summary == b.summary);
+    if same { return; }
+    *held = items;
+    LIVE_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn live_row_moved() -> bool {
+    let now = LIVE_GEN.load(std::sync::atomic::Ordering::Relaxed);
+    SEEN_LIVE.with(|s| { let moved = s.get() != now; s.set(now); moved })
+}
+
+fn add_live_row(build: &mut HubBuild) {
+    let items = LIVE_ROW.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if items.is_empty() { return; }
+    let start = build.0.len();
+    let n = items.len();
+    build.0.extend(items.into_iter().map(Arc::new));
+    build.1.push(HubRow {
+        title: "On Now \u{b7} Live TV".into(),
+        hub_id: LIVE_ROW_ID.into(),
+        key: String::new(),
+        source: String::new(),
+        total: n,
+        start,
+        len: n,
+        offset: 0,
+        more: false,
+        epoch: 0,
+    });
+}
+
 // ---- Amber: the viewer's arrangement of Home's rows ------------------------------------------------
 thread_local! { static SEEN_LAYOUT: std::cell::Cell<u32> = const { std::cell::Cell::new(0) }; }
 
@@ -765,12 +811,16 @@ fn home_layout_moved() -> bool {
 /// keeps its place at the head. The cards are not moved: a row is a slice of them, and reordering
 /// the slices is enough.
 fn apply_home_layout(build: &mut HubBuild) {
+    add_live_row(build);
     let l = crate::layout::get();
     let ids: Vec<String> = build.1.iter().map(|h| crate::layout::home_row_id(&h.hub_id, &h.key)).collect();
     let mut idx: Vec<usize> = (0..build.1.len()).collect();
     idx.sort_by_key(|&i| {
         if build.1[i].hub_id == "home.continue" { return (0, 0); }
-        (1, l.home_order.iter().position(|o| *o == ids[i]).unwrap_or(usize::MAX))
+        // a row the viewer has not placed yet goes last - except On Now, which opens under
+        // Continue Watching until it is moved
+        let unplaced = if build.1[i].hub_id == LIVE_ROW_ID { 0 } else { usize::MAX };
+        (1, l.home_order.iter().position(|o| *o == ids[i]).map_or(unplaced, |p| p + 1))
     });
     let kept: Vec<usize> = idx.into_iter().filter(|&i| !l.home_hidden.contains(&ids[i])).collect();
     crate::layout::set_home_rows(kept.iter().map(|&i| ids[i].clone()).collect());
@@ -3898,7 +3948,7 @@ fn step_landings_with_scope(state: &mut PmsState, adapter: &PmsAdapter, dt: Opti
     // beyond the rebuilt catalog. Cheap enough to run on a generation change rather than to try to
     // predict which changes matter.
     let scope_moved = browse_scope_moved(state, scope);
-    let layout_moved = home_layout_moved();
+    let layout_moved = home_layout_moved() | live_row_moved();
     if dirty || scope_moved { settle_deck(&mut srcs, refreshed); }
     let build = (dirty || scope_moved || layout_moved).then(|| {
         let t0 = crate::instruments::start();

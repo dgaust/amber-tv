@@ -757,6 +757,11 @@ fn home_command(app: &mut ScreenCommandApp<'_>, source: MachineId, request: Home
                 other => bridge::nav_tab(app.pages, app.bridge, other, None, Some(ret)),
             }
         }
+        // Amber: a card of the On Now row tunes its channel
+        HomeReq::Play { rk, .. } | HomeReq::Detail { rk, .. } if rk.starts_with(plx_data::pms::LIVE_KEY_PREFIX) => {
+            crate::app::livetv::tune(rk[plx_data::pms::LIVE_KEY_PREFIX.len()..].to_string());
+            return AppCommandOutcome::Completed;
+        }
         HomeReq::Play { sid, rk, resume_ns } =>
             return activate_home_item(app, source, entry, sid, &rk, Some(resume_ns), ret, now),
         HomeReq::Detail { sid, rk } =>

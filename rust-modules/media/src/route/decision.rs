@@ -13822,6 +13822,18 @@ pub fn set_forced_only_lang_for_test(ps: &mut PlaybackSession, lang: &str) {
 /// Engine's reporter last reported under ([`ReportedTimeline`]) is not part of the projection and
 /// is not reset here: the new reporter's first report still stops it when the reload (or a
 /// rollback's rebase) retired it.
+/// Amber: the PMS transcode session the player is reading from now (empty when none), for the
+/// Live TV keepalive (`app::livetv`).
+pub fn active_encoder_session() -> String {
+    PLAYER_CONTROL.lock().unwrap_or_else(|e| e.into_inner()).active.id.clone()
+}
+
+/// Amber: the key and logical session of the item the timeline reports for now, if any.
+pub fn timeline_identity() -> Option<(String, String)> {
+    let c = PLAYER_CONTROL.lock().unwrap_or_else(|e| e.into_inner());
+    c.timeline.as_ref().map(|t| (t.rating_key.clone(), t.logical_session.clone()))
+}
+
 pub fn begin_timeline_reporting(ps: &PlaybackSession) -> Option<TimelineLease> {
     // A trailer never writes watch state, whatever became of its preview flag.
     if preview_request(ps) {
@@ -13837,7 +13849,15 @@ pub fn begin_timeline_reporting(ps: &PlaybackSession) -> Option<TimelineLease> {
         subtitle_stream_id: cur_sub_sid(ps),
     };
     if projection.rating_key.is_empty() || !projection.sid.is_set() {
+        if projection.rating_key.starts_with("/livetv/") || cur_rk(ps).starts_with("/livetv/") {
+            plx_base::eventlog::log(&format!("livetv: no timeline reporter (rk={} sid_set={})",
+                projection.rating_key, projection.sid.is_set()));
+        }
         return None;
+    }
+    if projection.rating_key.starts_with("/livetv/") {
+        plx_base::eventlog::log(&format!("livetv: timeline reporter on rk={} session={}",
+            projection.rating_key, projection.logical_session));
     }
     let required_stop = TIMELINE_STOP_FENCE.announced();
     let mut control = PLAYER_CONTROL.lock().unwrap_or_else(|e| e.into_inner());
@@ -13987,6 +14007,10 @@ pub fn report_timeline(
             drop(take_reported_session(report.sid, &report.rating_key));
         }
         return false;
+    }
+    // Amber: every report of a live session, while live playback is being made reliable
+    if report.rating_key.starts_with("/livetv/") {
+        plx_base::eventlog::log(&format!("livetv: timeline {} t={}s ok={ok}", report.state.as_str(), report.time_ms / 1000));
     }
     // FAILURES ONLY. The reporter thread logs `timeline <state> t=…s/…s` for every tick whichever
     // way the POST went (`player::threads`), so a report the server never took looks exactly like
