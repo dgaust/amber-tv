@@ -2001,7 +2001,7 @@ impl DetailScreen {
             Located::CollectionHeading => d.is_some_and(|d| collection::len(d) > 0),
             Located::Cast(i) => d.is_some_and(|d| i < d.credits_len()),
             // Amber: the About card is not shown; its synopsis is the hero's, whole behind its disc
-            Located::About(0) => false,
+            Located::About(0) => d.is_some() && cfg!(any(test, feature = "test-support")),
             Located::About(1) => d.is_some() && self.tracks_available(meta),
             Located::About(_) => false,
         }

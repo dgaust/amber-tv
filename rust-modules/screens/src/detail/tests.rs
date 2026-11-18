@@ -1371,7 +1371,7 @@ fn hero_focus_follows_its_control_when_the_set_grows_under_it() {
 
 #[test]
 fn hero_focus_stays_in_place_when_also_available_lands() {
-    let before = hero::HeroSet { more: false,
+    let before = hero::HeroSet { about: false, more: false,
         watchlist: true,
         go_show: false,
         version: false,
@@ -1380,7 +1380,7 @@ fn hero_focus_stays_in_place_when_also_available_lands() {
         alt: false,
         mark: PosterMark::None,
     };
-    let after = hero::HeroSet {
+    let after = hero::HeroSet { about: false,
         watchlist: true,
         go_show: false,
         version: false,
@@ -1540,7 +1540,7 @@ fn a_landed_view_state_refresh_puts_the_browsed_season_back_and_never_steers_ano
 #[test]
 fn a_pointer_lands_on_the_capsule_the_unfurl_drew() {
     let y = 812.0;
-    let set = hero::HeroSet { more: false,
+    let set = hero::HeroSet { about: false, more: false,
         watchlist: true,
         go_show: false,
         version: false,

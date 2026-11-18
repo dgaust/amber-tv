@@ -930,7 +930,7 @@ mod tests {
     }
 
     fn set_full(restart: bool, alt: bool, mark: PosterMark, trailer: bool) -> HeroSet {
-        HeroSet {
+        HeroSet { about: false,
             more: false,
             watchlist: true,
             go_show: false,
@@ -1419,7 +1419,7 @@ mod tests {
 
     #[test]
     fn restart_and_the_watch_tail_are_independent() {
-        let set = HeroSet { more: false,
+        let set = HeroSet { about: false, more: false,
             watchlist: true,
             go_show: false,
             version: false,
@@ -1437,7 +1437,7 @@ mod tests {
 
     #[test]
     fn the_actions_row_grows_an_also_available_control_only_for_a_second_source() {
-        let without = HeroSet { more: false,
+        let without = HeroSet { about: false, more: false,
             watchlist: true,
             go_show: false,
             version: false,
@@ -1446,7 +1446,7 @@ mod tests {
             alt: false,
             mark: PosterMark::None,
         };
-        let with = HeroSet {
+        let with = HeroSet { about: false,
             watchlist: true,
             go_show: false,
             version: false,
@@ -1461,7 +1461,7 @@ mod tests {
     fn the_hero_row_carries_no_track_information_disc() {
         for alt in [false, true] {
             for trailer in [false, true] {
-                let set = HeroSet { more: false,
+                let set = HeroSet { about: false, more: false,
                     watchlist: true,
                     go_show: false,
                     version: false,
@@ -1596,7 +1596,7 @@ mod tests {
 
     #[test]
     fn hero_indices_mean_different_actions_in_the_two_control_sets() {
-        let compact = HeroSet { more: false,
+        let compact = HeroSet { about: false, more: false,
             watchlist: true,
             go_show: false,
             version: false,
@@ -1605,7 +1605,7 @@ mod tests {
             alt: false,
             mark: PosterMark::None,
         };
-        let wide = HeroSet { more: false,
+        let wide = HeroSet { about: false, more: false,
             watchlist: true,
             go_show: false,
             version: false,
@@ -1624,7 +1624,7 @@ mod tests {
 
     #[test]
     fn the_actions_row_accumulates_around_a_variable_width_control() {
-        let set = HeroSet { more: false,
+        let set = HeroSet { about: false, more: false,
             watchlist: true,
             go_show: false,
             version: false,
@@ -1659,7 +1659,7 @@ mod tests {
                 for alt in [false, true] {
                     for trailer in [false, true] {
                         for mark in [PosterMark::None, PosterMark::InProgress, PosterMark::Watched] {
-                            let set = HeroSet { version, go_show, ..set_full(restart, alt, mark, trailer) };
+                            let set = HeroSet { about: false, version, go_show, ..set_full(restart, alt, mark, trailer) };
                             let (_, n) = hero_ctls(set);
                             for labels in [
                                 [10.0, 12.0, 12.0, 11.0, 10.0],
@@ -1709,7 +1709,7 @@ mod tests {
         use plx_platform::i18n::{language_on_this_thread_for_test, SHIPPED};
         let measure = plx_base::fontcov::advances::ShippedMeasure;
         // Go to Show belongs to an episode page; the on-deck More disc is absent there.
-        let wide = HeroSet { more: false,
+        let wide = HeroSet { about: false, more: false,
             watchlist: true,
             go_show: true,
             version: true,
@@ -1741,7 +1741,7 @@ mod tests {
     #[test]
     fn the_real_verbs_all_fit_the_widest_row() {
         let measure = plx_ui::fixture::FixtureMeasure;
-        let wide = HeroSet { more: false,
+        let wide = HeroSet { about: false, more: false,
             watchlist: true,
             go_show: false,
             version: false,
@@ -1767,7 +1767,7 @@ mod tests {
             "the 5-control row collapses rather than crossing People"
         );
 
-        let roomy = HeroSet { more: false,
+        let roomy = HeroSet { about: false, more: false,
             watchlist: true,
             go_show: false,
             version: false,
@@ -1796,7 +1796,7 @@ mod tests {
 
     #[test]
     fn a_verb_that_does_not_fit_is_dropped_whole() {
-        let set = HeroSet { more: false,
+        let set = HeroSet { about: false, more: false,
             watchlist: true,
             go_show: false,
             version: false,
@@ -1838,7 +1838,7 @@ mod tests {
 
     #[test]
     fn the_widest_action_row_clears_the_people_column() {
-        let set = HeroSet { more: false,
+        let set = HeroSet { about: false, more: false,
             watchlist: true,
             go_show: false,
             version: false,
@@ -2063,10 +2063,10 @@ mod tests {
         assert!(go_to_show_target(&Detail { kind: "show".into(), show_rk: "show".into(), ..Default::default() }).is_none());
         assert!(go_to_show_target(&Detail { kind: "episode".into(), show_rk: String::new(), ..Default::default() }).is_none());
 
-        let bare = HeroSet { go_show: true, ..Default::default() };
+        let bare = HeroSet { about: false, go_show: true, ..Default::default() };
         let (ctls, n) = hero_ctls(bare);
         assert_eq!(&ctls[..n], &[HeroCtl::Play, HeroCtl::GoToShow, HeroCtl::MarkWatched]);
-        let with_bookmark = HeroSet { watchlist: true, go_show: true, ..Default::default() };
+        let with_bookmark = HeroSet { about: false, watchlist: true, go_show: true, ..Default::default() };
         let (ctls, n) = hero_ctls(with_bookmark);
         assert_eq!(&ctls[..n], &[HeroCtl::Play, HeroCtl::Watchlist, HeroCtl::GoToShow, HeroCtl::MarkWatched]);
         assert_eq!(HeroCtl::GoToShow.elem(), ELEM_GO_TO_SHOW);
@@ -2082,7 +2082,7 @@ mod tests {
     #[test]
     fn the_go_to_show_disc_can_open_in_the_real_episode_row() {
         let measure = plx_ui::fixture::FixtureMeasure;
-        let set = HeroSet {
+        let set = HeroSet { about: false,
             go_show: true,
             restart: true,
             mark: PosterMark::InProgress,
@@ -2113,7 +2113,7 @@ mod tests {
         for restart in [false, true] {
             for version in [false, true] {
                 for alt in [false, true] {
-                    let set = HeroSet {
+                    let set = HeroSet { about: false,
                         go_show: true,
                         restart,
                         version,
@@ -2144,7 +2144,7 @@ mod tests {
         for restart in [false, true] {
             for version in [false, true] {
                 for mark in [PosterMark::None, PosterMark::InProgress, PosterMark::Watched] {
-                    let set = HeroSet { more: false, watchlist: false, version, restart, trailer: false, alt: false, mark, go_show: true };
+                    let set = HeroSet { about: false, more: false, watchlist: false, version, restart, trailer: false, alt: false, mark, go_show: true };
                     for language in SHIPPED {
                         let _guard = language_on_this_thread_for_test(language);
                         let mut unfurl = [0.0; DISCS];
