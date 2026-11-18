@@ -1800,7 +1800,7 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
                 let base = if i == 0 {
                     self.about_rows.card_rect(d, top, measure)
                 } else {
-                    self.about_rows.languages_rect(top, measure)
+                    self.about_rows.languages_rect(about::col_top(top), measure)
                 };
                 (base, base, Some(i as u32))
             }
@@ -2000,7 +2000,8 @@ impl DetailScreen {
             Located::Collection(i) => d.is_some_and(|d| i < collection::len(d)),
             Located::CollectionHeading => d.is_some_and(|d| collection::len(d) > 0),
             Located::Cast(i) => d.is_some_and(|d| i < d.credits_len()),
-            Located::About(0) => d.is_some(),
+            // Amber: the About card is not shown; its synopsis is the hero's, whole behind its disc
+            Located::About(0) => false,
             Located::About(1) => d.is_some() && self.tracks_available(meta),
             Located::About(_) => false,
         }
@@ -3105,6 +3106,7 @@ impl DetailScreen {
                         hero::HeroCtl::Restart => plx_ui::icons::Icon::Restart,
                         hero::HeroCtl::Trailer => plx_ui::icons::Icon::Trailer,
                         hero::HeroCtl::More => plx_ui::icons::Icon::More,
+                        hero::HeroCtl::About => plx_ui::icons::Icon::Info,
                         hero::HeroCtl::MarkWatched => plx_ui::icons::Icon::Check,
                         hero::HeroCtl::MarkUnwatched => plx_ui::icons::Icon::Minus,
                         // At either rest the plain face; only a flip in flight layers the fill.
@@ -4342,6 +4344,8 @@ impl DetailScreen {
             alt: self.alt_available(meta),
             mark,
             watchlist: self.detail(meta).is_some_and(|d| plx_plex::plex::catalog_hex_of_guid(&d.guid).is_some()),
+            // Amber: the About card is gone; a synopsis past the hero's three lines opens whole here
+            about: self.detail(meta).is_some_and(|d| d.summary.chars().count() > 210),
         }
     }
 
@@ -4560,6 +4564,7 @@ impl DetailScreen {
                 }
             }
             hero::HeroCtl::More => self.content(fx, ContentReq::ItemMenu),
+            hero::HeroCtl::About => self.content(fx, ContentReq::Panel(ContentPanel::About)),
             hero::HeroCtl::MarkWatched | hero::HeroCtl::MarkUnwatched => {
                 if let Some(d) = self.detail(meta) {
                     fx.push(Fx::App(AppFx::Store(

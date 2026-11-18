@@ -22,7 +22,7 @@ use plx_ui::widgets::CircleButton;
 use plx_ui::{theme, Rect};
 
 /// Maximum row: Play, bookmark, Go to Show, Version, Restart, Trailer, Alt, watch face and More.
-pub const MAX_CTLS: usize = 9;
+pub const MAX_CTLS: usize = 10;
 
 /// How many of the row's controls are discs that unfurl to a verb on focus: Restart, Trailer, the
 /// watch toggle, Play Version and Go to Show (the bookmark disc never unfurls).

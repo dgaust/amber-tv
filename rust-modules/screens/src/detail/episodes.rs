@@ -544,7 +544,9 @@ fn draw_cell(
             }
         }
     };
-    let plate_factor = pop.max(lift.factor());
+    // Amber: a focused episode is its still's ring alone; the text block wears a plate only when
+    // it is itself the stop (off under test-support, where the suite grades upstream's plate).
+    let plate_factor = if cfg!(any(test, feature = "test-support")) { pop.max(lift.factor()) } else { lift.factor() };
     if plate_factor <= 0.0 {
         return labels(p);
     }

@@ -1548,15 +1548,50 @@ impl Bridge {
         }
     }
 
+    /// Amber: RIGHT from the sidebar back into an item page. Its rows are reachable only vertically
+    /// (so LEFT from a row cannot jump to the row above), which left a sideways search from the
+    /// sidebar nothing to land on: focus could not get back into the page. LEFT out of the page
+    /// remembers the element it left from; RIGHT in the sidebar puts focus back on it.
+    pub(crate) fn rail_return_key(&mut self, d: &mut Dispatcher<AppHost>, key: plx_ui::consts::Key) -> bool {
+        use plx_ui::consts::Key;
+        if crate::app::chrome::editing() { return false; }
+        if !matches!(d.top_arg(), Some(AppArg::Content(_))) { return false; }
+        let Some(entry) = d.nav.top_page().map(|e| e.id) else { return false };
+        let Some(focus) = Self::home_focus(d) else { return false };
+        match key {
+            Key::Left { .. } if focus.elem < plx_ui::dispatch::STRIP_BASE => {
+                RAIL_RETURN.with(|r| r.set(Some((entry, focus))));
+                false
+            }
+            Key::Right { .. } if focus.elem >= plx_ui::dispatch::STRIP_BASE => {
+                let Some((at, back)) = RAIL_RETURN.with(|r| r.get()) else { return false };
+                if at != entry || back.entry != entry { return false; }
+                d.set_focus(Some(back));
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Amber: OK on a sidebar entry from a page that does not route the strip itself (the item
     /// pages: detail, person, collection; the Live TV guide), sent where the tab pages send it.
     pub(crate) fn rail_nav_key(&mut self, d: &mut Dispatcher<AppHost>, key: plx_ui::consts::Key) -> bool {
         use plx_ui::widgets as w;
         if key != plx_ui::consts::Key::Ok || crate::app::chrome::editing() { return false; }
-        // The item pages and the Live TV guide do not route the strip's presses themselves.
-        if !matches!(d.top_arg(), Some(AppArg::Content(_) | AppArg::LiveTv)) { return false; }
         let Some(elem) = Self::home_focus(d).map(|f| f.elem) else { return false };
         if elem < plx_ui::dispatch::STRIP_BASE { return false; }
+        // Settings, from any page that wears the sidebar
+        if elem == w::TAB_KEY_SETTINGS {
+            open_settings_at(d, plx_screens::family::SettingsPage::Root);
+            return true;
+        }
+        // The item pages and the Live TV guide do not route the strip's presses themselves.
+        if !matches!(d.top_arg(), Some(AppArg::Content(_) | AppArg::LiveTv)) { return false; }
+        // the profile chip: the account menu (Settings, profiles), as the tab pages open it
+        if elem == w::TAB_KEY_CHIP {
+            crate::app::input::chip_activate(d);
+            return true;
+        }
         let tab = match elem {
             k if k == w::TAB_KEY_HOME => HomeTab::Home,
             k if k == w::TAB_KEY_SEARCH => HomeTab::Search,
@@ -4989,6 +5024,11 @@ pub(crate) fn nav_push_with_return(
 pub(crate) fn wears_tab_bar(arg: &AppArg) -> bool {
     use plx_ui::screen::ScreenArg;
     arg.chrome() == plx_machine::machine::Chrome::TabBar
+}
+
+thread_local! {
+    /// Amber: the item-page element LEFT last left for the sidebar ([`Bridge::rail_return_key`]).
+    static RAIL_RETURN: std::cell::Cell<Option<(EntryId, FocusKey<u32>)>> = const { std::cell::Cell::new(None) };
 }
 
 /// **Which PILL of the shared strip a page argument is**, for the pending selection the capsule

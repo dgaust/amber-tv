@@ -1860,6 +1860,414 @@
           "size": "1920x1080"
         }
       ]
+    },
+    {
+      "name": "amber-dd-about",
+      "state": "Amber: amber-dd-about",
+      "triggers": {
+        "detail": "105"
+      },
+      "remote": [
+        [
+          4.0,
+          "down"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.2,
+          "down"
+        ],
+        [
+          5.8,
+          "down"
+        ],
+        [
+          6.4,
+          "down"
+        ],
+        [
+          7.0,
+          "down"
+        ]
+      ],
+      "after_ms": 9000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-dd-about.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-dd-moreinfo",
+      "state": "Amber: amber-dd-moreinfo",
+      "triggers": {
+        "detail": "105"
+      },
+      "remote": [
+        [
+          4.0,
+          "down"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.2,
+          "down"
+        ],
+        [
+          5.8,
+          "down"
+        ],
+        [
+          6.4,
+          "down"
+        ],
+        [
+          7.0,
+          "down"
+        ],
+        [
+          8.0,
+          "ok"
+        ]
+      ],
+      "after_ms": 11000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-dd-moreinfo.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-dd-moreinfo-back",
+      "state": "Amber: amber-dd-moreinfo-back",
+      "triggers": {
+        "detail": "105"
+      },
+      "remote": [
+        [
+          4.0,
+          "down"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.2,
+          "down"
+        ],
+        [
+          5.8,
+          "down"
+        ],
+        [
+          6.4,
+          "down"
+        ],
+        [
+          7.0,
+          "down"
+        ],
+        [
+          8.0,
+          "ok"
+        ],
+        [
+          10.0,
+          "back"
+        ],
+        [
+          11.0,
+          "up"
+        ]
+      ],
+      "after_ms": 13000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-dd-moreinfo-back.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-chip",
+      "state": "Amber: amber-chip",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ],
+        [
+          4.7,
+          "up"
+        ],
+        [
+          5.3,
+          "up"
+        ],
+        [
+          5.9,
+          "up"
+        ]
+      ],
+      "after_ms": 8000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-chip.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-chip-ok",
+      "state": "Amber: amber-chip-ok",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ],
+        [
+          4.7,
+          "up"
+        ],
+        [
+          5.3,
+          "up"
+        ],
+        [
+          5.9,
+          "up"
+        ],
+        [
+          6.6,
+          "ok"
+        ]
+      ],
+      "after_ms": 9500,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-chip-ok.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-ep-focus",
+      "state": "Amber: amber-ep-focus",
+      "triggers": {
+        "library": "1"
+      },
+      "remote": [
+        [
+          4.0,
+          "ok"
+        ],
+        [
+          7.0,
+          "down"
+        ],
+        [
+          7.6,
+          "down"
+        ]
+      ],
+      "after_ms": 10000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-ep-focus.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-det-return",
+      "state": "Amber: amber-det-return",
+      "triggers": {
+        "detail": "105"
+      },
+      "remote": [
+        [
+          4.0,
+          "down"
+        ],
+        [
+          4.8,
+          "left"
+        ],
+        [
+          5.6,
+          "right"
+        ]
+      ],
+      "after_ms": 8500,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-det-return.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-settings-entry",
+      "state": "Amber: amber-settings-entry",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.1,
+          "down"
+        ],
+        [
+          5.6,
+          "down"
+        ],
+        [
+          6.1,
+          "down"
+        ],
+        [
+          6.6,
+          "down"
+        ]
+      ],
+      "after_ms": 9000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-settings-entry.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-settings-open",
+      "state": "Amber: amber-settings-open",
+      "triggers": {
+        "heropin": "0"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.1,
+          "down"
+        ],
+        [
+          5.6,
+          "down"
+        ],
+        [
+          6.1,
+          "down"
+        ],
+        [
+          6.6,
+          "down"
+        ],
+        [
+          7.6,
+          "ok"
+        ]
+      ],
+      "after_ms": 11000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-settings-open.jpg",
+          "size": "1920x1080"
+        }
+      ]
+    },
+    {
+      "name": "amber-det-settings",
+      "state": "Amber: amber-det-settings",
+      "triggers": {
+        "detail": "105"
+      },
+      "remote": [
+        [
+          4.0,
+          "left"
+        ],
+        [
+          4.6,
+          "down"
+        ],
+        [
+          5.1,
+          "down"
+        ],
+        [
+          5.6,
+          "down"
+        ],
+        [
+          6.1,
+          "down"
+        ],
+        [
+          6.6,
+          "down"
+        ],
+        [
+          7.6,
+          "ok"
+        ]
+      ],
+      "after_ms": 11000,
+      "settle_ms": 1500,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-det-settings.jpg",
+          "size": "1920x1080"
+        }
+      ]
     }
   ]
 }

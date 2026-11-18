@@ -516,6 +516,13 @@ impl<H: crate::registry::AppLike + crate::registry::MetadataLike + crate::regist
                 // against the page COUNT here (that means measuring wrapped prose, which from a key
                 // handler is a link error in the host suite): the next tick pulls it back, and for a
                 // synopsis that fits it lands on page 1 again. Every other key is still eaten.
+                // Amber: a key the panel does not know (a universal remote's BACK can arrive under a
+                // code of its own) closes it rather than being swallowed - a modal that eats every
+                // key it does not recognise is a dead end with no way out.
+                InputKind::Key { key: Key::Other, edge: Edge::Down, .. } => {
+                    fx.push(Fx::Nav(NavOp::Dismiss(self.entry)));
+                    Handled::Yes
+                }
                 InputKind::Key { sym, edge: Edge::Down | Edge::Repeat, .. } => {
                     if self.scroll.step_page(sym as std::os::raw::c_uint) {
                         fx.invalidate(plx_machine::present::Provenance::Input);

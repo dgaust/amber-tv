@@ -409,7 +409,12 @@ impl LiveTvScreen {
                 // a sliver too narrow to read carries no text at all
                 if tw > 56.0 {
                     Self::text(p, &s.title, x + 14.0, y + 28.0, theme::size::CAPTION, ink, if focused { 1 } else { 0 }, tw);
-                    let line = if focused && s.begins <= self.now && self.now < s.ends {
+                    // the tune's state is told quietly, on the focused airing's own second line
+                    let line = if focused && self.model.tuning.as_deref() == Some(row.id.as_str()) {
+                        "Tuning\u{2026}".to_string()
+                    } else if focused && self.model.tune_failed {
+                        "Couldn't tune".to_string()
+                    } else if focused && s.begins <= self.now && self.now < s.ends {
                         format!("{} min left", ((s.ends - self.now) + 59) / 60)
                     } else {
                         format!("{} - {}", self.clock(s.begins), self.clock(s.ends))
@@ -526,15 +531,6 @@ impl<H: ContentLike> Screen<H> for LiveTvScreen {
         self.draw_ruler(p);
         let active = f.focus.current.is_some_and(|k| k.entry == self.entry && k.elem == ELEM);
         self.draw_grid(p, active);
-        if self.model.tuning.is_some() {
-            let r = Self::art_rect();
-            p.rrect(Rect::new(r.x + 12.0, r.y + r.h - 64.0, r.w - 24.0, 52.0), 12.0, 12.0, theme::scrim(0.78));
-            Self::text(p, "Tuning\u{2026}", r.x + 30.0, r.y + r.h - 52.0, theme::size::BODY, theme::RAIL_CURRENT, 1, r.w - 40.0);
-        } else if self.model.tune_failed {
-            let r = Self::art_rect();
-            p.rrect(Rect::new(r.x + 12.0, r.y + r.h - 64.0, r.w - 24.0, 52.0), 12.0, 12.0, theme::scrim(0.78));
-            Self::text(p, "Could not tune that channel", r.x + 30.0, r.y + r.h - 50.0, theme::size::CAPTION, theme::TEXT_PRIMARY, 0, r.w - 40.0);
-        }
     }
     fn render(&self) -> RenderStrategy {
         RenderStrategy::Page

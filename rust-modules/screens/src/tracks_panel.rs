@@ -1171,6 +1171,13 @@ impl<H: crate::registry::AppLike> plx_machine::machine::Machine<H> for TracksPan
                     fx.push(Fx::Nav(NavOp::Dismiss(self.entry)));
                     Handled::Yes
                 }
+                // Amber: a key the panel does not know (a universal remote's BACK can arrive under a
+                // code of its own) closes it rather than being swallowed - a modal that eats every
+                // key it does not recognise is a dead end with no way out.
+                InputKind::Key { key: Key::Other, edge: Edge::Down, .. } => {
+                    fx.push(Fx::Nav(NavOp::Dismiss(self.entry)));
+                    Handled::Yes
+                }
                 InputKind::Key {
                     sym,
                     edge: Edge::Down | Edge::Repeat,

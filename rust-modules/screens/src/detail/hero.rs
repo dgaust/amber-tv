@@ -52,6 +52,8 @@ pub const ELEM_VERSION: u32 = 7;
 /// `show_rk`), never on a show's page, whose hero is already about the show.
 pub const ELEM_GO_TO_SHOW: u32 = 8;
 pub const ELEM_MORE: u32 = 9;
+/// Amber: the About disc - the whole synopsis, when the hero's three lines cut it.
+pub const ELEM_ABOUT: u32 = 10;
 
 /// The hero's one focus group. Local to this screen — nothing outside `screens::detail` ever names
 /// it — so, like `screens::profiles`'s `ROSTER_GROUP`/`FOOTER_GROUP`, any small integer would do;
@@ -127,6 +129,8 @@ pub enum HeroCtl {
     Version,
     /// The remaining item actions, through the shared item menu.
     More,
+    /// Amber: the whole synopsis (`about_panel`), present only while the hero's three lines cut it.
+    About,
 }
 
 impl HeroCtl {
@@ -143,6 +147,7 @@ impl HeroCtl {
             HeroCtl::GoToShow => ELEM_GO_TO_SHOW,
             HeroCtl::Version => ELEM_VERSION,
             HeroCtl::More => ELEM_MORE,
+            HeroCtl::About => ELEM_ABOUT,
         }
     }
     /// The inverse of [`elem`](Self::elem) — `None` for any `u32` outside the ten identities
@@ -160,6 +165,7 @@ impl HeroCtl {
             ELEM_GO_TO_SHOW => Some(HeroCtl::GoToShow),
             ELEM_VERSION => Some(HeroCtl::Version),
             ELEM_MORE => Some(HeroCtl::More),
+            ELEM_ABOUT => Some(HeroCtl::About),
             _ => None,
         }
     }
@@ -185,6 +191,8 @@ pub struct HeroSet {
     pub alt: bool,
     pub mark: PosterMark,
     pub more: bool,
+    /// Amber: the synopsis is longer than the hero shows
+    pub about: bool,
 }
 
 /// The row's controls, in drawn order, for a given set. A fixed [`MAX_CTLS`]-slot array plus a
@@ -224,6 +232,7 @@ pub fn hero_ctls(set: HeroSet) -> ([HeroCtl; MAX_CTLS], usize) {
         n += 1;
     }
     if set.more { v[n] = HeroCtl::More; n += 1; }
+    if set.about { v[n] = HeroCtl::About; n += 1; }
     if set.alt {
         v[n] = HeroCtl::Alt;
         n += 1;
@@ -441,7 +450,7 @@ fn control_widths(set: HeroSet, cw: HeroWidths) -> ([f32; MAX_CTLS], usize) {
             HeroCtl::Alt => cw.alt,
             HeroCtl::Restart => cw.disc[0],
             // no verb to unfurl: a circle at every instant
-            HeroCtl::Watchlist | HeroCtl::More => CD,
+            HeroCtl::Watchlist | HeroCtl::More | HeroCtl::About => CD,
             HeroCtl::Trailer => cw.disc[1],
             HeroCtl::MarkWatched | HeroCtl::MarkUnwatched => cw.disc[2],
             HeroCtl::Version => cw.disc[3],
@@ -1147,7 +1156,7 @@ mod tests {
                             HeroCtl::Alt => cw.alt,
                             HeroCtl::Restart => cw.disc[0],
                             HeroCtl::Trailer => cw.disc[1],
-                            HeroCtl::Watchlist | HeroCtl::More => CD,
+                            HeroCtl::Watchlist | HeroCtl::More | HeroCtl::About => CD,
                             HeroCtl::MarkWatched | HeroCtl::MarkUnwatched => cw.disc[2],
                             HeroCtl::Version => cw.disc[3],
                             HeroCtl::GoToShow => cw.disc[4],

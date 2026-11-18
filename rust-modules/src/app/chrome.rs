@@ -57,6 +57,7 @@ fn strip_entries(directory: DirectoryView<'_>) -> Vec<(u32, String)> {
         .filter(|id| editing || !l.sidebar_hidden.contains(id))
         .filter_map(|id| all.iter().find(|(_, x)| x == id).cloned())
         .collect();
+    out.push((widgets::TAB_KEY_SETTINGS, "settings".to_owned()));
     out.push((widgets::TAB_KEY_EDIT, "edit".to_owned()));
     out
 }
@@ -77,7 +78,7 @@ pub(crate) fn begin_edit(directory: DirectoryView<'_>) {
     // The whole current arrangement becomes the order being edited, so a step moves past
     // entries the file never named.
     let order: Vec<String> = { EDITING.with(|e| e.set(true)); strip_entries(directory) }
-        .into_iter().map(|(_, id)| id).filter(|id| id != "edit").collect();
+        .into_iter().map(|(_, id)| id).filter(|id| id != "edit" && id != "settings").collect();
     plx_data::layout::update(|l| l.sidebar_order = order);
     bump();
 }
@@ -214,6 +215,7 @@ impl ChromeSnapshot {
             let editing = editing();
             self.faces = self.keys.iter().map(|&key| match key {
                 widgets::TAB_KEY_EDIT => TabFace::Entry(Icon::More, if editing { "Done editing".into() } else { "Edit sidebar".into() }),
+                widgets::TAB_KEY_SETTINGS => TabFace::Entry(Icon::Settings, "Settings".into()),
                 widgets::TAB_KEY_LIVETV if !(editing && hidden("livetv")) => TabFace::Entry(Icon::LiveTv, "Live TV".into()),
                 key if editing && id_of_key(directory, key).is_some_and(|id| hidden(&id)) => {
                     let base = match key {

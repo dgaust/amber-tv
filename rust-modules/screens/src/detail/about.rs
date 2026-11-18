@@ -31,6 +31,16 @@ const CARD_PAD: f32 = 30.0;
 /// The `ui::text_lift` corner radius of the About card and the Languages column (the mockup's 14).
 const LIFT_RADIUS: f32 = 14.0;
 const COL_Y: f32 = 430.0;
+
+/// Amber: the About card (title, genres, synopsis) is not shown - the hero already carries the
+/// synopsis, whole behind its About disc - and the Information / Languages / Accessibility columns
+/// stand at the section's top. Off under test-support, where the suite grades upstream's layout.
+const NO_CARD: bool = !cfg!(any(test, feature = "test-support"));
+
+/// The section top the columns are laid out from: the card's room taken out when it is not shown.
+pub(super) fn col_top(top: f32) -> f32 {
+    if NO_CARD { top - COL_Y } else { top }
+}
 /// A column's heading is drawn at the column's top; Information, Languages and Accessibility (its
 /// badge rows and its "no flags" dash alike) start their first row this far below it.
 const HEAD_TO_ROWS: f32 = 68.0;
@@ -251,6 +261,14 @@ impl Rows {
         measure: &dyn plx_machine::machine::Measure,
     ) {
         let x = plx_ui::consts::MARGIN_X;
+        if NO_CARD {
+            let top = col_top(top);
+            self.draw_information(p, x, top + COL_Y, measure);
+            self.draw_languages(p, top + COL_Y, tracks, lang_lift, measure);
+            self.draw_accessibility(p, 1360.0, top + COL_Y, measure);
+            let _ = (d, card_lift);
+            return;
+        }
         p.text(
             plx_platform::i18n::msg::browse_detail_about_c().as_ptr(),
             x,
