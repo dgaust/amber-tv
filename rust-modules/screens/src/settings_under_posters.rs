@@ -54,7 +54,9 @@ use crate::registry::tile_facts;
 /// The stored setting as the UI's caption policy. The mapping lives here, not in `plx_plex`: the
 /// data layer must not name the UI layer (the parts themselves are the one `plx_base` type both read).
 pub fn caption_policy_of(v: UnderPosters) -> CaptionPolicy {
-    CaptionPolicy { title: v.title, details: v.details, show_details: v.show_details }
+    // Amber: the title is always under a poster
+    let title = v.title || plx_ui::caption_policy::CAPTIONS_ALWAYS;
+    CaptionPolicy { title, details: v.details, show_details: v.show_details }
 }
 
 impl PosterKind {

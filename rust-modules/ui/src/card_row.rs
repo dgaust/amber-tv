@@ -609,7 +609,7 @@ impl CardRow {
     /// ([`crate::cards::SectionFrame::below_rise`]). Chain it onto the `TileLabel` of the focused card.
     #[inline]
     pub fn reveal(&self, label: TileLabel, rise: f32) -> TileLabel {
-        label.revealed(self.band_h(), self.band.pos, rise)
+        label.revealed(self.band_h(), if crate::caption_policy::CAPTIONS_ALWAYS { 1.0 } else { self.band.pos }, rise)
     }
 }
 
@@ -1214,6 +1214,23 @@ impl TileLabel {
     /// (grid) or heading (shelf) directly below the band is DRAWN above where the layout rests it
     /// (0 when it rests: a caller that passes 0 says what is below is not lifted); see
     /// [`line_reveal_for`] for the rule. The ONE rule for a shelf and a grid alike.
+    /// Amber: an unfocused card's caption, each line cut with an ellipsis to the tile's width `w`
+    /// and kept within the tile, so the captions of neighbouring cards never run into each other
+    /// (the focused card's may still reach wider and glide).
+    pub fn fitted_to(mut self, w: f32, measure: &dyn plx_machine::machine::Measure) -> Self {
+        let (tsz, tbold) = self.title_face.map_or((theme::size::LABEL, true), |f| (f.size, f.bold));
+        if let Some(t) = self.title.take() {
+            let run = measure.fit_line(&t.to_string_lossy(), w, tsz, tbold);
+            self.title = Some(run.as_ref().to_owned());
+        }
+        if let Some(c) = self.caption.take() {
+            let run = measure.fit_line(&c.to_string_lossy(), w, theme::size::CAPTION, false);
+            self.caption = Some(run.as_ref().to_owned());
+        }
+        self.within_tile = true;
+        self
+    }
+
     pub fn revealed(mut self, band_h: f32, e: f32, rise: f32) -> Self {
         self.reveal = Some(BandOpen { band_h, e, rise });
         self
@@ -1599,8 +1616,12 @@ pub const UNDER_LABEL_H: f32 = TileLabel::block_h(true);
 /// this constant is whatever is left of it once `consts::UNDER_LABEL_AIR` (already inside the pitch,
 /// below the block) is taken out. Authoring the 18 directly would be a number nobody could check;
 /// authoring the rung makes the claim falsifiable, and the test beside it does.
-pub const LABEL_BAND_COLLAPSED: f32 =
-    crate::theme::space::LG - crate::consts::UNDER_LABEL_AIR;
+pub const LABEL_BAND_COLLAPSED: f32 = if crate::caption_policy::CAPTIONS_ALWAYS {
+    // Amber: every row keeps the room of a two-line caption, focused or not
+    crate::caption_policy::BAND_TWO_LINES - crate::consts::UNDER_LABEL_AIR
+} else {
+    crate::theme::space::LG - crate::consts::UNDER_LABEL_AIR
+};
 
 /// The label band a shelf reserves at expansion `e` (0 collapsed → 1 focused) — **the ONE
 /// expression every screen's row pitch is built from**, so Home, the Library, Search and the person

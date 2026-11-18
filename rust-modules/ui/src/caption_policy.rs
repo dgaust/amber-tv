@@ -42,6 +42,16 @@
 pub use plx_base::detail_parts::{DetailPart, DetailParts};
 use plx_platform::i18n::LocaleContext;
 
+/// **Amber: every poster's caption is shown, and every row reserves its room.** Upstream opens a
+/// band under the FOCUSED row only, which slid the rows below it down as focus arrived; Amber's
+/// owner asked for titles under every poster and nothing moving (2026-11-18). The collapsed gap is
+/// the two-line band ([`crate::card_row::LABEL_BAND_COLLAPSED`]), so a focused row grows by
+/// nothing, and every card draws its label.
+///
+/// Off under `test-support`: the host suites grade upstream's focused-band geometry, which is
+/// still the code path; the simulator and the television build run with it on.
+pub const CAPTIONS_ALWAYS: bool = !cfg!(any(test, feature = "test-support"));
+
 /// Band height with nothing to show.
 pub const BAND_NONE: f32 = 0.0;
 /// Band height for one caption line.

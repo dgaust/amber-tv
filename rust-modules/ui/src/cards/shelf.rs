@@ -1003,7 +1003,10 @@ impl Shelf {
             a if a < 1.0 => pr.alpha(a),
             _ => pr,
         };
-        let label = focused.then(|| self.focused_label(src, i, at));
+        let label = (focused || crate::caption_policy::CAPTIONS_ALWAYS).then(|| {
+            let label = self.focused_label(src, i, at);
+            if focused { label } else { label.fitted_to(self.style.w, f.measure) }
+        });
         if focused {
             #[cfg(feature = "devtriggers")]
             crate::card_probe::begin_card();
@@ -1017,7 +1020,7 @@ impl Shelf {
         }
         let tile = Tile { rect, scale: s, radius: self.style.tile_radius(rect, s), focused, pop: super::pop_progress(s, i, self.entry, src, f.cx, self.style.focus_scale) };
         src.compose(pr, i, &tile, f.measure, label.as_ref(), |paint, label| {
-            if focused { card_row::draw_label(paint, rect, s, &self.style, label, f.measure); }
+            if focused || crate::caption_policy::CAPTIONS_ALWAYS { card_row::draw_label(paint, rect, s, &self.style, label, f.measure); }
         });
     }
 

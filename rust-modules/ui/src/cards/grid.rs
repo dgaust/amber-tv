@@ -1039,7 +1039,9 @@ impl Grid {
         }
         // Cull before asking the source for any words. A value line has a fixed reach;
         // a focused/closing legacy caption reserves the same room whether its words are empty.
-        let open = if focused {
+        let open = if crate::caption_policy::CAPTIONS_ALWAYS {
+            Some(1.0)
+        } else if focused {
             Some(bands.iter().find(|band| band.row == i / self.spec.cols).map_or(0.0, |band| band.expansion))
         } else {
             self.bands.closing().find(|&(row, card, _)| card == i && row == i / self.spec.cols)
@@ -1055,7 +1057,8 @@ impl Grid {
         let label = if self.spec.value_line { None } else {
             open.map(|open| {
                 let label = if focused && self.caption_held() { super::TileLabel::default() } else { src.label(i) };
-                label.revealed(self.band_h(), open, self.rise_below(cards, f.cx, src, i, bands))
+                let label = label.revealed(self.band_h(), open, self.rise_below(cards, f.cx, src, i, bands));
+                if focused { label } else { label.fitted_to(self.spec.style.w, f.measure) }
             })
         };
         // an arriving card fades in
