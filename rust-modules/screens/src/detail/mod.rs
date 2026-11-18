@@ -65,6 +65,11 @@ use super::registry::{AppFx, AppMsg, ContentArg, ContentLike, ContentReq, PageMe
 /// top of the local space (two ids each, see `episodes.rs`). Engine keys are interned from
 /// `FIRST_ITEM_ELEM`, above every local block, and stay below `dispatch::STRIP_BASE`.
 const SECTION_BLOCK: u32 = 1 << 24;
+
+/// Amber's detail page (off under test-support, where the suite grades upstream's): an episode is
+/// one stop (its still: OK plays it), never its text; the About section holds only the Languages
+/// MORE, and is no stop at all without one.
+const AMBER: bool = !cfg!(any(test, feature = "test-support"));
 const FIRST_ITEM_ELEM: u32 = 1 << 31;
 
 const SECTION_GAP: f32 = theme::space::XL;
@@ -1413,7 +1418,7 @@ impl DetailScreen {
                 let index = Self::episode_to_seat(d, intent)?;
                 episodes::elem(
                     index,
-                    if intent.spot.ep_text {
+                    if intent.spot.ep_text && !AMBER {
                         episodes::Row::Text
                     } else {
                         episodes::Row::Still
@@ -1598,6 +1603,9 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
                 }),
                 5 => {
                     let tracks = self.tracks_available(meta);
+                    // Amber: nothing to stop on without the Languages MORE - no group, so a move
+                    // down cannot land on the hidden card and fall back to the top of the page
+                    if AMBER && !tracks { continue; }
                     out.push(GroupSpec {
                         id: about::ABOUT_GROUP,
                         kind: GroupKind::Column,
@@ -1615,7 +1623,7 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
                             plx_ui::consts::SCR_W - 2.0 * plx_ui::consts::MARGIN_X,
                             plx_ui::consts::SCR_H - plx_ui::detail_layout::TOP_MARGIN,
                         ),
-                        len: 1 + usize::from(tracks),
+                        len: if AMBER { usize::from(tracks) } else { 1 + usize::from(tracks) },
                         elem: ElemKind::Control,
                     });
                 }
@@ -1661,7 +1669,7 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
                 Dir::Right if self.detail(meta).is_some_and(|d| d.episodes.get(i + 1).is_some()) => {
                     episodes::elem(i + 1, row)
                 }
-                Dir::Down if row == episodes::Row::Still => episodes::elem(i, episodes::Row::Text),
+                Dir::Down if row == episodes::Row::Still && !AMBER => episodes::elem(i, episodes::Row::Text),
                 Dir::Up if row == episodes::Row::Text => episodes::elem(i, episodes::Row::Still),
                 _ => None,
             },
@@ -1941,7 +1949,7 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
             );
             // column-from-x snaps to the nearest loaded index: a hole has no cell to seat on
             let i = d.and_then(|d| d.episodes.nearest_loaded(i)).unwrap_or(i);
-            let row = if d.is_some_and(|d| {
+            let row = if !AMBER && d.is_some_and(|d| {
                 from.rect.cy() > self.section_top_settled(2, d, measure) - self.scroll_target + self.block_h(2, d, measure)
             }) {
                 episodes::Row::Text
@@ -1971,6 +1979,8 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Focusable<H> f
                 Some(key) => return key,
                 None => cast::CAST_ELEM_RANGE_START,
             }
+        } else if AMBER {
+            about::LANGUAGES_ELEM
         } else {
             about::CARD_ELEM
         };
@@ -1994,6 +2004,7 @@ impl DetailScreen {
                 hero::focusable(c, self.full_trailer()) && hero::index_of(self.hero_set(meta), c).is_some()
             }
             Located::Season(i) => d.is_some_and(|d| i < d.seasons.len()),
+            Located::Episode(_, episodes::Row::Text) if AMBER => false,
             Located::Episode(i, _) => d.is_some_and(|d| d.episodes.get(i).is_some()),
             Located::Related(i) => d.is_some_and(|d| i < d.related.len()),
             Located::Extras(i) => d.is_some_and(|d| i < extras::len(d)),

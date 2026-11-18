@@ -1823,7 +1823,12 @@ impl HomeScreen {
         let mut flow = 0.0;
         for (shelf, hub) in self.grid.shelves.iter_mut().zip(rows) {
             shelf.set_base_y(top + flow - self.grid.scroll_y.pos * self.snap.pos);
-            flow += style_of(&hub.identity).pitch_fixed() + shelf.under_band();
+            // Amber: the stills keep the bare gap, as `ShelfColumn::top` (the rest rule) counts it -
+            // the two must agree or the row under the stills rests partly below the screen
+            let bare = if hub.identity == HomeHubIdentity::ContinueWatching {
+                ui_cards::LABEL_BAND_COLLAPSED_BARE - ui_cards::LABEL_BAND_COLLAPSED
+            } else { 0.0 };
+            flow += style_of(&hub.identity).pitch_fixed() + shelf.under_band() + bare;
         }
     }
 

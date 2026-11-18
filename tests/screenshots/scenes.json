@@ -2268,6 +2268,32 @@
           "size": "1920x1080"
         }
       ]
+    },
+    {
+      "name": "amber-cap-long",
+      "state": "Amber: amber-cap-long",
+      "triggers": {
+        "library": "0"
+      },
+      "remote": [
+        [
+          3.5,
+          "down"
+        ],
+        [
+          4.2,
+          "down"
+        ]
+      ],
+      "after_ms": 7000,
+      "settle_ms": 800,
+      "expect": [],
+      "outputs": [
+        {
+          "file": "amber-cap-long.jpg",
+          "size": "1920x1080"
+        }
+      ]
     }
   ]
 }

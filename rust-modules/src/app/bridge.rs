@@ -1618,6 +1618,15 @@ impl Bridge {
         if now <= 0 { return; }
         let top = d.nav.top_page().map(|e| e.id).filter(|_| d.top_arg() == Some(&AppArg::LiveTv));
         crate::app::livetv::tick(now, top.is_some());
+        // the tuning screen comes and goes with the tune: repaint on either edge
+        {
+            thread_local! { static WAS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+            let tuning = crate::app::livetv::tuning_label().is_some();
+            if WAS.with(|w| w.replace(tuning)) != tuning {
+                d.present.note_in_scope(plx_machine::present::Scope::Page,
+                    plx_machine::present::PresentEvent::Damage(plx_machine::present::Provenance::Lifecycle));
+            }
+        }
         crate::app::livetv::publish_on_now(now);
         crate::app::livetv::keepalive(crate::app::clock::unix_ms().unwrap_or(0) as u64);
         let Some(id) = top else { return };
@@ -3491,6 +3500,23 @@ impl Rig<AppHost> for Bridge {
             p.rrect(cap, h * 0.5, h * 0.5, plx_ui::theme::scrim(0.72));
             let y = plx_gfx::text::text_vcenter_y(sz, 0, cy);
             p.text(clock.as_ptr(), cap.x + cap.w * 0.5, y, sz, plx_ui::theme::CLOCK_INK, 1, 0);
+        }
+        // Amber: a tune answers at once - the server takes a few seconds to find the channel, and
+        // the screen says so over whatever page asked, until the player takes over.
+        if let Some((channel, programme)) = crate::app::livetv::tuning_label() {
+            let q = plx_ui::Painter::root();
+            let (w, h) = (plx_ui::consts::SCR_W, plx_ui::consts::SCR_H);
+            q.rect(plx_ui::Rect::new(0.0, 0.0, w, h), 0.0, plx_ui::theme::scrim(0.88), plx_ui::theme::scrim(0.88), 0.0);
+            let line = |s: String, y: f32, size, ink, bold| {
+                if let Ok(c) = std::ffi::CString::new(s) {
+                    q.text(c.as_ptr(), w * 0.5, y, size, ink, 1, bold);
+                }
+            };
+            line(format!("Tuning {channel}\u{2026}"), h * 0.5 - 40.0, plx_ui::theme::size::TITLE, plx_ui::theme::TEXT_PRIMARY, 1);
+            if !programme.is_empty() {
+                line(programme, h * 0.5 + 20.0, plx_ui::theme::size::BODY, plx_ui::theme::TEXT_SECONDARY, 0);
+            }
+            line("Live TV".to_owned(), h * 0.5 - 100.0, plx_ui::theme::size::CAPTION, plx_ui::theme::RAIL_CURRENT, 1);
         }
     }
     /// The chip's DRAWN rect: `chip_cap` at the strip's live unfurl and the captured name's width,

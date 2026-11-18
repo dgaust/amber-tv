@@ -1058,7 +1058,7 @@ impl Grid {
             open.map(|open| {
                 let label = if focused && self.caption_held() { super::TileLabel::default() } else { src.label(i) };
                 let label = label.revealed(self.band_h(), open, self.rise_below(cards, f.cx, src, i, bands));
-                if focused { label } else { label.fitted_to(self.spec.style.w, f.measure) }
+                if focused { super::TileLabel { within_tile: true, ..label } } else { label.fitted_to(self.spec.style.w, f.measure) }
             })
         };
         // an arriving card fades in

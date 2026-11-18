@@ -261,3 +261,17 @@ pub(crate) fn keepalive(now_ms: u64) {
 fn short(id: &str) -> &str {
     &id[..id.len().min(13)]
 }
+
+/// Amber: while a tune is in flight (and until its session is handed to the player), the channel's
+/// name and what it is airing, for the tuning screen (`Bridge::draw_chrome`).
+pub(crate) fn tuning_label() -> Option<(String, String)> {
+    with(|s| {
+        let id = s.tuning.clone()?;
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+        let channel = s.channels.iter().find(|c| c.id == id).map(|c| c.title.clone()).unwrap_or_default();
+        let programme = s.grid.iter().find(|p| p.channel == id && p.begins <= now && now < p.ends)
+            .map(|p| if p.subtitle.is_empty() { p.title.clone() } else { format!("{} \u{b7} {}", p.title, p.subtitle) })
+            .unwrap_or_default();
+        Some((channel, programme))
+    })
+}

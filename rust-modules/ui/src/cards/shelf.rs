@@ -1005,7 +1005,9 @@ impl Shelf {
         };
         let label = (focused || crate::caption_policy::CAPTIONS_ALWAYS).then(|| {
             let label = self.focused_label(src, i, at);
-            if focused { label } else { label.fitted_to(self.style.w, f.measure) }
+            // Amber: with every card captioned, the focused one keeps to its own tile as well (a long
+            // title glides inside it) so it never runs over its neighbours' captions
+            if focused { super::TileLabel { within_tile: true, ..label } } else { label.fitted_to(self.style.w, f.measure) }
         });
         if focused {
             #[cfg(feature = "devtriggers")]
