@@ -57,7 +57,7 @@ fn strip_entries(directory: DirectoryView<'_>) -> Vec<(u32, String)> {
         .filter(|id| editing || !l.sidebar_hidden.contains(id))
         .filter_map(|id| all.iter().find(|(_, x)| x == id).cloned())
         .collect();
-    out.push((widgets::TAB_KEY_SETTINGS, "settings".to_owned()));
+    // (Settings is reached through the profile chip at the top of the sidebar, not an entry here.)
     out.push((widgets::TAB_KEY_EDIT, "edit".to_owned()));
     out
 }
