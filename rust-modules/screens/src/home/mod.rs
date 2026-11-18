@@ -436,7 +436,7 @@ impl Backdrop {
         snap: f32,
     ) {
         let resolve = |h: Option<HeroRef<'_>>| {
-            h.map(|h| plx_ui::widgets::resolve_tex_wh_on(h.item.sid.raw(), &h.item.art, 1280, 720, 0))
+            h.map(|h| plx_ui::widgets::resolve_tex_wh_on(h.item.sid.raw(), billboard_art(h.item), 1280, 720, 0))
                 .unwrap_or((0, 0.0, 0.0))
         };
         let changed = match (self.keyed.as_ref(), selected) {
@@ -444,7 +444,7 @@ impl Backdrop {
             (None, None) => false,
             _ => true,
         };
-        let art_of = |h: Option<HeroRef<'_>>| h.map(|h| (h.item.sid.raw(), h.item.art.clone()));
+        let art_of = |h: Option<HeroRef<'_>>| h.map(|h| (h.item.sid.raw(), billboard_art(h.item).to_owned()));
         if changed {
             // A replacement in place (no slide carries an outgoing hero) holds the picture that was
             // showing beneath the new one; a flip, or a first selection, holds nothing.
@@ -465,8 +465,8 @@ impl Backdrop {
             self.outgoing_tex = (0, 0.0, 0.0);
         }
         self.pending_art.clear();
-        if let Some(h) = hero.filter(|h| snap < HERO_ART_CULL && self.tex.0 == 0 && !h.item.art.is_empty()) {
-            self.pending_art.push_str(&h.item.art);
+        if let Some(h) = hero.filter(|h| snap < HERO_ART_CULL && self.tex.0 == 0 && !billboard_art(h.item).is_empty()) {
+            self.pending_art.push_str(billboard_art(h.item));
         }
 
         if changed {
@@ -1489,6 +1489,8 @@ impl HomeScreen {
         (0..view.hero_count())
             .filter_map(|i| view.hero(i))
             .find(|h| Self::same_item(h.item, identity))
+            // Amber: the billboard shows whichever card has focus
+            .or_else(|| view.find(identity.0, &identity.1).map(|item| HeroRef { item, source: "" }))
     }
 
     fn first_hero(view: HubsView<'_>) -> Option<HeroRef<'_>> {
@@ -1611,7 +1613,7 @@ impl HomeScreen {
         ))
     }
 
-    /// Amber: the first row's first card, where focus goes in place of the billboard.
+        /// Amber: the first row's first card, where focus goes in place of the billboard.
     fn first_card_key(&self) -> Option<FocusKey<u32>> {
         let mut best: Option<(u32, u32)> = None;
         for (&elem, &(row, col)) in &self.elem_at {
@@ -1983,7 +1985,7 @@ impl HomeScreen {
             // countdown here and restart it exactly once when the last surface is dismissed.
         } else if self.hero_pinned {
             // Held by `HomeCmd::PinHero`: no countdown, no flip.
-        } else if self.snap.pos < 0.05 && view.hero_count() > 1 {
+        } else if BILLBOARD_TURNS && self.snap.pos < 0.05 && view.hero_count() > 1 {
             // Spelled as an assignment, not `-= dt`: bit-for-bit identical arithmetic to the
             // pre-D4 accumulator, deliberately UNCHANGED — `hero_auto` is HASHED `LogicalState`
             // (`SHAPE`'s `hero_auto:f32`) across three committed replay fixtures, and a
@@ -2056,6 +2058,14 @@ impl HomeScreen {
         let grid_item = self
             .focused_grid(visible_focus)
             .and_then(|(r, c)| self.item_at(view, r, c));
+        // Amber: the billboard is the focused card's: no slide, the art dissolves across
+        if let Some(item) = grid_item {
+            let id = (item.sid, item.rk.clone());
+            if self.carousel.as_ref() != Some(&id) {
+                self.carousel = Some(id);
+                self.outgoing = None;
+            }
+        }
         let selected = self.selected_hero(view);
         let outgoing = self.outgoing_hero(view);
         self.backdrop.update(
@@ -2114,7 +2124,7 @@ impl HomeScreen {
         );
         let neighbours = || order[..count].iter().filter_map(|&i| view.hero(i as usize));
         for hero in neighbours() {
-            plx_ui::widgets::resolve_tex_wh_on(hero.item.sid.raw(), &hero.item.art, 1280, 720, 0);
+            plx_ui::widgets::resolve_tex_wh_on(hero.item.sid.raw(), billboard_art(hero.item), 1280, 720, 0);
         }
         if !(prefetch_armed(self.snap.pos, self.outgoing.is_some())
             && plx_ui::tex::source_idle())
@@ -4248,6 +4258,15 @@ fn hero_line(hero: &PmsMovie) -> Option<HeroLine<'_>> {
 
 /// **Home's hero text** (owner's board CW-13 v2): the title (clearLogo, or its typed fallback) and ONE
 /// metadata block beneath it. The identity band is one line in reading ink. A premise can wrap.
+/// Amber: the billboard follows focus instead of turning over by itself (owner, 2026-11-18).
+const BILLBOARD_TURNS: bool = false;
+
+/// Amber: the billboard's picture - the title's fan art (for an episode, its show's), else the
+/// episode's still, else its thumbnail.
+fn billboard_art(item: &PmsMovie) -> &str {
+    if !item.art.is_empty() { &item.art } else if !item.still.is_empty() { &item.still } else { &item.thumb }
+}
+
 fn hero_content(hero: &PmsMovie, p: Painter, dx: f32, measure: &dyn Measure) {
     if !on_axis(
         MARGIN_X + dx,

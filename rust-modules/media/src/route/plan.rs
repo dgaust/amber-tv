@@ -1301,6 +1301,10 @@ pub(super) fn refusal(mc: &plx_plex::plex::MediaContainer) -> Option<String> {
 /// Fresh opaque session id per playback. Reads the kernel UUID (the TV is Linux); falls
 /// back to a ratingKey + monotonic-counter token if that read fails.
 pub(super) fn new_sess(rk: &str) -> String {
+    // Amber: a tuned live session plays under the session it was tuned with.
+    if let Some(id) = plx_plex::plex::livetv::playback_session_for(rk) {
+        return id;
+    }
     if let Ok(u) = std::fs::read_to_string("/proc/sys/kernel/random/uuid") {
         let t = u.trim();
         if !t.is_empty() {

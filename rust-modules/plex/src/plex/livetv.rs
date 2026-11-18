@@ -166,13 +166,35 @@ pub fn parse_tune(body: &[u8]) -> Option<String> {
     find(&v)
 }
 
-/// A fresh playback session id for one tune: 32 hex digits from the clock and a counter.
+/// A fresh playback session id for one tune, uuid-shaped (the kernel's, where there is one).
 fn session_id() -> String {
+    if let Ok(u) = std::fs::read_to_string("/proc/sys/kernel/random/uuid") {
+        let t = u.trim();
+        if !t.is_empty() { return t.to_string(); }
+    }
     use std::sync::atomic::{AtomicU64, Ordering};
     static N: AtomicU64 = AtomicU64::new(0);
     let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64);
     let n = N.fetch_add(1, Ordering::Relaxed);
-    format!("{:016x}{:016x}", t, n.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ t.rotate_left(17))
+    let h = format!("{:016x}{:016x}", t, n.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ t.rotate_left(17));
+    format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32])
+}
+
+static SESSIONS: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
+
+fn remember_session(path: &str, id: &str) {
+    let mut s = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+    s.retain(|(p, _)| p != path);
+    s.push((path.to_owned(), id.to_owned()));
+    let n = s.len();
+    if n > 8 { s.drain(..n - 8); }
+}
+
+/// The playback session a tuned live session was opened under, so the stream that plays it joins
+/// that session instead of starting another (PMS drops a stream whose session never tuned).
+pub fn playback_session_for(path: &str) -> Option<String> {
+    let s = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+    s.iter().rev().find(|(p, _)| p == path).map(|(_, id)| id.clone())
 }
 
 fn enc(x: &str) -> String {
@@ -211,9 +233,11 @@ impl Client {
     /// number, the guide's id...) the server accepts. Every refusal is in the `Err`, in order.
     pub fn livetv_tune_any(&self, dvr: &str, candidates: &[String]) -> Result<String, String> {
         let mut why = Vec::new();
+        let id = session_id();
         for c in candidates.iter().filter(|c| !c.is_empty()) {
-            match self.livetv_tune(dvr, c) {
+            match self.livetv_tune_as(dvr, c, &id) {
                 Ok(session) => {
+                    remember_session(&session, &id);
                     if !why.is_empty() {
                         plx_base::eventlog::log(&format!("livetv: tune took channel form {c} after: {}", why.join(" | ")));
                     }
@@ -226,10 +250,16 @@ impl Client {
     }
 
     pub fn livetv_tune(&self, dvr: &str, channel: &str) -> Result<String, String> {
+        self.livetv_tune_as(dvr, channel, &session_id())
+    }
+
+    /// Tune under the playback session `id`: the grab belongs to that session, and the stream
+    /// that plays it must name the same one ([`playback_session_for`]).
+    pub fn livetv_tune_as(&self, dvr: &str, channel: &str, id: &str) -> Result<String, String> {
         let path = format!("/livetv/dvrs/{}/channels/{}/tune", enc(dvr), enc(channel));
         // PMS answers a tune without a playback session id with a bare 400 (Plex Web sends
-        // `X-Plex-Session-Identifier` on this POST, and on nothing else of Live TV's).
-        let session = format!("X-Plex-Session-Identifier: {}", session_id());
+        // `X-Plex-Session-Identifier` on this POST, and the same id as the stream's session).
+        let session = format!("X-Plex-Session-Identifier: {id}");
         let reply = self.send(&path, crate::http::Method::Post, &[crate::http::ACCEPT_JSON, &session])
             .ok_or_else(|| format!("no answer (channel {channel})"))?;
         let head = || String::from_utf8_lossy(&reply.body[..reply.body.len().min(160)]).replace('\n', " ");

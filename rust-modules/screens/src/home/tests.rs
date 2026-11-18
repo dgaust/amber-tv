@@ -2817,6 +2817,7 @@ fn parent_read_only_api_projects_engine_focus_without_setters() {
 /// `Present`, whose first-frame `dirty` answers `true` whatever the screen reports — it could not
 /// have failed.
 #[test]
+#[ignore = "Amber: the billboard follows focus and never turns over by itself (owner, 2026-11-18)"]
 fn a_settled_hero_counting_down_lets_the_gate_close_and_still_flips() {
     let _guard = plx_base::testlock::serial();
     let mut state = plx_data::pms::PmsState::default();
@@ -2992,6 +2993,7 @@ fn the_hero_does_not_advance_while_a_modal_covers_home() {
 }
 
 #[test]
+#[ignore = "Amber: the billboard follows focus and never turns over by itself (owner, 2026-11-18)"]
 fn the_hero_countdown_restarts_when_the_last_modal_is_dismissed() {
     let _guard = plx_base::testlock::serial();
     let mut state = plx_data::pms::PmsState::default();
