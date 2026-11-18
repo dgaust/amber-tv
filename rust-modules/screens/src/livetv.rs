@@ -86,7 +86,7 @@ const RULER_H: f32 = 34.0;
 const GRID_Y: f32 = RULER_Y + RULER_H + 10.0;
 const ROW_H: f32 = 84.0;
 const ROW_GAP: f32 = 8.0;
-const CHANNEL_W: f32 = 200.0;
+const CHANNEL_W: f32 = 260.0;
 const CELL_GAP: f32 = 6.0;
 const X0: f32 = LEFT + CHANNEL_W + CELL_GAP;
 /// The guide shows two hours across.
@@ -264,6 +264,21 @@ impl LiveTvScreen {
         p.text(c.as_ptr(), x, y, sz, ink, 0, bold);
     }
 
+    /// `s` over at most two lines `max_w` wide, broken between words; the second line is elided
+    /// when the rest does not fit. A name that fits on one line leaves the second empty.
+    fn two_lines(s: &str, sz: i32, max_w: f32) -> [String; 2] {
+        let fits = |t: &str| CString::new(t).is_ok_and(|c| plx_gfx::text::text_width(c.as_ptr(), sz, 0) <= max_w);
+        if fits(s) {
+            return [s.to_owned(), String::new()];
+        }
+        let words: Vec<&str> = s.split_whitespace().collect();
+        let mut n = 1;
+        while n < words.len() && fits(&words[..=n].join(" ")) {
+            n += 1;
+        }
+        [words[..n.min(words.len())].join(" "), words[n.min(words.len())..].join(" ")]
+    }
+
     fn clock(&self, t: i64) -> String {
         let hm = plx_platform::i18n::local_clock_time(t).unwrap_or([0, 0]);
         // CLDR puts a NARROW no-break space before AM/PM, which the UI faces do not carry
@@ -314,7 +329,7 @@ impl LiveTvScreen {
         let mut meta = s.meta.clone();
         let channel = format!("{} {}", row.number, row.title);
         let timing = if s.begins <= self.now && self.now < s.ends {
-            format!("{} min left", ((s.ends - self.now) + 59) / 60)
+            format!("{}m left", ((s.ends - self.now) + 59) / 60)
         } else {
             format!("{} - {}", self.clock(s.begins), self.clock(s.ends))
         };
@@ -389,8 +404,14 @@ impl LiveTvScreen {
             };
             let tx = if drew { logo.x + logo.w + 12.0 } else { LEFT + 14.0 };
             let tw = LEFT + CHANNEL_W - 10.0 - tx;
-            Self::text(p, &row.number, tx, y + 26.0, theme::size::CAPTION, theme::RAIL_CURRENT, 1, tw);
-            Self::text(p, &row.title, tx, y + 58.0, theme::size::MICRO, theme::TEXT_SECONDARY, 0, tw);
+            // the number, then the name over up to two lines (it was cut after five letters)
+            let [first, second] = Self::two_lines(&row.title, theme::size::MICRO, tw);
+            let name_y = if second.is_empty() { y + 56.0 } else { y + 46.0 };
+            Self::text(p, &row.number, tx, if second.is_empty() { y + 26.0 } else { y + 20.0 }, theme::size::CAPTION, theme::RAIL_CURRENT, 1, tw);
+            Self::text(p, &first, tx, name_y, theme::size::MICRO, theme::TEXT_SECONDARY, 0, tw);
+            if !second.is_empty() {
+                Self::text(p, &second, tx, name_y + 22.0, theme::size::MICRO, theme::TEXT_SECONDARY, 0, tw);
+            }
             for (i, s) in row.slots.iter().enumerate() {
                 if s.ends <= self.window || s.begins >= self.window + WINDOW_S { continue; }
                 let x = self.x_of(s.begins).max(X0);
@@ -411,8 +432,12 @@ impl LiveTvScreen {
                 }
                 let (ink, sub) = if focused { (theme::ACCENT_INK, theme::ACCENT_INK) } else { (theme::TEXT_PRIMARY, theme::TEXT_SECONDARY) };
                 let tw = w - 24.0;
-                // a sliver too narrow to read carries no text at all
-                if tw > 56.0 {
+                // a sliver too narrow to read carries no text at all; a narrow slot carries its
+                // title alone, centred, rather than a title and a squashed time range
+                let tuning_here = focused && (self.model.tuning.as_deref() == Some(row.id.as_str()) || self.model.tune_failed);
+                if tw > 56.0 && tw < 150.0 && !tuning_here {
+                    Self::text(p, &s.title, x + 14.0, y + ROW_H * 0.5, theme::size::CAPTION, ink, if focused { 1 } else { 0 }, tw);
+                } else if tw > 56.0 {
                     Self::text(p, &s.title, x + 14.0, y + 28.0, theme::size::CAPTION, ink, if focused { 1 } else { 0 }, tw);
                     // the tune's state is told quietly, on the focused airing's own second line
                     let line = if focused && self.model.tuning.as_deref() == Some(row.id.as_str()) {
@@ -420,7 +445,7 @@ impl LiveTvScreen {
                     } else if focused && self.model.tune_failed {
                         "Couldn't tune".to_string()
                     } else if focused && s.begins <= self.now && self.now < s.ends {
-                        format!("{} min left", ((s.ends - self.now) + 59) / 60)
+                        format!("{}m left", ((s.ends - self.now) + 59) / 60)
                     } else {
                         format!("{} - {}", self.clock(s.begins), self.clock(s.ends))
                     };

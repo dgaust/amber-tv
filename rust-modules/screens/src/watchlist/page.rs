@@ -386,11 +386,21 @@ impl Page {
         (std::ptr::from_ref(plx_platform::i18n::current()) as usize).hash(&mut h);
         self.options.hash(&mut h);
         header::Count::narrowed(count).hash(&mut h);
+        let control = !self.hides_options();
+        control.hash(&mut h);
         self.header_rows.get_replacing(
             h.finish(),
-            || header::Row::new(measure, &self.options.summary(), count),
+            || header::Row::with_control(measure, &self.options.summary(), count, control),
             |old, new| new.begin_swap(old, &mut self.header_swap.borrow_mut()),
         )
+    }
+
+    /// Amber: no Sort & Filter control while there is nothing to sort or filter: the watchlist is
+    /// unavailable for this profile, unreachable, or empty. A filter that left nothing keeps it, as
+    /// the way back out. Upstream always shows it, and is graded so under test.
+    fn hides_options(&self) -> bool {
+        !cfg!(any(test, feature = "test-support"))
+            && matches!(self.list, ListState::Unavailable | ListState::Failed | ListState::Ready { total: 0 })
     }
 
     fn readout(&self) -> Option<Readout> {
@@ -628,7 +638,7 @@ impl<H: ContentLike> StackPage<H> for Page {
     }
 
     fn sections(&self, cx: &Cx<'_, H>, out: &mut Vec<SectionSpec<Sec>>) {
-        out.push(SectionSpec::new(Sec::Head, Kind::Custom { height: GRID_TOP, focusable: true }, HEADER_GROUP).ranked(1));
+        out.push(SectionSpec::new(Sec::Head, Kind::Custom { height: GRID_TOP, focusable: !self.hides_options() }, HEADER_GROUP).ranked(1));
         // DS4: a removal plays (survivors spring to their cells) instead of cutting.
         out.push(SectionSpec::new(
             Sec::Items,

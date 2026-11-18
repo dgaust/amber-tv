@@ -2272,7 +2272,7 @@
     "description": "Unwatched action for the episode currently presented by the hero."
   },
   "browse.detail.minutes_left": {
-    "value": "{minutes} min left",
+    "value": "{minutes}m left",
     "args": {
       "minutes": "i64"
     },

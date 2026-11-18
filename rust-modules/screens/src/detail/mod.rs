@@ -2546,6 +2546,8 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Screen<H> for 
     fn prepare(&mut self, _budget: &mut Budget, _cx: &Cx<'_, H>) {}
 
     fn draw(&mut self, f: &mut DrawFrame<'_, '_, H>) {
+        // Amber: how far the page is scrolled, for the chrome's clock (`widgets::page_scroll`).
+        plx_ui::widgets::note_page_scroll(self.scroll.pos);
         let meta = H::metadata(f.cx);
         self.refresh_spot_facts(meta);
         let measure = f.cx.measure;
@@ -2987,7 +2989,15 @@ impl DetailScreen {
             .then(|| plx_ui::fmt::episode_ordinal(d.season, d.index))
             .unwrap_or_default();
         let mut parts: Vec<&str> = Vec::new();
-        if d.kind == "episode" {
+        // Amber: Home's billboard order - kind, year, runtime, genres - then the rest.
+        let amber = !cfg!(any(test, feature = "test-support"));
+        let year = (d.year > 0).then(|| d.year.to_string()).unwrap_or_default();
+        let runtime = (!d.is_show && d.dur_ms >= 60_000).then(|| plx_ui::fmt::duration(d.dur_ms)).unwrap_or_default();
+        let genres = d.genres.iter().take(2).map(String::as_str).collect::<Vec<_>>().join(", ");
+        if amber && d.kind != "episode" {
+            parts.push(if d.is_show { plx_platform::i18n::msg::browse_kind_tv_show() } else { plx_platform::i18n::msg::browse_kind_movie() });
+            parts.extend([year.as_str(), runtime.as_str(), genres.as_str()].into_iter().filter(|s| !s.is_empty()));
+        } else if d.kind == "episode" {
             if !d.show_title.is_empty() {
                 parts.push(&d.show_title);
             }

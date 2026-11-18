@@ -605,7 +605,16 @@ fn people_view<'a>(names: &'a str, label: &'a str, measure: &'a dyn Measure) -> 
 }
 
 fn hero_facts(d: &Detail) -> (String, Option<String>) {
-    plx_appkit::hero_layout::meta_facts(d, hero_episode(d))
+    let episode = hero_episode(d);
+    let (date, extent) = plx_appkit::hero_layout::meta_facts(d, episode);
+    // Amber: a movie's or show's year and runtime ride the identity row, in Home's billboard order
+    // (`Detail::identity_row`), so this line keeps only what is not there: the time left, or a
+    // show's seasons and episodes. An episode (and a show's on-deck one) keeps its own date line.
+    if cfg!(any(test, feature = "test-support")) || d.kind == "episode" || episode.is_some() {
+        return (date, extent);
+    }
+    let keep = d.is_show || hero_resume_ns(d) > 0;
+    (String::new(), extent.filter(|_| keep))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

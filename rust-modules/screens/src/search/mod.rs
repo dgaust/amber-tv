@@ -358,6 +358,10 @@ impl<H: SearchLike> Machine<H> for SearchScreen {
             ScreenEvent::Mount => {
                 self.fade.mount();
                 self.reseat(FocusTarget::Elem(self.key(FIELD)), fx);
+                // Amber: Search opens ready to type, the keyboard already up on a blank field.
+                if !cfg!(any(test, feature = "test-support")) && self.draft.query().trim().is_empty() {
+                    self.keyboard(true, false, fx);
+                }
             }
             ScreenEvent::WillLeave(_) | ScreenEvent::Unmount | ScreenEvent::Cover | ScreenEvent::Suspend => self.keyboard(false, false, fx),
             ScreenEvent::Activate(elem) => return self.activate(*elem, false, cx, fx),

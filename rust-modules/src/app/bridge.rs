@@ -3493,7 +3493,11 @@ impl Rig<AppHost> for Bridge {
             .and_then(|hm| plx_platform::i18n::current().time_of_day(hm))
             // CLDR puts a NARROW no-break space before AM/PM, which the UI faces do not carry
             .map(|t| t.replace('\u{202f}', " "));
-        if let Some(clock) = clock.and_then(|c| std::ffi::CString::new(c).ok()) {
+        // ...and it steps aside once the page scrolls, so it never stands over the posters passing
+        // under it: gone over the first 120 px of scroll, back at the page's top.
+        let shown = 1.0 - (plx_ui::widgets::page_scroll() / 120.0).clamp(0.0, 1.0);
+        let p = p.alpha(shown);
+        if let Some(clock) = clock.filter(|_| shown > 0.01).and_then(|c| std::ffi::CString::new(c).ok()) {
             let sz = plx_ui::theme::size::LABEL;
             // On its own dark capsule: a page scrolls its content up under the top right, and a
             // bare clock over a poster would be unreadable.

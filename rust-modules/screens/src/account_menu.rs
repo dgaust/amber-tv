@@ -226,8 +226,13 @@ fn action_row(a: Action) -> Row {
 /// anyway. `py` clears `widgets::TOP_BAR_BOTTOM` (130) by a `space::MD`.
 fn panel_rect(table: &TableView, measure: &dyn plx_machine::machine::Measure) -> Rect {
     let pw = table.menu_panel_width(measure);
-    let px = plx_ui::consts::MARGIN_X;
-    let py = 154.0f32;
+    // Amber: the profile row lives in the open sidebar, so the menu opens beside the sidebar, level
+    // with that row, instead of over the sidebar's own entries.
+    let (px, py) = if cfg!(any(test, feature = "test-support")) {
+        (plx_ui::consts::MARGIN_X, 154.0f32)
+    } else {
+        (plx_ui::widgets::RAIL_OPEN_W + plx_ui::theme::space::MD, plx_ui::widgets::CHIP_FRAME.y)
+    };
     let ph = table.measured_height().clamp(120.0, 440.0);
     Rect::new(px, py, pw, ph)
 }

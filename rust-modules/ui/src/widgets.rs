@@ -2832,6 +2832,28 @@ static PAGE_TRANSITION: std::sync::atomic::AtomicBool = std::sync::atomic::Atomi
 pub fn note_page_transition(on: bool) {
     PAGE_TRANSITION.store(on, std::sync::atomic::Ordering::Relaxed);
 }
+
+/// Amber: how far the page drawn this frame is scrolled from its top, in px. `dispatch` zeroes it
+/// before a page draw and the scrolling page (a card stack, Home's grid, the library grid) notes
+/// its own; a frame that reuses the page's captured image keeps the value its draw left. The chrome
+/// reads it to fade the clock out once content scrolls up beneath it.
+static PAGE_SCROLL_BITS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Note `y`, keeping the frame's largest: a page holds stacks inside it (a shelf, a menu) that
+/// paint after its own scroll with theirs at 0. `reset_page_scroll` starts each page draw at 0.
+pub fn note_page_scroll(y: f32) {
+    let y = y.max(0.0).max(page_scroll());
+    PAGE_SCROLL_BITS.store(y.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Start a page draw's note at 0 (`dispatch`).
+pub fn reset_page_scroll() {
+    PAGE_SCROLL_BITS.store(0f32.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn page_scroll() -> f32 {
+    f32::from_bits(PAGE_SCROLL_BITS.load(std::sync::atomic::Ordering::Relaxed))
+}
 static RAIL_CARRY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Amber: the sidebar's edit mode has the focused entry picked up (it moves with Up/Down).

@@ -2402,6 +2402,7 @@ impl HomeScreen {
         let env = self.env(0.0);
         let focus = self.focused_loc(visible_focus);
         let p = f.painter.alpha(f.page_alpha);
+        plx_ui::widgets::note_page_scroll(self.grid.scroll_y.pos);
         let slide = self.slide_offsets();
         // Re-bind the art to the heroes `slide` is about: an event delivered after this frame's
         // `Tick` (a manual flip) has changed them since `update` ran (`Backdrop::bind`).

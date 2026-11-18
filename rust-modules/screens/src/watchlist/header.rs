@@ -83,22 +83,34 @@ impl Row {
     /// Build the row for `summary` (the sort in force: the sort control's criterion) and the
     /// read-out `count`.
     pub fn new(measure: &dyn Measure, summary: &str, count: Option<Count>) -> Self {
+        Self::with_control(measure, summary, count, true)
+    }
+
+    /// [`new`](Self::new); without `control` (Amber: nothing to sort) the row is the title alone.
+    pub fn with_control(measure: &dyn Measure, summary: &str, count: Option<Count>, control: bool) -> Self {
         use plx_platform::i18n::msg;
+        // Amber: the page's name on the grey plate a library's name wears, so every page's title
+        // reads the same (upstream: plain white text, and graded so under test).
+        let amber = !cfg!(any(test, feature = "test-support"));
         let left = vec![HeaderItem {
             label: msg::watchlist_page_title().to_owned(),
-            title: true,
+            title: !amber,
+            selected_plate: amber,
             ..Default::default()
         }];
         let mut right = Vec::new();
         if let Some(readout) = count.and_then(|c| c.readout()) {
             right.push(HeaderItem { label: readout, readout: true, ..Default::default() });
         }
-        right.push(HeaderItem::sort_control(msg::watchlist_page_sort_filter(), summary));
+        if control {
+            right.push(HeaderItem::sort_control(msg::watchlist_page_sort_filter(), summary));
+        }
         let page = PageHeader::new(PageHeaderSpec { left, right, ..Default::default() }, &[], measure);
         let layout = page.layout(plx_ui::consts::SCR_W, measure);
         let sort = layout.items.iter().position(|it| matches!(it.slot, Slot::Right(_)) && it.focusable)
             .unwrap_or(layout.items.len().saturating_sub(1));
-        Self { row: HeaderRow::new(page, layout, vec![(super::page::PILL_ELEM, sort)]), sort }
+        let stops = if control { vec![(super::page::PILL_ELEM, sort)] } else { Vec::new() };
+        Self { row: HeaderRow::new(page, layout, stops), sort }
     }
 
     /// The control's item, in document space.

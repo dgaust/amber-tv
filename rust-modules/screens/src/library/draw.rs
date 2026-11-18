@@ -109,6 +109,8 @@ impl LibraryScreen {
                 f.page_alpha = parent;
             }),
         });
+        // Amber: how far the grid is scrolled, for the chrome's clock (`widgets::page_scroll`).
+        plx_ui::widgets::note_page_scroll(self.scroll.pos);
         // The page's own top edge once the chrome has tucked away, and then the capsule. They follow
         // the page's one handoff (`scroll_chrome::Handoff`): the capsule is absent until the chrome
         // has gone, so the two live glasses never share a frame. The capsule's rect is measured

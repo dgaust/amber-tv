@@ -1053,6 +1053,7 @@ impl<K: Copy + Eq, P> StackView<'_, K, P> {
     {
         let (s, page) = (self.stack, self.page);
         let p = f.painter.alpha(f.page_alpha);
+        crate::widgets::note_page_scroll(s.scroll.pos);
         for i in 0..s.specs.len() {
             let k = s.specs[i].key;
             let r = s.rect(page, f.cx, i);

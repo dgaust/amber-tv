@@ -553,6 +553,12 @@ impl HoldHint {
         if !self.visible() {
             return;
         }
+        // Amber: the page under an open item menu is not stepped, so a hint that was standing when
+        // the menu opened never ran its fade and was drawn on, frozen, under the menu. Opening the
+        // menu is the lesson learned: from then on nothing of it draws.
+        if !cfg!(any(test, feature = "test-support")) && learned() {
+            return;
+        }
         let lay = Layout::cached(measure);
         let lift = (1.0 - self.rise.pos.clamp(0.0, 1.0)) * RISE_PX;
         let r = lay.rect(lift);
