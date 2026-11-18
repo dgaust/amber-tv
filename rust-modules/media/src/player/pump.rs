@@ -1139,10 +1139,14 @@ fn pump_frame(ps: &mut crate::route::PlaybackSession, pa: &mut super::adapter::P
     // maps its worker token to the current attempt and settles the route, after installation.
     pa.drain_load_outcomes(ps);
     if let Some(attempt) = pa.active_feed_attempt() {
-        let snapshot = super::timeline::TimelineSnapshot::from_feed(
-            ps.readout(),
-            super::duration_ns(ps).unwrap_or(0),
-        );
+        // Amber: a live session's stream has no duration, and a sample without one is not
+        // reported - so PMS heard no timeline for a live grab and ended it after about three
+        // minutes. It reports the position plus an hour, so the session stays "playing".
+        let mut duration = super::duration_ns(ps).unwrap_or(0);
+        if duration <= 0 && crate::route::timeline_identity().is_some_and(|(rk, _)| rk.starts_with("/livetv/")) {
+            duration = ps.readout().raw().playpos_ns.max(0) + 3_600_000_000_000;
+        }
+        let snapshot = super::timeline::TimelineSnapshot::from_feed(ps.readout(), duration);
         pa.publish_timeline(attempt, snapshot);
     }
     // The physical refusal probe precedes a route flight landing that may replace this feed.
