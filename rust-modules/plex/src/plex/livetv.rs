@@ -14,7 +14,7 @@
 use super::Client;
 use serde_json::Value;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct LiveDvr {
     pub key: String,
     pub epg: String,
@@ -22,7 +22,7 @@ pub struct LiveDvr {
     pub mappings: Vec<(String, String, String)>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct LiveChannel {
     pub id: String,
     pub number: String,
@@ -31,7 +31,7 @@ pub struct LiveChannel {
     pub thumb: String,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct LiveProgramme {
     pub channel: String,
     /// Unix seconds.

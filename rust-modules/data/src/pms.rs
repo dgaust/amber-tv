@@ -780,7 +780,9 @@ fn live_row_moved() -> bool {
 
 fn add_live_row(build: &mut HubBuild) {
     let items = LIVE_ROW.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    if items.is_empty() { return; }
+    // not on its own: before the server's rows land it would stand alone at the top and then be
+    // shoved down the page as they arrive around it
+    if items.is_empty() || build.1.is_empty() { return; }
     let start = build.0.len();
     let n = items.len();
     build.0.extend(items.into_iter().map(Arc::new));

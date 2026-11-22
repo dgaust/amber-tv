@@ -19,6 +19,9 @@ struct Shared {
     tuning: Option<String>,
     tune_failed: bool,
     ready: Option<plx_data::pms::PmsMovie>,
+    /// The guide channel of the live session now playing, and the airing its title was last set
+    /// from (`retitle`).
+    playing: Option<(String, i64)>,
 }
 
 static SHARED: Mutex<Option<Shared>> = Mutex::new(None);
@@ -27,7 +30,52 @@ static GEN: AtomicU32 = AtomicU32::new(0);
 
 fn with<R>(f: impl FnOnce(&mut Shared) -> R) -> R {
     let mut g = SHARED.lock().unwrap_or_else(|e| e.into_inner());
-    f(g.get_or_insert_with(Shared::default))
+    f(g.get_or_insert_with(from_cache))
+}
+
+/// The last guide that answered, kept on disk so a launch knows at once that there is Live TV (the
+/// sidebar's entry, Home's On Now row in its place) instead of a few seconds later, when the first
+/// load answers and both arrive and shove the page about. The live load still runs at once and
+/// replaces it.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Cached {
+    saved_at: i64,
+    dvr: Option<LiveDvr>,
+    channels: Vec<LiveChannel>,
+    grid: Vec<LiveProgramme>,
+}
+
+fn cache_path() -> std::path::PathBuf {
+    let dev = std::path::Path::new("/media/developer");
+    if dev.is_dir() {
+        return dev.join(format!("{}-livetv.json", plx_base::paths::app_id()));
+    }
+    plx_base::paths::runtime_dir().join("amber-livetv.json")
+}
+
+fn from_cache() -> Shared {
+    let Some(c) = std::fs::read(cache_path()).ok().and_then(|b| serde_json::from_slice::<Cached>(&b).ok()) else {
+        return Shared::default();
+    };
+    // a week-old guide is no answer to "is there Live TV here" any more
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+    if c.dvr.is_none() || now - c.saved_at > 7 * 86_400 {
+        return Shared::default();
+    }
+    plx_base::eventlog::log(&format!("livetv: guide from the last run — channels={} airings={}", c.channels.len(), c.grid.len()));
+    Shared { status: LiveStatus::Ready, dvr: c.dvr, channels: c.channels, grid: c.grid, ..Shared::default() }
+}
+
+fn save_cache(now: i64) {
+    let bytes = with(|s| serde_json::to_vec(&Cached {
+        saved_at: now, dvr: s.dvr.clone(), channels: s.channels.clone(), grid: s.grid.clone(),
+    }).ok());
+    let Some(bytes) = bytes else { return };
+    let target = cache_path();
+    let tmp = target.with_extension("json.tmp");
+    if std::fs::write(&tmp, bytes).is_ok() {
+        let _ = std::fs::rename(&tmp, &target);
+    }
 }
 
 /// Does the current server have a DVR? (`false` until the first load answers.)
@@ -75,6 +123,7 @@ pub(crate) fn tick(now: i64, active: bool) {
             }
         };
         let had = available();
+        let answered = loaded.is_ok();
         with(|s| {
             s.loading = false;
             s.loaded_at = now;
@@ -90,6 +139,7 @@ pub(crate) fn tick(now: i64, active: bool) {
                 }
             }
         });
+        if answered { save_cache(now); }
         if had != available() { GEN.fetch_add(1, Ordering::Relaxed); }
         plx_base::eventlog::log(&format!("livetv: guide loaded — dvr={} channels={} airings={} first={}",
             available(), with(|s| s.channels.len()), with(|s| s.grid.len()),
@@ -184,6 +234,7 @@ pub(crate) fn tune(channel: String) {
     });
     // the server is read HERE, on the frame thread: a worker reads no statics
     let sid = plx_plex::plex::current_server();
+    let tuned = channel.clone();
     let spawned = std::thread::Builder::new().name("livetv-tune".into()).spawn(move || {
         let client = plx_plex::plex::client();
         let session = client.livetv_tune_any(&dvr.key, &candidates);
@@ -209,7 +260,11 @@ pub(crate) fn tune(channel: String) {
         with(|s| {
             s.tuning = None;
             match item {
-                Some(m) => s.ready = Some(m),
+                Some(m) => {
+                    s.ready = Some(m);
+                    // no airing shown yet: the first `retitle` once it plays names the one on now
+                    s.playing = Some((tuned, 0));
+                }
                 None => s.tune_failed = true,
             }
         });
@@ -222,6 +277,30 @@ pub(crate) fn tune(channel: String) {
 /// A tuned session ready to play, as the row the player starts from.
 pub(crate) fn take_ready() -> Option<plx_data::pms::PmsMovie> {
     with(|s| s.ready.take())
+}
+
+/// Amber: while a live channel plays, keep its title on what is airing. A channel runs on from one
+/// programme to the next and the session does not tell the player; the guide does. When the airing
+/// on now is not the one the title was last set from, the HUD's title becomes "<channel> · <show>"
+/// and its context line the episode's title (or the airing's facts). Cheap: a lookup a frame,
+/// a write only when the airing changes.
+pub(crate) fn retitle(ps: &mut plx_media::route::PlaybackSession, now: i64) {
+    let Some((rk, _)) = plx_media::route::timeline_identity() else { return };
+    if !rk.starts_with("/livetv/sessions/") { return; }
+    let change = with(|s| {
+        let (channel, shown) = s.playing.clone()?;
+        let p = s.grid.iter().find(|p| p.channel == channel && p.begins <= now && now < p.ends)?;
+        if p.begins == shown { return None; }
+        s.playing = Some((channel.clone(), p.begins));
+        let name = s.channels.iter().find(|c| c.id == channel).map(|c| c.title.clone()).unwrap_or_default();
+        let title = if name.is_empty() { p.title.clone() } else { format!("{name} \u{b7} {}", p.title) };
+        let ctx = if p.subtitle.is_empty() { meta_of(p) } else { p.subtitle.clone() };
+        Some((title, ctx))
+    });
+    if let Some((title, ctx)) = change {
+        plx_base::eventlog::log(&format!("livetv: now airing - {title}"));
+        plx_media::route::retitle(ps, &title, &ctx);
+    }
 }
 
 /// Amber: what is airing now on each channel, as Home's "On Now" row (`plx_data::pms::set_live_row`).

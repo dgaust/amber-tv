@@ -8069,6 +8069,15 @@ pub fn source_acodec(ps: &PlaybackSession) -> String {
 pub fn title_cptr(ps: &PlaybackSession) -> *const c_char {
     ps.title.as_ptr()
 }
+/// Amber: a live channel's next airing renames what is playing: the HUD's title and context line
+/// follow the guide rather than staying on the airing the tune began in.
+pub fn retitle(ps: &mut PlaybackSession, title: &str, ctxline: &str) {
+    // SAFETY: the two fixed C buffers, each with its own length.
+    unsafe {
+        plx_base::cbuf::set(ps.title.as_mut_ptr(), ps.title.len(), title);
+        plx_base::cbuf::set(ps.ctxline.as_mut_ptr(), ps.ctxline.len(), ctxline);
+    }
+}
 pub fn ctxline_cptr(ps: &PlaybackSession) -> *const c_char {
     ps.ctxline.as_ptr()
 }
