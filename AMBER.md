@@ -77,8 +77,37 @@ xvfb-run -a -s "-screen 0 1920x1080x24" python3 tools/screenshots.py \
   duration, and PMS ended the grab after ~3 minutes) and pings its transcoder every 20 s; every live
   report and ping is in the event log (`livetv:` lines).
 
+## Since the UI review (2026-11-18 to 11-23)
+
+- **Player**: Plex-style controls (title, meta line, a thin bar with elapsed/remaining, transport in
+  the centre, subtitles / audio / chapters / info / more on the right; `hud_format/fixtures/amber`).
+  OK over the picture shows the controls without pausing; focus opens on play/pause; the slider
+  moves only after OK grabs it. PLAY on any card plays it (an On Now card tunes it).
+- **Settings is a page** beside the sidebar (pushed, not a modal surface; `app::bridge::open_settings_at`,
+  `RouteSurface::strip_reachable`); LEFT at its first page reaches the sidebar.
+- **Consistency**: dates with a named month (`fmt::pretty_date`); "4m left" everywhere; the movie and
+  show pages' meta line in Home's billboard order (kind, year, runtime, genres, badges); the
+  Watchlist title on the grey plate and no sort control with nothing to sort; the account menu
+  beside the sidebar; the Hold OK hint never frozen under a menu; the clock steps aside while a page
+  is scrolled (`widgets::page_scroll`); a full-screen trailer hides the sidebar and clock
+  (`Screen::hides_chrome`); Search opens with the keyboard up.
+- **Performance**: the Live TV guide rebuilds its snapshot only when the guide, tune or minute moves
+  (`livetv::model_stamp`; it held the guide at ~42 Hz); a focused long title glides twice then rests
+  (`Marquee::settled`; looping forever held any page at 60 fps); the player's menus dim with one
+  plain rect (`overlay::AMBER_FLAT_DIM`; the underlay-field dim held the player at ~40 fps).
+- **Live TV**: streams ask for `subtitles=none` (PMS burnt captions in and stalled); the last guide is
+  kept on disk (`<app>-livetv.json` beside the layout file) so the sidebar entry and Home's On Now row
+  are there from the first frame; a live title follows the guide when the next airing starts
+  (`livetv::retitle`).
+- **A cast member's page** seats its own focus once the person lands (it fell back to the sidebar).
+
 ## Not done
 
+- **The display stays at 50 Hz after 25/50 fps video** until the next 60 Hz one, so menus run at
+  50 fps. The TV's `com.webos.service.tv.display/private/setMediaVideoData` looks like the lever;
+  its payload is undocumented and an installed app may not be allowed to call it.
+- **On a TV, not yet seen**: the fixes in `49cbe6fe` (glide settling, cast-page focus, the flat
+  player dim, full-screen trailers) and Settings as a page.
 - **Live TV: no automatic re-tune** when a live stream does fail; the guide's OK tunes it again.
 - Live TV's *What's On* rows, the live player overlay (channel up/down, next programme) and Plex's
   free channels.
