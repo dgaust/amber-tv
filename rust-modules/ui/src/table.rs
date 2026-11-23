@@ -1962,9 +1962,14 @@ impl TableView {
             let full_w = if focused { measure.width_str(&row.label, msz, mbold != 0) } else { 0.0 };
             if focused && full_w > text_w {
                 let m = crate::marquee::ROW;
-                let t_ms = m.phase(ROW_MARQUEE.with(|c| c.read(&row.label)), full_w, text_w);
-                m.report(t_ms, full_w, text_w);
-                let off = m.x(t_ms, full_w, text_w);
+                let raw = ROW_MARQUEE.with(|c| c.read(&row.label));
+                let off = if m.settled(raw, full_w) {
+                    0.0 // glided its turns: at rest, asking for no frames (`Marquee::settled`)
+                } else {
+                    let t_ms = m.phase(raw, full_w, text_w);
+                    m.report(t_ms, full_w, text_w);
+                    m.x(t_ms, full_w, text_w)
+                };
                 let y = if two_line {
                     title_y
                 } else {

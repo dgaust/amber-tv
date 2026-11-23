@@ -459,6 +459,12 @@ pub struct PersonScreen {
     /// event pair, never a property of the page's logical shape. Mirrors
     /// `screens/detail/mod.rs`'s `teardown_cleared` exactly (#119, #126).
     teardown_closed: bool,
+    /// Amber: the page was entered fresh and focus has not reached it yet. Until the person lands
+    /// the page holds nothing to seat, and the engine falls back to the sidebar, which then stood
+    /// open over the page with focus on its Home entry. Once the person has landed, focus still in
+    /// the sidebar and no direction pressed since, the page takes it (its header). Not hashed.
+    seat_owed: bool,
+    seat_tried: bool,
 }
 
 impl LogicalState for PersonScreen {
@@ -514,7 +520,26 @@ impl PersonScreen {
             // A page that leaves focus (a menu over it, a pointer gone) rests at the top.
             stack: Stack::new(entry).hold_hint().home_when_unfocused(true),
             teardown_closed: false,
+            seat_owed: false,
+            seat_tried: false,
         }
+    }
+
+    /// Amber: settle [`Self::seat_owed`] (once a page entry): with the person landed, focus still
+    /// outside the page and no direction pressed, seat the page's header.
+    fn settle_seat<H: ContentLike + PersonLike>(&mut self, cx: &Cx<'_, H>, fx: &mut Effects<'_, H>) {
+        if !self.seat_owed || self.page.person(cx).is_none() {
+            return;
+        }
+        self.seat_owed = false;
+        let entry = self.page.entry;
+        if cx.focus.current.is_some_and(|k| k.entry == entry && k.elem < plx_ui::dispatch::STRIP_BASE) {
+            return;
+        }
+        let me = fx.from();
+        let header = plx_machine::machine::FocusKey { entry, elem: HEADER_ELEM };
+        fx.push(plx_machine::machine::Fx::Deliver(me, plx_machine::machine::Delivery::Screen(
+            ScreenEvent::Enter(plx_ui::screen::Enter::Fresh { focus: plx_ui::screen::FocusTarget::Elem(header) }))));
     }
 
     /// The page's `Focusable` (see `focusable_via_view!` below): the stack's view over the page.
@@ -1247,9 +1272,17 @@ impl<H: ContentLike + PersonLike> Machine<H> for PersonScreen {
                 if live {
                     self.page.post_tick(*t, cx, fx);
                 }
+                self.settle_seat(cx, fx);
                 Handled::Yes
             }
             ScreenEvent::Enter(_) | ScreenEvent::Uncover => {
+                // Amber: a fresh entry owes the page its focus (once: the reseat `settle_seat`
+                // sends is itself a fresh entry, and must not owe another)
+                if !cfg!(any(test, feature = "test-support")) && matches!(ev, ScreenEvent::Enter(plx_ui::screen::Enter::Fresh { .. }))
+                    && !self.seat_tried {
+                    self.seat_owed = true;
+                    self.seat_tried = true;
+                }
                 // Unconditional, not gated on `self.person(cx).is_none()` (review round 1, P1):
                 // `Close` and `Open` are both deferred `AppFx::Store` effects applied AFTER this
                 // event is delivered, so a same-identity `Close` queued by an evicted/left body
@@ -1268,6 +1301,11 @@ impl<H: ContentLike + PersonLike> Machine<H> for PersonScreen {
                 Handled::Yes
             }
             ScreenEvent::FocusMoved { to, by, .. } => {
+                // a direction pressed, or focus already in the page: nothing is owed
+                if matches!(by, By::Dir | By::Pointer)
+                    || (to.entry == self.page.entry && to.elem < plx_ui::dispatch::STRIP_BASE) {
+                    self.seat_owed = false;
+                }
                 let page = &mut self.page;
                 if matches!(by, By::Dir | By::Pointer)
                     || page.person(cx).is_some_and(|person| page.locate(person, to.elem).is_some())

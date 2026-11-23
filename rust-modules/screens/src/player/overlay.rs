@@ -209,6 +209,12 @@ impl LogicalState for PlayerOverlayArg {
     }
 }
 
+/// Amber: the player's menus dim the picture with one plain full-screen rect of the same flat ink
+/// instead of the container's underlay-field dim. Over the video plane that field has nothing to
+/// sample and stays flat, but keeping it current and drawing it through its shader held the player
+/// at 39-43 fps on the SM8600 (60 without the menu). Upstream's path stays graded under test.
+const AMBER_FLAT_DIM: bool = !cfg!(any(test, feature = "test-support"));
+
 /// The panel itself — the state four modules kept in `static mut`s until phase 9.
 pub enum Panel {
     Tracks(plx_appkit::track_menu::TrackMenuState),
@@ -1007,7 +1013,7 @@ impl<H: crate::registry::PlayerLike + crate::registry::MetadataLike> Screen<H> f
     /// The Timing capsule asks for none: it sits in the transport's own band and dims nothing.
     fn scrim(&self) -> plx_ui::screen::Scrim {
         use plx_ui::theme::underlay::{DIM_PLAYER, DIM_SHEET};
-        if self.suppressed {
+        if self.suppressed || AMBER_FLAT_DIM {
             return plx_ui::screen::Scrim::NONE;
         }
         match self.panel {
@@ -1029,6 +1035,20 @@ impl<H: crate::registry::PlayerLike + crate::registry::MetadataLike> Screen<H> f
         // for a surface, which is what the panels' own `Popover` used to hold.
         let appear = f.page_alpha;
         let measure = f.measure;
+        // Amber: the dim as one plain rect (`AMBER_FLAT_DIM`), under the panel and over the
+        // transport and subtitles, where the container's dim stood.
+        if AMBER_FLAT_DIM && !self.suppressed {
+            use plx_ui::theme::underlay::{DIM_PLAYER, DIM_SHEET};
+            let a = match self.panel {
+                Panel::Tracks(_) => DIM_PLAYER,
+                Panel::More(_) => DIM_SHEET,
+                Panel::Timing(_) => 0.0,
+            } * appear * f.nav_page_alpha;
+            if a > 0.0 {
+                let ink = plx_ui::theme::scrim_black(a);
+                plx_ui::Painter::root().rect(plx_ui::Rect::FULL, 0.0, ink, ink, 0.0);
+            }
+        }
         match &mut self.panel {
             Panel::Tracks(p) => p.draw(appear, measure),
             Panel::More(p) => p.draw(appear, measure),

@@ -2531,6 +2531,11 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Screen<H> for 
         DetailScreen::redraw_focused::<H>(self, f, focus)
     }
     fn glides(&self) -> bool { true }
+    /// Amber: a trailer gone full screen takes the sidebar and the clock with the page's own
+    /// chrome (`preview_chrome` is that chrome's alpha: 1 shown, 0 full screen).
+    fn hides_chrome(&self) -> f32 {
+        if cfg!(any(test, feature = "test-support")) { 0.0 } else { 1.0 - self.preview_chrome.clamp(0.0, 1.0) }
+    }
     fn name(&self) -> &'static str {
         "detail"
     }

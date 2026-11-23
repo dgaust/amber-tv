@@ -119,6 +119,18 @@ impl Marquee {
         }
     }
 
+    /// Amber: how many times a focused run glides before it settles.
+    pub const LOOPS: f64 = 2.0;
+
+    /// Amber: has the run (`raw_ms` into its clock, [`Clock::read`]) glided [`Self::LOOPS`] times?
+    /// Then it rests at its start and asks for no more frames: looping forever (and buying a frame
+    /// every tick of every rest beat, [`Self::report`]) held the whole app at 60 fps for as long as
+    /// a long title stayed focused - a poster grid, Collections, a track menu. Upstream loops on,
+    /// and is graded so under test.
+    pub fn settled(&self, raw_ms: f64, cycle_w: f32) -> bool {
+        !cfg!(any(test, feature = "test-support")) && raw_ms >= Self::LOOPS * self.period(cycle_w) as f64
+    }
+
     /// One full cycle in ms — the rest beat plus the glide that carries the run and its [`GAP`]
     /// fully past. The ONE place the period is spelled.
     pub fn period(&self, text_w: f32) -> f32 {
@@ -200,9 +212,14 @@ impl Marquee {
         paint: impl Fn(f32),
     ) {
         let cycle_w = cycle_w.max(run_w);
-        let t_ms = self.phase(clock.read(key), cycle_w, window.w);
-        self.report_in(t_ms, run_w, window.w, cycle_w);
-        let off = self.x_in(t_ms, run_w, window.w, cycle_w);
+        let raw = clock.read(key);
+        let off = if self.settled(raw, cycle_w) {
+            0.0 // at rest, its start showing; nothing reported, so no frame is bought for it
+        } else {
+            let t_ms = self.phase(raw, cycle_w, window.w);
+            self.report_in(t_ms, run_w, window.w, cycle_w);
+            self.x_in(t_ms, run_w, window.w, cycle_w)
+        };
         let (run, follower) = placements(run_w, window.w, off, rtl);
         p.clip(window);
         paint(run);

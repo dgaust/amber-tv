@@ -329,7 +329,7 @@ pub trait Rig<H: Host> {
 fn chrome_presented<H: Host>(navigation: super::screen::NavPresentation, screen: &dyn Screen<H>)
     -> Option<super::screen::NavPresentation>
 {
-    let presented = navigation.tucked(screen.chrome_tuck());
+    let presented = navigation.tucked(screen.chrome_tuck()).hidden(screen.hides_chrome());
     presented.chrome_drawn().then_some(presented)
 }
 

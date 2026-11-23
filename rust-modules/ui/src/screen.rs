@@ -125,6 +125,13 @@ pub trait Screen<H: Host>: Machine<H, Ev = ScreenEvent<H>> + Focusable<H> {
     fn chrome_tuck(&self) -> f32 {
         0.0
     }
+    /// Amber: how far the page hides the app's chrome (the sidebar and the clock) outright, 0 (shown)
+    /// to 1 (gone) - a detail page whose trailer has gone full screen. Unlike [`Self::chrome_tuck`]
+    /// (the old top bar getting out of the way of scrolled rows, which the sidebar no longer does),
+    /// this is the page claiming the whole screen.
+    fn hides_chrome(&self) -> f32 {
+        0.0
+    }
     fn state(&self) -> &dyn LogicalState;
     fn crumb(&self, cx: &Cx<'_, H>) -> Option<Cow<'_, str>>;
     /// RENDER resources only.
@@ -871,6 +878,11 @@ impl NavPresentation {
     /// `chrome_presented` is the pairing of the two.
     pub fn chrome_drawn(&self) -> bool {
         self.chrome_alpha > 0.0
+    }
+
+    /// Amber: the chrome faded out by a page that claims the whole screen ([`Screen::hides_chrome`]).
+    pub fn hidden(self, hide: f32) -> Self {
+        Self { chrome_alpha: self.chrome_alpha * (1.0 - hide.clamp(0.0, 1.0)), ..self }
     }
 
     /// Where the bar draws `rest`, a rect of its RESTING geometry: lifted by [`Self::chrome_lift`], as the
