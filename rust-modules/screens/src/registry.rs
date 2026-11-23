@@ -2117,6 +2117,8 @@ impl plx_ui::screen::ScreenArg for AppArg {
             AppArg::LibraryCollections { .. } | AppArg::LibraryRecommended { .. } => Chrome::TabBar,
             // Amber: the sidebar stands beside every page but the player, the item pages included.
             AppArg::Content(_) => Chrome::TabBar,
+            // Amber: Settings is pushed as a page (`app::bridge::open_settings_at`), and wears it too.
+            AppArg::Settings(_) if !cfg!(any(test, feature = "test-support")) => Chrome::TabBar,
             AppArg::Login
             | AppArg::Profiles
             | AppArg::Onboard

@@ -1555,9 +1555,23 @@ impl Bridge {
     pub(crate) fn rail_return_key(&mut self, d: &mut Dispatcher<AppHost>, key: plx_ui::consts::Key) -> bool {
         use plx_ui::consts::Key;
         if crate::app::chrome::editing() { return false; }
-        if !matches!(d.top_arg(), Some(AppArg::Content(_))) { return false; }
+        let settings = matches!(d.top_arg(), Some(AppArg::Settings(_)));
+        if !settings && !matches!(d.top_arg(), Some(AppArg::Content(_))) { return false; }
         let Some(entry) = d.nav.top_page().map(|e| e.id) else { return false };
         let Some(focus) = Self::home_focus(d) else { return false };
+        // Settings' rows answer LEFT with BACK (their left edge): at the family's first page,
+        // LEFT goes to the sidebar instead, as it does from every other page. Deeper, it still
+        // walks back one page.
+        if settings && matches!(key, Key::Left { .. }) && focus.elem < plx_ui::dispatch::STRIP_BASE {
+            let at_root = d.nav.top_page().and_then(|e| e.inst.as_ref())
+                .and_then(|i| i.screen.as_any())
+                .and_then(|a| a.downcast_ref::<plx_screens::settings::RouteSurface>())
+                .is_some_and(|s| s.at_root());
+            if !at_root { return false; }
+            RAIL_RETURN.with(|r| r.set(Some((entry, focus))));
+            d.set_focus(Some(FocusKey { entry, elem: plx_ui::widgets::TAB_KEY_CHIP }));
+            return true;
+        }
         match key {
             Key::Left { .. } if focus.elem < plx_ui::dispatch::STRIP_BASE => {
                 RAIL_RETURN.with(|r| r.set(Some((entry, focus))));
@@ -1586,7 +1600,7 @@ impl Bridge {
             return true;
         }
         // The item pages and the Live TV guide do not route the strip's presses themselves.
-        if !matches!(d.top_arg(), Some(AppArg::Content(_) | AppArg::LiveTv)) { return false; }
+        if !matches!(d.top_arg(), Some(AppArg::Content(_) | AppArg::LiveTv | AppArg::Settings(_))) { return false; }
         // the profile chip: the account menu (Settings, profiles), as the tab pages open it
         if elem == w::TAB_KEY_CHIP {
             crate::app::input::chip_activate(d);
@@ -5348,7 +5362,13 @@ pub(crate) fn open_settings(d: &mut Dispatcher<AppHost>) {
 /// …and the door for a surface rooted at `page`: the DEV boot target, and the Library's Favorite
 /// libraries row (see [`AppArg`] for why the target is a root rather than a push).
 pub(crate) fn open_settings_at(d: &mut Dispatcher<AppHost>, page: SettingsPage) {
-    if surface_up(d, is_settings) {
+    if settings_up(d) {
+        return;
+    }
+    // Amber: Settings is a page beside the sidebar like any other, not a full-screen layer over
+    // one: it is pushed onto the page stack (and wears the sidebar, `AppArg::chrome`).
+    if AMBER_SETTINGS_PAGE {
+        d.request(MachineId::Nav, NavOp::Push(AppArg::Settings(page)));
         return;
     }
     d.nav.next_style = Style::Opaque { snapshot: true };
@@ -5471,8 +5491,12 @@ fn surface_up(d: &Dispatcher<AppHost>, which: impl Fn(&AppArg) -> bool) -> bool 
 
 /// Is the Settings family up (any phase)? The loop's `settings::is_open()` twin.
 pub(crate) fn settings_up(d: &Dispatcher<AppHost>) -> bool {
-    surface_up(d, is_settings)
+    surface_up(d, is_settings) || (AMBER_SETTINGS_PAGE && d.top_arg().is_some_and(is_settings))
 }
+
+/// Amber: Settings opens as a page (beside the sidebar) rather than as a modal layer. Off under
+/// test, where upstream's surface is graded.
+const AMBER_SETTINGS_PAGE: bool = !cfg!(test);
 
 /// Is the first-run question up (any phase)?
 pub(crate) fn consent_up(d: &Dispatcher<AppHost>) -> bool {

@@ -145,6 +145,11 @@ pub struct RouteSurface {
 }
 
 impl RouteSurface {
+    /// Amber: is the family on its first page? (LEFT there goes to the sidebar; deeper, it goes back.)
+    pub fn at_root(&self) -> bool {
+        self.inner.depth() <= 1
+    }
+
     /// A surface at `entry`/`id` (the dispatcher's, from the mounter) whose root is `root`.
     pub fn new(
         entry: EntryId,
@@ -865,6 +870,14 @@ impl<H: DirectoryLike> Screen<H> for RouteSurface {
     }
     fn crumb(&self, _cx: &Cx<'_, H>) -> Option<Cow<'_, str>> {
         None
+    }
+    /// Amber: Settings is a page beside the sidebar, which it can reach (LEFT at its root,
+    /// `app::bridge::rail_return_key`). The first-run question stays a ceremony of its own.
+    fn strip_reachable(&self) -> bool {
+        !cfg!(any(test, feature = "test-support")) && self.kind == Family::Settings
+    }
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
     }
     fn prepare(&mut self, b: &mut Budget, cx: &Cx<'_, H>) {
         let icx = inner_cx(cx);

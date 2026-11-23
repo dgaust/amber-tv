@@ -1055,7 +1055,18 @@ impl RouteLayout {
     /// Favorite libraries onboarding, first-run consent, the Privacy & data document readers and
     /// the Language page's Contribute page still use [`Self::screen`] (Hero).
     pub fn settings_page() -> Self {
-        Self::screen().page_titled()
+        let mut l = Self::screen().page_titled();
+        // Amber: Settings stands beside the sidebar like every other page, so its narrative column
+        // starts where the other pages' text does (past the closed sidebar) and gives up that much
+        // width; the list column does not move.
+        if !cfg!(any(test, feature = "test-support")) {
+            let shift = crate::widgets::PAGE_SHIFT_CLOSED;
+            l.narrative.x += shift;
+            l.narrative.w -= shift;
+            l.action.x += shift;
+            l.action.w -= shift;
+        }
+        l
     }
 
     /// Allocate enough narrative width for an unbreakable title word at HERO size, while
