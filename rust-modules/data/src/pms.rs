@@ -783,6 +783,7 @@ fn add_live_row(build: &mut HubBuild) {
     // not on its own: before the server's rows land it would stand alone at the top and then be
     // shoved down the page as they arrive around it
     if items.is_empty() || build.1.is_empty() { return; }
+    if build.1.iter().any(|h| h.hub_id == LIVE_ROW_ID) { return; }
     let start = build.0.len();
     let n = items.len();
     build.0.extend(items.into_iter().map(Arc::new));
@@ -3325,7 +3326,11 @@ fn sync_roster_with_scope(state: &mut PmsState, scope: &BrowseScope) {
 ///
 /// MAIN THREAD, and callers release the [`SRCS`] guard first: the re-selection re-enters this
 /// module ([`index_of_rk`]) to walk the catalog just replaced.
-fn commit(state: &mut PmsState, build: HubBuild) -> c_int {
+fn commit(state: &mut PmsState, mut build: HubBuild) -> c_int {
+    // Amber: the viewer's row order, hidden rows and the On Now row belong to EVERY publication,
+    // not just the one a landing makes - a republish that skipped them (coming back to Home) lost
+    // the order and the On Now row until the next full merge. Idempotent.
+    apply_home_layout(&mut build);
     let (new_cat, new_hubs, new_pool) = build;
     let n = new_cat.len();
     state.published = Some(Arc::new(HomeCatalog { items: new_cat, hubs: new_hubs, heroes: new_pool }));
@@ -3956,7 +3961,6 @@ fn step_landings_with_scope(state: &mut PmsState, adapter: &PmsAdapter, dt: Opti
         let t0 = crate::instruments::start();
         let (mut build, _) = merge_held(&mut srcs, scope, state.hold);
         if paged && !refreshed && !scope_moved { preserve_heroes(state, &mut build); }
-        apply_home_layout(&mut build);
         let took = crate::instruments::elapsed(t0);
         (build, took)
     });
