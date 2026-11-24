@@ -53,6 +53,10 @@ pub struct LiveProgramme {
     /// (`tv.plex.xmltv://show/<title>`). Empty from a guide cached before this existed.
     #[serde(default)]
     pub record_guid: String,
+    /// Amber: the airing's own guid - what "record this episode" is made for (a film's is its
+    /// `record_guid`).
+    #[serde(default)]
+    pub episode_guid: String,
 }
 
 fn s(v: &Value, k: &str) -> String {
@@ -146,6 +150,7 @@ pub fn parse_grid(body: &[u8]) -> Vec<LiveProgramme> {
                 thumb,
                 art,
                 record_guid: if episode { s(m, "grandparentGuid") } else { s(m, "guid") },
+                episode_guid: s(m, "guid"),
             });
         }
     }
@@ -443,6 +448,7 @@ mod tests {
             "Media":[{"channelIdentifier":"C1","beginsAt":3,"endsAt":4}]}]}}"#;
         let g = parse_grid(body);
         assert_eq!(g[0].record_guid, "tv.plex.xmltv://show/Plebs");
+        assert_eq!(g[0].episode_guid, "tv.plex.xmltv://episode/Plebs/4/5");
         assert_eq!(g[1].record_guid, "tv.plex.xmltv://movie/M/1999");
     }
 }

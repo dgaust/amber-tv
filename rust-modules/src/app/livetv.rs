@@ -211,6 +211,7 @@ pub(crate) fn model(now: i64) -> LiveTvModel {
                 art: p.art.clone(),
                 poster: p.thumb.clone(),
                 record_guid: p.record_guid.clone(),
+                episode_guid: p.episode_guid.clone(),
             }).collect(),
         }).filter(|r| !r.slots.is_empty()).collect();
         LiveTvModel { status: s.status, rows, tuning: s.tuning.clone(), tune_failed: s.tune_failed,

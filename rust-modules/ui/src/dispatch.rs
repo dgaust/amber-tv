@@ -48,6 +48,14 @@ static PLAY_HOLD: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mute
 
 /// Amber: did PLAY ask for the hold now being answered? Spent by the asking (one press, one answer),
 /// and stale after a second so a hold no page answered can never turn a later INFO into a play.
+static REC_HOLD: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+/// Amber: was the hold now being answered asked for by the REC key (this episode), not INFO (the series)?
+pub fn take_rec_hold() -> bool {
+    REC_HOLD.lock().unwrap_or_else(|e| e.into_inner()).take()
+        .is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(1))
+}
+
 pub fn take_play_hold() -> bool {
     PLAY_HOLD.lock().unwrap_or_else(|e| e.into_inner()).take()
         .is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(1))
@@ -2671,11 +2679,14 @@ where
                         }),
                         None => fate = KeyFate::Dead,
                     }
-                } else if *edge == Edge::Down && (*wcode == super::consts::WCODE_INFO
+                } else if *edge == Edge::Down && (*wcode == super::consts::WCODE_INFO || *wcode == super::consts::WCODE_REC
                     || matches!(super::consts::classify(*sym, *wcode), super::consts::Key::Play | super::consts::Key::PlayPause)) {
                     // Amber: PLAY on an item plays it, through the same door: the hold names the item,
                     // and the app plays it instead of opening its menu (`take_play_hold`)
-                    if *wcode != super::consts::WCODE_INFO {
+                    if *wcode == super::consts::WCODE_REC {
+                        *REC_HOLD.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
+                    }
+                    if *wcode != super::consts::WCODE_INFO && *wcode != super::consts::WCODE_REC {
                         *PLAY_HOLD.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
                     }
                     // Amber: INFO is a held OK at once - the focused item's actions, on a remote

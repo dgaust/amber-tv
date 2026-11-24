@@ -37,6 +37,8 @@ pub struct LiveSlot {
     pub poster: String,
     /// What a recording rule is made for (a show's or film's guid); empty when unknown.
     pub record_guid: String,
+    /// The airing's own guid (an episode's); a film's equals `record_guid`.
+    pub episode_guid: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -82,6 +84,7 @@ pub enum LiveTvOut {
     /// Amber: record the focused airing's show or film, or cancel its rule (the application knows
     /// which). WRITES to the server.
     Record { guid: String, title: String },
+    // (guid is the SHOW's for INFO and the EPISODE's for REC; the screen picks)
 }
 
 const ELEM: u32 = 1;
@@ -372,13 +375,20 @@ impl LiveTvScreen {
         }
         // Amber: recording - its state, a passing note, and the key that changes it
         if !s.record_guid.is_empty() {
-            let recording = self.model.rules.iter().any(|g| *g == s.record_guid);
+            let series = self.model.rules.iter().any(|g| *g == s.record_guid);
+            let single = s.episode_guid != s.record_guid && self.model.rules.iter().any(|g| *g == s.episode_guid);
+            let recording = series || single;
+            let film = s.episode_guid.is_empty() || s.episode_guid == s.record_guid;
             let hint = if !self.model.note.is_empty() {
                 self.model.note.clone()
-            } else if recording {
-                "Recording \u{b7} press INFO to cancel".to_string()
+            } else if series {
+                "Recording the series \u{b7} INFO to cancel".to_string()
+            } else if single {
+                "Recording this episode \u{b7} REC to cancel".to_string()
+            } else if film {
+                "Press REC or INFO to record this".to_string()
             } else {
-                "Press INFO to record this".to_string()
+                "REC: this episode \u{b7} INFO: the whole series".to_string()
             };
             let ink = if recording { REC_RED } else { theme::TEXT_SECONDARY };
             Self::text(p, &hint, LEFT, 352.0, theme::size::CAPTION, ink, if recording { 1 } else { 0 }, w);
@@ -455,7 +465,7 @@ impl LiveTvScreen {
                     }
                 }
                 let (ink, sub) = if focused { (theme::ACCENT_INK, theme::ACCENT_INK) } else { (theme::TEXT_PRIMARY, theme::TEXT_SECONDARY) };
-                if w > 40.0 && !s.record_guid.is_empty() && self.model.rules.iter().any(|g| *g == s.record_guid) {
+                if w > 40.0 && !s.record_guid.is_empty() && self.model.rules.iter().any(|g| *g == s.record_guid || (!s.episode_guid.is_empty() && *g == s.episode_guid)) {
                     p.rrect(Rect::new(x + w - 22.0, y + 10.0, 12.0, 12.0), 6.0, 6.0, REC_RED);
                 }
                 let tw = w - 24.0;
@@ -525,7 +535,9 @@ impl<H: ContentLike> Machine<H> for LiveTvScreen {
             // INFO, or a held OK: record the focused airing's show (or cancel its rule)
             ScreenEvent::PressHold(_) if holds => {
                 if let Some((_, s)) = self.focused() {
-                    fx.push(Fx::App(AppFx::LiveTv(LiveTvOut::Record { guid: s.record_guid.clone(), title: s.title.clone() })));
+                    // REC records this episode; INFO or a held OK the whole series
+                    let guid = if plx_ui::dispatch::take_rec_hold() && !s.episode_guid.is_empty() { s.episode_guid.clone() } else { s.record_guid.clone() };
+                    fx.push(Fx::App(AppFx::LiveTv(LiveTvOut::Record { guid, title: s.title.clone() })));
                 }
                 Handled::Yes
             }
