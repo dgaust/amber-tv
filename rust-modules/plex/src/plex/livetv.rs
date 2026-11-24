@@ -442,6 +442,13 @@ mod tests {
         assert!(parse_rules(br#"{"MediaContainer":{"size":0}}"#).is_empty());
     }
     #[test]
+    fn an_episode_rule_reads_with_the_episodes_own_guid() {
+        // measured on PMS 1.43.5: a "This Episode" rule lists its episode under `Video`
+        let body = br#"{"MediaContainer":{"size":1,"MediaSubscription":[{"key":"431","type":4,"title":"This Episode","Video":{"grandparentGuid":"tv.plex.xmltv://show/Plebs","guid":"tv.plex.xmltv://episode/Plebs/4/5","title":"Lupercalia"}}]}}"#;
+        let r = parse_rules(body);
+        assert_eq!((r[0].id.as_str(), r[0].guid.as_str()), ("431", "tv.plex.xmltv://episode/Plebs/4/5"));
+    }
+    #[test]
     fn a_grid_airing_carries_the_guid_a_rule_is_made_for() {
         let body = br#"{"MediaContainer":{"Metadata":[{"type":"episode","title":"E","grandparentTitle":"Plebs","guid":"tv.plex.xmltv://episode/Plebs/4/5","grandparentGuid":"tv.plex.xmltv://show/Plebs",
             "Media":[{"channelIdentifier":"C1","beginsAt":1,"endsAt":2}]},{"type":"movie","title":"M","guid":"tv.plex.xmltv://movie/M/1999",
