@@ -357,6 +357,63 @@ pub(crate) fn keepalive(now_ms: u64) {
     if spawned.is_err() { BUSY.store(false, Ordering::Release); }
 }
 
+/// Amber: how many re-tunes a failing live stream gets, and over how long, before the player is
+/// left to show its error (or leave). A stream that dies at once every time must not loop.
+const RETUNE_MAX: usize = 3;
+const RETUNE_WINDOW_MS: u64 = 120_000;
+const RETUNE_GAP_MS: u64 = 3_000;
+
+/// Pure policy for [`retune`]: may another re-tune start at `now_ms`, given the starts so far
+/// (oldest first)? Drops the ones older than the window.
+pub(crate) fn retune_allowed(starts: &mut Vec<u64>, now_ms: u64) -> bool {
+    starts.retain(|t| now_ms.saturating_sub(*t) < RETUNE_WINDOW_MS);
+    if starts.len() >= RETUNE_MAX { return false; }
+    if starts.last().is_some_and(|t| now_ms.saturating_sub(*t) < RETUNE_GAP_MS) { return false; }
+    starts.push(now_ms);
+    true
+}
+
+/// Amber: a live stream failed or ended under the player (PMS drops a grab it stops hearing
+/// about; the transcoder can also die). Tune the same channel again and let the frame loop play
+/// the new session (`take_ready`), instead of leaving the viewer on an error or back at the guide.
+/// Returns true while a re-tune is in flight or was just started, so the caller keeps the player
+/// where it is; false when the stream is not live, the channel is unknown or the budget is spent.
+pub(crate) fn retune(now_ms: u64) -> bool {
+    static STARTS: Mutex<Vec<u64>> = Mutex::new(Vec::new());
+    let Some((rk, _)) = plx_media::route::timeline_identity() else { return false };
+    if !rk.starts_with("/livetv/sessions/") { return false; }
+    if with(|s| s.tuning.is_some() || s.ready.is_some()) { return true; }
+    let Some(channel) = with(|s| s.playing.as_ref().map(|(c, _)| c.clone())) else { return false };
+    let allowed = retune_allowed(&mut STARTS.lock().unwrap_or_else(|e| e.into_inner()), now_ms);
+    if !allowed {
+        plx_base::eventlog::log("livetv: re-tune budget spent - leaving the failed stream to the player");
+        return false;
+    }
+    plx_base::eventlog::log(&format!("livetv: stream lost - tuning channel {channel} again"));
+    tune(channel);
+    true
+}
+
+#[cfg(test)]
+mod retune_tests {
+    use super::retune_allowed;
+    #[test]
+    fn three_in_the_window_then_no_more() {
+        let mut v = Vec::new();
+        assert!(retune_allowed(&mut v, 10_000));
+        assert!(!retune_allowed(&mut v, 11_000), "too soon after the last");
+        assert!(retune_allowed(&mut v, 14_000));
+        assert!(retune_allowed(&mut v, 18_000));
+        assert!(!retune_allowed(&mut v, 22_000), "fourth inside the window");
+    }
+    #[test]
+    fn the_window_forgets() {
+        let mut v = Vec::new();
+        for t in [0, 4_000, 8_000] { assert!(retune_allowed(&mut v, t)); }
+        assert!(retune_allowed(&mut v, 125_000));
+    }
+}
+
 fn short(id: &str) -> &str {
     &id[..id.len().min(13)]
 }

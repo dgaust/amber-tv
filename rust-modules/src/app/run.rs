@@ -2219,7 +2219,15 @@ pub(crate) unsafe fn playback_tick(app: &mut App, fr: &mut Frame) {
         // show has another episode queued and the Next episode preference is not Off, else leave
         // the player (back to the detail page or home, whichever is behind), instead of freezing
         // on the last frame.
-        if playback_may_run(app) && super::bridge::player(&app.pages).is_some() && plx_media::player::ended(&app.player.session) == Some(true) {
+        // Amber: a live stream that errors or is ended by the server is tuned again (a few times,
+        // `livetv::retune`) rather than ending the viewing.
+        let live_lost = playback_may_run(app) && super::bridge::player(&app.pages).is_some()
+            && (plx_media::player::state(&app.player.session) == plx_media::player::PlaybackState::Error
+                || plx_media::player::ended(&app.player.session) == Some(true))
+            && super::livetv::retune(crate::app::clock::unix_ms().unwrap_or(0) as u64);
+        if live_lost {
+            // the new session replaces this one when `take_ready` hands it over
+        } else if playback_may_run(app) && super::bridge::player(&app.pages).is_some() && plx_media::player::ended(&app.player.session) == Some(true) {
             let handed_off_to_up_next = finish_playback(&mut app.player,
                 &mut app.adapters.player,
                 &mut app.repause_at,

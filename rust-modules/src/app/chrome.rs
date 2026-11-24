@@ -436,7 +436,7 @@ mod tests {
             widgets::TAB_KEY_SHOWS, widgets::TAB_KEY_WATCHLIST, widgets::TAB_KEY_SEARCH]);
         let words: Vec<&str> = snapshot.faces.iter().filter_map(|face| match face {
             TabFace::Label(word) => Some(word.as_str()),
-            TabFace::Icon(_) => None,
+            TabFace::Icon(_) | TabFace::Entry(..) => None,
         }).collect();
         assert_eq!(&words[..3], &["Home", "Movies", "TV Shows"]);
         assert_eq!(snapshot.faces.last(), Some(&TabFace::Icon(Icon::Search)));
