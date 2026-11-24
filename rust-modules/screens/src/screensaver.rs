@@ -236,13 +236,10 @@ impl<H: ContentLike> Screen<H> for ScreensaverScreen {
                 let m = plx_ui::consts::MARGIN_X;
                 let room = w - 2.0 * m;
                 // a shade rising from the bottom edge, so the words read on any picture
-                let shade_h = 320.0;
-                let steps = 16;
-                for i in 0..steps {
-                    let k = i as f32 / steps as f32;
-                    let band = Rect::new(0.0, h - shade_h + k * shade_h, w, shade_h / steps as f32 + 1.0);
-                    p.rrect(band, 0.0, 0.0, [0.0, 0.0, 0.0, 0.62 * k * k * cap * fade]);
-                }
+                let shade_h = 360.0;
+                let top = [0.0, 0.0, 0.0, 0.0];
+                let bottom = [0.0, 0.0, 0.0, 0.7 * cap * fade];
+                p.grad4(Rect::new(0.0, h - shade_h, w, shade_h), [top, top, bottom, bottom]);
                 let mut sub = String::new();
                 if img.year > 0 {
                     sub.push_str(&img.year.to_string());
