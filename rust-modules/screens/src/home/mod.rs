@@ -1678,7 +1678,7 @@ impl HomeScreen {
 
     /// The row style row `row`'s shelf is drawn in ([`style_of`]).
     fn row_style(&self, row: usize) -> &'static RowStyle {
-        self.rows.get(row).map_or(&RowStyle::HOME, |r| style_of(&r.identity))
+        self.rows.get(row).map_or(&HOME_ROWS, |r| style_of(&r.identity))
     }
 
     /// **Is `row` the Continue Watching row standing at the head of the page?** Its stills are in
@@ -4014,13 +4014,19 @@ fn col_at(x: f32, scroll: f32, count: usize) -> Option<usize> {
 fn style_of(identity: &HomeHubIdentity) -> &'static RowStyle {
     match identity {
         // Amber: Recent Channels is a shelf of square logos
-        HomeHubIdentity::Identifier { id, .. } if &**id == plx_data::pms::LIVE_RECENT_ID => &RowStyle::SQUARE,
+        HomeHubIdentity::Identifier { id, .. } if &**id == plx_data::pms::LIVE_RECENT_ID => &SQUARE_ROWS,
         _ => deck_style(*identity == HomeHubIdentity::ContinueWatching),
     }
 }
+/// Amber: Home's rows stand this much further apart than the shared shelf pitch (the Library, Search
+/// and the person page keep it), carried as extra air under each poster row's tiles. The Continue
+/// Watching stills keep their own footer's pitch.
+const ROW_AIR: f32 = 36.0;
+static HOME_ROWS: RowStyle = RowStyle { under_tile: RowStyle::HOME.under_tile + ROW_AIR, ..RowStyle::HOME };
+static SQUARE_ROWS: RowStyle = RowStyle { under_tile: RowStyle::SQUARE.under_tile + ROW_AIR, ..RowStyle::SQUARE };
 /// The style of the Continue Watching deck (`deck`) or of a poster shelf.
 fn deck_style(deck: bool) -> &'static RowStyle {
-    if deck { &RowStyle::STILL } else { &RowStyle::HOME }
+    if deck { &RowStyle::STILL } else { &HOME_ROWS }
 }
 fn heading_y(row_y: f32, lift: f32) -> f32 {
     row_y - TITLE_DY - lift

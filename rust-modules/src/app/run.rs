@@ -2979,10 +2979,12 @@ pub(crate) unsafe fn update(app: &mut App, fr: &mut Frame) {
         app.bridge.catalog_feed(&mut app.pages);
         app.bridge.livetv_feed(&mut app.pages);
         super::screensaver::tick(&mut app.pages, app.last_input);
-    if plx_screens::quit_prompt::take_quit() {
-        log("quit: asked to at the Home root");
-        app.running = false;
-    }
+        if plx_screens::quit_prompt::take_quit() {
+            log("quit: asked to at the Home root");
+            // leave for the television's Home (Blade Home where it replaces it), then end
+            plx_platform::tv::home::go_home();
+            app.running = false;
+        }
         if let Some(now) = crate::app::clock::unix_ms().map(|ms| ms / 1000).filter(|s| *s > 0) {
             super::livetv::retitle(&mut app.player.session, now);
         }
