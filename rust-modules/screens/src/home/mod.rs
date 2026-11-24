@@ -4023,10 +4023,13 @@ fn style_of(identity: &HomeHubIdentity) -> &'static RowStyle {
 /// Watching stills keep their own footer's pitch.
 const ROW_AIR: f32 = 36.0;
 static HOME_ROWS: RowStyle = RowStyle { under_tile: RowStyle::HOME.under_tile + ROW_AIR, ..RowStyle::HOME };
-static SQUARE_ROWS: RowStyle = RowStyle { under_tile: RowStyle::SQUARE.under_tile + ROW_AIR, ..RowStyle::SQUARE };
+// The square tiles are shorter than a poster: their pitch is their own (tile, caption, air), not the poster's.
+static SQUARE_ROWS: RowStyle = RowStyle { under_tile: ROW_AIR, ..RowStyle::SQUARE };
+const STILL_AIR: f32 = 22.0;
+static STILL_ROWS: RowStyle = RowStyle { under_tile: RowStyle::STILL.under_tile + STILL_AIR, ..RowStyle::STILL };
 /// The style of the Continue Watching deck (`deck`) or of a poster shelf.
 fn deck_style(deck: bool) -> &'static RowStyle {
-    if deck { &RowStyle::STILL } else { &HOME_ROWS }
+    if deck { &STILL_ROWS } else { &HOME_ROWS }
 }
 fn heading_y(row_y: f32, lift: f32) -> f32 {
     row_y - TITLE_DY - lift

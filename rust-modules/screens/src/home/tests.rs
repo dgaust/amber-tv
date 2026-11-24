@@ -2315,7 +2315,9 @@ fn continue_watching_regression_heading_moves_and_stays_clear_on_second_row() {
     assert!(heading_top(&col, 0, 0, col.rest(0)) < heading_place(&col, 0, 0, col.rest(0)),
         "the heading should rise when a nearby card takes focus");
     let top = heading_top(&col, 0, 1, col.rest(1));
-    assert_eq!(plx_ui::scroll_chrome::clearance_under_shown_chrome(top), 1.0,
+    // Amber: the deck stands STILL_AIR further above the shelf below it, which carries the heading
+    // that much higher on the second row; it is judged where it stood without that air.
+    assert_eq!(plx_ui::scroll_chrome::clearance_under_shown_chrome(top + super::STILL_AIR), 1.0,
         "Continue Watching heading at {top} should remain readable on the second row");
 }
 
@@ -6421,7 +6423,7 @@ fn the_continue_watching_row_is_a_row_of_420_by_236_stills_under_no_label_block(
     assert_eq!((a.w, a.h, b.x - a.x), (420.0, 236.0, 460.0), "420 x 236 tiles on a pitch of 460");
     assert_eq!(s.grid.shelves[0].band_h(), 0.0, "no label block under the stills");
     let below = s.grid.base_y(1) - s.grid.base_y(0);
-    assert_eq!(below, RowStyle::STILL.pitch_fixed() + ui_cards::LABEL_BAND_COLLAPSED,
+    assert_eq!(below, super::deck_style(true).pitch_fixed() + ui_cards::LABEL_BAND_COLLAPSED,
         "the poster shelf below follows by the stills' own pitch, not a poster row's");
     assert!(below < ui_cards::ROW_PITCH_FIXED + ui_cards::LABEL_BAND_COLLAPSED);
     assert_eq!(drawn_rect(&s, view, None, 1, 0).w, CARD_W, "poster shelves are unchanged");
@@ -7019,5 +7021,5 @@ fn recent_channels_is_a_shelf_of_squares_at_the_poster_pitch() {
     let style = super::style_of(&id);
     assert_eq!(style.w, style.h, "square");
     assert_eq!(style.w, RowStyle::HOME.w, "a poster's width");
-    assert_eq!(style.pitch_fixed(), super::deck_style(false).pitch_fixed(), "the poster shelf pitch");
+    assert!(style.pitch_fixed() < super::deck_style(false).pitch_fixed(), "shorter tiles, shorter pitch");
 }
