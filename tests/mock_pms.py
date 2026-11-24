@@ -3687,6 +3687,9 @@ class MockPms:
                                                       "ChannelMapping": [{"channelKey": f"k{c['vcn']}", "deviceIdentifier": c["vcn"],
                                                                           "lineupIdentifier": c["id"], "enabled": "1"}
                                                                          for c in lt_channels()]}]}]))
+        # Amber: the DVR holds no recording rules and nothing scheduled
+        if p in ("/media/subscriptions", "/media/subscriptions/scheduled"):
+            return j(self.container(size=0))
         if p == f"/{EPG}/lineups/dvr/channels":
             return j(self.container(Channel=lt_channels()))
         if p == f"/{EPG}/grid":
