@@ -156,6 +156,9 @@ impl RowStyle {
         heading_rise: 0.0,
         under_tile: 0.0,
     };
+    /// Amber: a shelf of SQUARE tiles (Recent Channels - a channel's logo is square). The poster
+    /// shelf's height, so a row of these stands at the same pitch; only the width differs.
+    pub const SQUARE: RowStyle = RowStyle { w: CARD_H, ..RowStyle::HOME };
     /// **A shelf of EPISODES: landscape stills.** Same motion as HOME — the spring magnification,
     /// the scroll, the glow ring and the heading lift are all one vocabulary — and a different
     /// aspect, because an episode is not a poster.

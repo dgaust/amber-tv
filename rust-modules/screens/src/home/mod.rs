@@ -4012,7 +4012,11 @@ fn col_at(x: f32, scroll: f32, count: usize) -> Option<usize> {
 /// stills ([`RowStyle::STILL`], the episode strip's cell), every other hub a poster shelf
 /// ([`RowStyle::HOME`]).
 fn style_of(identity: &HomeHubIdentity) -> &'static RowStyle {
-    deck_style(*identity == HomeHubIdentity::ContinueWatching)
+    match identity {
+        // Amber: Recent Channels is a shelf of square logos
+        HomeHubIdentity::Identifier { id, .. } if &**id == plx_data::pms::LIVE_RECENT_ID => &RowStyle::SQUARE,
+        _ => deck_style(*identity == HomeHubIdentity::ContinueWatching),
+    }
 }
 /// The style of the Continue Watching deck (`deck`) or of a poster shelf.
 fn deck_style(deck: bool) -> &'static RowStyle {

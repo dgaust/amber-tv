@@ -7007,3 +7007,16 @@ fn the_backdrop_has_its_name_back_after_a_trip_to_the_grid() {
     assert_eq!((s.snap.pos, s.snap.vel), (0.0, 0.0), "the dive has parked on the hero, position and velocity");
     assert_eq!(name(&s), Some(parked), "back at the hero the backdrop is the picture it was, with its name");
 }
+
+#[test]
+fn recent_channels_is_a_shelf_of_squares_at_the_poster_pitch() {
+    use crate::registry::HomeHubIdentity;
+    let id = HomeHubIdentity::Identifier {
+        sid: plx_plex::plex::current_server(),
+        id: plx_data::pms::LIVE_RECENT_ID.into(),
+        key: "".into(),
+    };
+    let style = super::style_of(&id);
+    assert_eq!(style.w, style.h, "square");
+    assert_eq!(style.pitch_fixed(), RowStyle::HOME.pitch_fixed(), "the poster shelf's pitch");
+}
