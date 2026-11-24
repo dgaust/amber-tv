@@ -41,6 +41,29 @@ pub struct LiveSlot {
     pub episode_guid: String,
 }
 
+/// Amber: what one line of the Recordings view is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RecKind {
+    /// A recording the server has lined up.
+    #[default]
+    Scheduled,
+    Series,
+    Episode,
+    Film,
+}
+
+/// Amber: one line of the Recordings view.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LiveRec {
+    /// The rule's id (empty for a scheduled recording).
+    pub id: String,
+    pub kind: RecKind,
+    pub title: String,
+    pub detail: String,
+    /// Unix seconds a scheduled recording begins; 0 for a rule.
+    pub begins: i64,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LiveRow {
     pub id: String,
@@ -75,6 +98,8 @@ pub struct LiveTvModel {
     pub rules: Vec<String>,
     /// Amber: a short, passing status ("Recording Plebs", why a record failed); empty when none.
     pub note: String,
+    /// Amber: the Recordings view's lines - the rules, then what is scheduled.
+    pub recs: Vec<LiveRec>,
 }
 
 /// What the guide asks of the application.
@@ -85,6 +110,8 @@ pub enum LiveTvOut {
     /// which). WRITES to the server.
     /// `show` is what a series rule is made for, `episode` the airing's own (equal for a film).
     Record { show: String, episode: String, title: String },
+    /// Amber: end a recording rule from the Recordings view. WRITES to the server.
+    CancelRule { id: String },
 }
 
 const ELEM: u32 = 1;
@@ -120,14 +147,18 @@ pub struct LiveTvScreen {
     slot: usize,
     first_row: usize,
     window: i64,
+    /// Amber: the Recordings view is showing, its selected line and its first visible one.
+    recs: bool,
+    rec_sel: usize,
+    rec_first: usize,
 }
 
 impl LiveTvScreen {
     pub const WORD: &'static str = "livetv";
-    pub const SHAPE: &'static str = "LiveTvScreen{entry:u32,row:u32,slot:u32}";
+    pub const SHAPE: &'static str = "LiveTvScreen{entry:u32,row:u32,slot:u32,recs:u32,sel:u32}";
 
     pub fn new(entry: EntryId) -> Self {
-        Self { entry, model: LiveTvModel::default(), now: 0, row: 0, slot: 0, first_row: 0, window: 0 }
+        Self { entry, model: LiveTvModel::default(), now: 0, row: 0, slot: 0, first_row: 0, window: 0, recs: false, rec_sel: 0, rec_first: 0 }
     }
 
     /// Amber: a page that has had no snapshot yet; the feed rebuilds one for it whatever its stamp.
@@ -156,6 +187,7 @@ impl LiveTvScreen {
                         .unwrap_or_else(|| self.slot_at(r, begins));
                 }
             }
+            self.rec_sel = self.rec_sel.min(self.model.recs.len().saturating_sub(1));
             self.row = self.row.min(self.model.rows.len().saturating_sub(1));
             let n = self.model.rows.get(self.row).map_or(0, |r| r.slots.len());
             self.slot = self.slot.min(n.saturating_sub(1));
@@ -215,7 +247,34 @@ impl LiveTvScreen {
         }
     }
 
+    /// Amber: keys in the Recordings view. Up from its first line returns to the guide.
+    fn rec_key<H: ContentLike>(&mut self, key: Key, fx: &mut Effects<'_, H>) -> Handled {
+        let n = self.model.recs.len();
+        match key {
+            Key::Up if self.rec_sel > 0 => self.rec_sel -= 1,
+            Key::Up => self.recs = false,
+            Key::Down if self.rec_sel + 1 < n => self.rec_sel += 1,
+            Key::Down | Key::Right | Key::Ok => return Handled::Yes,
+            Key::Left => return Handled::No,
+            _ => return Handled::No,
+        }
+        let visible = rows_visible();
+        if self.rec_sel < self.rec_first { self.rec_first = self.rec_sel; }
+        else if self.rec_sel >= self.rec_first + visible { self.rec_first = self.rec_sel + 1 - visible; }
+        fx.invalidate(Provenance::Input);
+        Handled::Yes
+    }
+
     fn key_press<H: ContentLike>(&mut self, key: Key, fx: &mut Effects<'_, H>) -> Handled {
+        if self.recs { return self.rec_key(key, fx); }
+        // Up from the top channel opens the Recordings view
+        if key == Key::Up && self.row == 0 && self.model.status == LiveStatus::Ready {
+            self.recs = true;
+            self.rec_sel = 0;
+            self.rec_first = 0;
+            fx.invalidate(Provenance::Input);
+            return Handled::Yes;
+        }
         if self.model.rows.is_empty() {
             return Handled::No;
         }
@@ -265,6 +324,10 @@ impl LiveTvScreen {
     }
 
     fn focus_rect(&self) -> Rect {
+        if self.recs {
+            let y = GRID_Y + (self.rec_sel.saturating_sub(self.rec_first)) as f32 * (ROW_H + ROW_GAP);
+            return Rect::new(X0, y, RIGHT - X0, ROW_H);
+        }
         let Some((_, s)) = self.focused() else { return Rect::new(X0, GRID_Y, 10.0, ROW_H) };
         let x = self.x_of(s.begins).max(X0);
         let r = self.x_of(s.ends).min(RIGHT);
@@ -391,7 +454,71 @@ impl LiveTvScreen {
                 "Press REC to record this episode".to_string()
             };
             let ink = if recording { REC_RED } else { theme::TEXT_SECONDARY };
+            let hint = if self.row == 0 { format!("{hint} \u{b7} Up for Recordings") } else { hint };
             Self::text(p, &hint, LEFT, 352.0, theme::size::CAPTION, ink, if recording { 1 } else { 0 }, w);
+        }
+    }
+
+    /// "in 3 h", "in 2 days": when a scheduled recording begins, from the clock the page was given.
+    fn when(&self, t: i64) -> String {
+        let d = t - self.now;
+        if d <= 0 { "Recording now".to_string() }
+        else if d < 3600 { format!("{} \u{b7} in {} min", self.clock(t), (d + 59) / 60) }
+        else if d < 48 * 3600 { format!("{} \u{b7} in {} h", self.clock(t), (d + 1800) / 3600) }
+        else { format!("{} \u{b7} in {} days", self.clock(t), d / 86400) }
+    }
+
+    /// Amber: the Recordings view - the server's rules, then what it has lined up to record.
+    fn draw_recs(&self, p: Painter, active: bool) {
+        let recs = &self.model.recs;
+        let rules = recs.iter().filter(|r| r.kind != RecKind::Scheduled).count();
+        Self::text(p, "Recordings", LEFT, 104.0, theme::size::TITLE, theme::TEXT_PRIMARY, 1, 1000.0);
+        let count = format!("{} rule{} \u{b7} {} scheduled", rules, if rules == 1 { "" } else { "s" }, recs.len() - rules);
+        Self::text(p, &count, LEFT, 152.0, theme::size::BODY, theme::TEXT_SECONDARY, 0, 1000.0);
+        let hint = if !self.model.note.is_empty() {
+            self.model.note.clone()
+        } else {
+            match recs.get(self.rec_sel) {
+                None => "Nothing is set to record yet. Press REC on a programme in the guide.".to_string(),
+                Some(r) if r.kind == RecKind::Scheduled => "Lined up by a rule \u{b7} Up to return to the guide".to_string(),
+                Some(_) => "REC to cancel this rule \u{b7} Up to return to the guide".to_string(),
+            }
+        };
+        Self::text(p, &hint, LEFT, 352.0, theme::size::CAPTION, theme::TEXT_SECONDARY, 0, 1200.0);
+        let band = theme::with_a(theme::TEXT_PRIMARY, 0.06);
+        p.rrect(Rect::new(LEFT, RULER_Y, CHANNEL_W, RULER_H), 4.0, 4.0, band);
+        Self::text(p, "TYPE", LEFT + 16.0, RULER_Y + RULER_H * 0.5, theme::size::MICRO, theme::TEXT_SECONDARY, 1, CHANNEL_W);
+        p.rrect(Rect::new(X0, RULER_Y, RIGHT - X0, RULER_H), 4.0, 4.0, band);
+        Self::text(p, "RECORDING", X0 + 14.0, RULER_Y + RULER_H * 0.5, theme::size::MICRO, theme::TEXT_SECONDARY, 1, 400.0);
+        let idle = theme::with_a(theme::TEXT_PRIMARY, 0.08);
+        for i in self.rec_first..(self.rec_first + rows_visible()).min(recs.len()) {
+            let r = &recs[i];
+            let y = GRID_Y + (i - self.rec_first) as f32 * (ROW_H + ROW_GAP);
+            p.rrect(Rect::new(LEFT, y, CHANNEL_W, ROW_H), 6.0, 6.0, theme::with_a(theme::TEXT_PRIMARY, 0.05));
+            let (label, dots) = match r.kind {
+                RecKind::Series => ("SERIES", 3),
+                RecKind::Episode => ("EPISODE", 1),
+                RecKind::Film => ("FILM", 1),
+                RecKind::Scheduled => ("SCHEDULED", 0),
+            };
+            let mut x = LEFT + 16.0;
+            for (k, a) in [1.0f32, 0.6, 0.3].iter().take(dots).enumerate() {
+                let c = [REC_RED[0], REC_RED[1], REC_RED[2], REC_RED[3] * a];
+                p.rrect(Rect::new(x + 15.0 * k as f32, y + ROW_H * 0.5 - 6.0, 12.0, 12.0), 6.0, 6.0, c);
+            }
+            if dots > 0 { x += 15.0 * dots as f32 + 8.0; }
+            Self::text(p, label, x, y + ROW_H * 0.5, theme::size::CAPTION, theme::TEXT_SECONDARY, 1, LEFT + CHANNEL_W - 10.0 - x);
+            let focused = active && i == self.rec_sel;
+            let cell = Rect::new(X0, y, RIGHT - X0, ROW_H);
+            p.rrect(cell, 6.0, 6.0, if focused { theme::ACCENT } else { idle });
+            let (ink, sub) = if focused { (theme::ACCENT_INK, theme::ACCENT_INK) } else { (theme::TEXT_PRIMARY, theme::TEXT_SECONDARY) };
+            Self::text(p, &r.title, X0 + 14.0, y + 28.0, theme::size::CAPTION, ink, if focused { 1 } else { 0 }, cell.w - 28.0);
+            let line = match r.kind {
+                RecKind::Scheduled => if r.detail.is_empty() { self.when(r.begins) } else { format!("{} \u{b7} {}", self.when(r.begins), r.detail) },
+                RecKind::Series => "Every new episode".to_string(),
+                _ => r.detail.clone(),
+            };
+            Self::text(p, &line, X0 + 14.0, y + 58.0, theme::size::MICRO, sub, 0, cell.w - 28.0);
         }
     }
 
@@ -516,7 +643,7 @@ impl LiveTvScreen {
 
 impl LogicalState for LiveTvScreen {
     fn write(&self, c: &mut Canon) {
-        c.u32(self.entry.0).u32(self.row as u32).u32(self.slot as u32);
+        c.u32(self.entry.0).u32(self.row as u32).u32(self.slot as u32).u32(self.recs as u32).u32(self.rec_sel as u32);
     }
     fn probe(&self, out: &mut String) {
         out.push_str(&format!("livetv rows={} row={} slot={}", self.model.rows.len(), self.row, self.slot));
@@ -543,6 +670,14 @@ impl<H: ContentLike> Machine<H> for LiveTvScreen {
             ScreenEvent::Activate(e) if *e == ELEM => self.key_press(Key::Ok, fx),
             ScreenEvent::PressCommit(_) if holds => self.key_press(Key::Ok, fx),
             // INFO, or a held OK: record the focused airing's show (or cancel its rule)
+            ScreenEvent::PressHold(_) if holds && self.recs => {
+                // in the Recordings view the same keys end the selected rule
+                plx_ui::dispatch::take_rec_hold();
+                if let Some(r) = self.model.recs.get(self.rec_sel).filter(|r| r.kind != RecKind::Scheduled) {
+                    fx.push(Fx::App(AppFx::LiveTv(LiveTvOut::CancelRule { id: r.id.clone() })));
+                }
+                Handled::Yes
+            }
             ScreenEvent::PressHold(_) if holds => {
                 if let Some((_, s)) = self.focused() {
                     // REC, INFO or a held OK: the application steps episode -> series -> off
@@ -611,6 +746,11 @@ impl<H: ContentLike> Screen<H> for LiveTvScreen {
         p.rrect(Rect::new(-200.0, 0.0, plx_ui::consts::SCR_W + 400.0, plx_ui::consts::SCR_H), 0.0, 0.0, theme::SURFACE_APP);
         if self.model.status != LiveStatus::Ready || self.model.rows.is_empty() {
             self.draw_status(p);
+            return;
+        }
+        if self.recs {
+            let active = f.focus.current.is_some_and(|k| k.entry == self.entry && k.elem == ELEM);
+            self.draw_recs(p, active);
             return;
         }
         self.draw_art(p);

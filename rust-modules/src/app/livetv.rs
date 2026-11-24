@@ -2,7 +2,7 @@
 //! the frame thread. The guide page reads a snapshot of it each frame (`Bridge::livetv_feed`); a
 //! tune that lands is played by the frame loop (`take_ready`).
 
-use plx_plex::plex::livetv::{LiveChannel, LiveDvr, LiveProgramme, LiveRule};
+use plx_plex::plex::livetv::{LiveChannel, LiveDvr, LiveProgramme, LiveRule, LiveScheduled};
 use plx_screens::livetv::{LiveRow, LiveSlot, LiveStatus, LiveTvModel};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
@@ -25,6 +25,8 @@ struct Shared {
     /// Amber: the server's recording rules, a passing status line and when it goes, and whether a
     /// record or cancel is in flight.
     rules: Vec<LiveRule>,
+    /// Amber: what the server has lined up to record.
+    scheduled: Vec<LiveScheduled>,
     note: String,
     note_until: i64,
     recording: bool,
@@ -120,7 +122,7 @@ pub(crate) fn tick(now: i64, active: bool) {
             None => Err(()),
             Some(None) => Ok((None, Vec::new(), Vec::new())),
             Some(Some(dvr)) => {
-                if let Some(rules) = client.livetv_rules() { with(|s| s.rules = rules); }
+                reload_rules(&client);
                 let channels = client.livetv_channels(&dvr.epg);
                 let grid = client.livetv_grid(&dvr.epg, now - 3600, now + 6 * 3600);
                 match (channels, grid) {
@@ -185,6 +187,7 @@ pub(crate) fn model_stamp(now: i64) -> u64 {
         s.tuning.hash(&mut h);
         s.tune_failed.hash(&mut h);
         s.rules.iter().map(|r| r.id.as_str()).collect::<Vec<_>>().hash(&mut h);
+        s.scheduled.iter().map(|r| (r.title.as_str(), r.begins)).collect::<Vec<_>>().hash(&mut h);
         (now < s.note_until).hash(&mut h);
         s.note.hash(&mut h);
     });
@@ -217,6 +220,7 @@ pub(crate) fn model(now: i64) -> LiveTvModel {
         LiveTvModel { status: s.status, rows, tuning: s.tuning.clone(), tune_failed: s.tune_failed,
             sid: plx_plex::plex::current_server().raw(),
             rules: s.rules.iter().map(|r| r.guid.clone()).collect(),
+            recs: build_recs(&s.rules, &s.scheduled),
             note: if now < s.note_until { s.note.clone() } else { String::new() } }
     })
 }
@@ -489,6 +493,45 @@ mod channel_tests {
     }
 }
 
+/// Pure: the Recordings view's lines - series, episodes and films by rule, then what is scheduled.
+pub(crate) fn build_recs(rules: &[LiveRule], scheduled: &[LiveScheduled]) -> Vec<plx_screens::livetv::LiveRec> {
+    use plx_screens::livetv::{LiveRec, RecKind};
+    let kind = |r: &LiveRule| match r.kind { 4 => RecKind::Episode, 1 => RecKind::Film, _ => RecKind::Series };
+    let mut out: Vec<LiveRec> = Vec::new();
+    for want in [RecKind::Series, RecKind::Film, RecKind::Episode] {
+        out.extend(rules.iter().filter(|r| kind(r) == want).map(|r| LiveRec {
+            id: r.id.clone(), kind: want, title: r.title.clone(), detail: r.detail.clone(), begins: 0,
+        }));
+    }
+    out.extend(scheduled.iter().map(|r| LiveRec {
+        id: String::new(), kind: RecKind::Scheduled, title: r.title.clone(), detail: r.detail.clone(), begins: r.begins,
+    }));
+    out
+}
+
+/// Read the server's rules and what it has scheduled again.
+fn reload_rules(client: &plx_plex::plex::Client) {
+    if let Some(rules) = client.livetv_rules() { with(|s| s.rules = rules); }
+    if let Some(sched) = client.livetv_scheduled() { with(|s| s.scheduled = sched); }
+}
+
+/// Amber: end a rule from the Recordings view. WRITES to the server, off the frame thread.
+pub(crate) fn cancel_rule(id: String) {
+    if with(|s| std::mem::replace(&mut s.recording, true)) { return; }
+    let name = with(|s| s.rules.iter().find(|r| r.id == id).map(|r| r.title.clone())).unwrap_or_default();
+    let client = plx_plex::plex::client();
+    let spawned = std::thread::Builder::new().name("livetv-record".into()).spawn(move || {
+        let note = match client.livetv_cancel(&id) {
+            Ok(()) => { plx_base::eventlog::log(&format!("livetv: recording rule {id} cancelled")); format!("Cancelled {name}") }
+            Err(why) => { plx_base::eventlog::log(&format!("livetv: cancel of rule {id} failed - {why}")); format!("Couldn't cancel: {why}") }
+        };
+        reload_rules(&client);
+        with(|s| s.recording = false);
+        say(&note, 6);
+    });
+    if spawned.is_err() { with(|s| s.recording = false); }
+}
+
 /// What one press of REC does next, from the rules the server holds: `Add(guid)` makes a rule,
 /// `Upgrade { add, drop }` makes the series rule and then drops the episode's, `Cancel(id)` ends one.
 #[derive(Debug, PartialEq, Eq)]
@@ -541,7 +584,7 @@ pub(crate) fn toggle_record(show: String, episode: String, title: String) {
                 Err(why) => { log(&format!("series record failed - {why}")); format!("Couldn't record the series: {why}") }
             },
         };
-        if let Some(rules) = client.livetv_rules() { with(|s| s.rules = rules); }
+        reload_rules(&client);
         with(|s| s.recording = false);
         say(&note, 6);
     });
@@ -552,6 +595,17 @@ pub(crate) fn toggle_record(show: String, episode: String, title: String) {
 mod record_tests {
     use super::{next_record_step, RecordStep};
     fn r(id: &str, g: &str) -> (String, String) { (id.into(), g.into()) }
+    #[test]
+    fn the_recordings_list_puts_series_first_and_the_schedule_last() {
+        use plx_plex::plex::livetv::{LiveRule, LiveScheduled};
+        use plx_screens::livetv::RecKind;
+        let rule = |id: &str, kind: i64| LiveRule { id: id.into(), title: format!("t{id}"), kind, ..Default::default() };
+        let sched = [LiveScheduled { title: "s".into(), begins: 5, ..Default::default() }];
+        let l = super::build_recs(&[rule("1", 4), rule("2", 2), rule("3", 1)], &sched);
+        let kinds: Vec<RecKind> = l.iter().map(|x| x.kind).collect();
+        assert_eq!(kinds, [RecKind::Series, RecKind::Film, RecKind::Episode, RecKind::Scheduled]);
+        assert_eq!(l[3].id, "", "a scheduled recording has no rule id to cancel");
+    }
     #[test]
     fn an_episode_steps_to_the_series_and_then_off() {
         assert_eq!(next_record_step(&[], "show", "ep"), RecordStep::Add("ep".into()));

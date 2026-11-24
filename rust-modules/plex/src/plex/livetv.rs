@@ -342,6 +342,10 @@ pub struct LiveRule {
     pub title: String,
     /// The show's or film's guid, when the server says it.
     pub guid: String,
+    /// 2 a series, 4 a single episode, 1 a film.
+    pub kind: i64,
+    /// A single episode's own title (empty for a series).
+    pub detail: String,
 }
 
 pub fn parse_rules(body: &[u8]) -> Vec<LiveRule> {
@@ -352,8 +356,14 @@ pub fn parse_rules(body: &[u8]) -> Vec<LiveRule> {
         let id = key.rsplit('/').next().unwrap_or("").to_string();
         if id.is_empty() { return None; }
         let target = m.get("Directory").or_else(|| m.get("Video")).unwrap_or(m);
-        let title = [s(target, "title"), s(m, "title")].into_iter().find(|t| !t.is_empty()).unwrap_or_default();
-        Some(LiveRule { id, title, guid: s(target, "guid") })
+        // a single episode lists under `Video`: its show's title is the name, its own title the detail
+        let show = s(target, "grandparentTitle");
+        let (title, detail) = if show.is_empty() {
+            ([s(target, "title"), s(m, "title")].into_iter().find(|t| !t.is_empty()).unwrap_or_default(), String::new())
+        } else {
+            (show, s(target, "title"))
+        };
+        Some(LiveRule { id, title, guid: s(target, "guid"), kind: n(m, "type"), detail })
     }).collect()
 }
 
@@ -362,7 +372,48 @@ pub fn parse_created(body: &[u8]) -> Option<String> {
     parse_rules(body).into_iter().next().map(|r| r.id)
 }
 
+/// A recording the server has lined up.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LiveScheduled {
+    pub title: String,
+    /// "S4 E5 Lupercalia" for an episode, the year for a film.
+    pub detail: String,
+    pub begins: i64,
+    pub ends: i64,
+}
+
+/// `GET /media/subscriptions/scheduled`. Read leniently: the entries' shape was only measured empty
+/// (a server holding rules was not at hand), so each entry is read as the guide's own metadata
+/// shape, directly or under `Metadata`/`Video`.
+pub fn parse_scheduled(body: &[u8]) -> Vec<LiveScheduled> {
+    let Ok(v) = serde_json::from_slice::<Value>(body) else { return Vec::new() };
+    let mut entries = arr(&v, "/MediaContainer/MediaGrabOperation");
+    if entries.is_empty() { entries = arr(&v, "/MediaContainer/Metadata"); }
+    let mut out: Vec<LiveScheduled> = entries.iter().filter_map(|e| {
+        let item = e.get("Metadata").or_else(|| e.get("Video")).unwrap_or(e);
+        let media = item.pointer("/Media/0");
+        let at = |k: &str| media.map_or(0, |m| n(m, k)).max(n(item, k)).max(n(e, k));
+        let show = s(item, "grandparentTitle");
+        let (title, detail) = if show.is_empty() {
+            (s(item, "title"), if n(item, "year") > 0 { n(item, "year").to_string() } else { String::new() })
+        } else {
+            let (season, ep) = (n(item, "parentIndex"), n(item, "index"));
+            let sub = s(item, "title");
+            (show, if season > 0 || ep > 0 { format!("S{season} E{ep} {sub}").trim().to_string() } else { sub })
+        };
+        if title.is_empty() { return None; }
+        Some(LiveScheduled { title, detail, begins: at("beginsAt"), ends: at("endsAt") })
+    }).collect();
+    out.sort_by_key(|r| r.begins);
+    out
+}
+
 impl Client {
+    pub fn livetv_scheduled(&self) -> Option<Vec<LiveScheduled>> {
+        let body = self.body_2xx_bulk("/media/subscriptions/scheduled", &[crate::http::ACCEPT_JSON])?;
+        Some(parse_scheduled(&body))
+    }
+
     pub fn livetv_rules(&self) -> Option<Vec<LiveRule>> {
         let body = self.body_2xx_bulk("/media/subscriptions", &[crate::http::ACCEPT_JSON])?;
         Some(parse_rules(&body))
@@ -438,15 +489,26 @@ mod tests {
     fn rules_read_with_their_ids() {
         let body = br#"{"MediaContainer":{"size":1,"MediaSubscription":[{"key":"/media/subscriptions/7","Directory":{"title":"Plebs","guid":"tv.plex.xmltv://show/Plebs"}}]}}"#;
         let r = parse_rules(body);
-        assert_eq!(r, [LiveRule { id: "7".into(), title: "Plebs".into(), guid: "tv.plex.xmltv://show/Plebs".into() }]);
+        assert_eq!(r, [LiveRule { id: "7".into(), title: "Plebs".into(), guid: "tv.plex.xmltv://show/Plebs".into(), ..Default::default() }]);
         assert!(parse_rules(br#"{"MediaContainer":{"size":0}}"#).is_empty());
+    }
+    #[test]
+    fn scheduled_recordings_read_in_time_order() {
+        let body = br#"{"MediaContainer":{"size":2,"MediaGrabOperation":[
+            {"Metadata":{"grandparentTitle":"Plebs","title":"Lupercalia","parentIndex":4,"index":5,"Media":[{"beginsAt":2000,"endsAt":2600}]}},
+            {"Metadata":{"title":"Film","year":1999,"Media":[{"beginsAt":1000,"endsAt":1900}]}}]}}"#;
+        let r = parse_scheduled(body);
+        assert_eq!((r[0].title.as_str(), r[0].begins), ("Film", 1000));
+        assert_eq!((r[1].title.as_str(), r[1].detail.as_str()), ("Plebs", "S4 E5 Lupercalia"));
+        assert!(parse_scheduled(br#"{"MediaContainer":{"size":0}}"#).is_empty());
     }
     #[test]
     fn an_episode_rule_reads_with_the_episodes_own_guid() {
         // measured on PMS 1.43.5: a "This Episode" rule lists its episode under `Video`
-        let body = br#"{"MediaContainer":{"size":1,"MediaSubscription":[{"key":"431","type":4,"title":"This Episode","Video":{"grandparentGuid":"tv.plex.xmltv://show/Plebs","guid":"tv.plex.xmltv://episode/Plebs/4/5","title":"Lupercalia"}}]}}"#;
+        let body = br#"{"MediaContainer":{"size":1,"MediaSubscription":[{"key":"431","type":4,"title":"This Episode","Video":{"grandparentGuid":"tv.plex.xmltv://show/Plebs","grandparentTitle":"Plebs","guid":"tv.plex.xmltv://episode/Plebs/4/5","title":"Lupercalia"}}]}}"#;
         let r = parse_rules(body);
         assert_eq!((r[0].id.as_str(), r[0].guid.as_str()), ("431", "tv.plex.xmltv://episode/Plebs/4/5"));
+        assert_eq!((r[0].title.as_str(), r[0].detail.as_str(), r[0].kind), ("Plebs", "Lupercalia", 4));
     }
     #[test]
     fn a_grid_airing_carries_the_guid_a_rule_is_made_for() {

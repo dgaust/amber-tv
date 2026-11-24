@@ -3352,6 +3352,10 @@ impl Bridge {
                 super::livetv::tune(channel);
                 AppCommandOutcome::Completed
             }
+            Ok(AppFx::LiveTv(plx_screens::livetv::LiveTvOut::CancelRule { id })) => {
+                super::livetv::cancel_rule(id);
+                AppCommandOutcome::Completed
+            }
             Ok(AppFx::LiveTv(plx_screens::livetv::LiveTvOut::Record { show, episode, title })) => {
                 super::livetv::toggle_record(show, episode, title);
                 AppCommandOutcome::Completed
