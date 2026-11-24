@@ -489,27 +489,56 @@ mod channel_tests {
     }
 }
 
-/// Amber: INFO on a guide airing - record its show (or film), or cancel the rule that already
-/// records it. WRITES to the server, off the frame thread; the guide shows the outcome as a
-/// passing note and the rules are read again.
-pub(crate) fn toggle_record(guid: String, title: String) {
-    if guid.is_empty() {
+/// What one press of REC does next, from the rules the server holds: `Add(guid)` makes a rule,
+/// `Upgrade { add, drop }` makes the series rule and then drops the episode's, `Cancel(id)` ends one.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum RecordStep { Add(String), Upgrade { add: String, drop: String }, Cancel(String) }
+
+/// Pure: an episode records on its own first, a second press makes it the series, a third cancels.
+/// A film (`show == episode`) records and cancels. `rules` is `(rule id, guid)`.
+pub(crate) fn next_record_step(rules: &[(String, String)], show: &str, episode: &str) -> RecordStep {
+    let find = |g: &str| rules.iter().find(|(_, rg)| rg == g).map(|(id, _)| id.clone());
+    if let Some(id) = find(show) { return RecordStep::Cancel(id); }
+    if show != episode {
+        if let Some(id) = find(episode) { return RecordStep::Upgrade { add: show.to_string(), drop: id }; }
+    }
+    RecordStep::Add(episode.to_string())
+}
+
+/// Amber: REC (or INFO) on a guide airing - record it, then its series, then stop. WRITES to the
+/// server, off the frame thread; the guide shows the outcome as a passing note and the rules are
+/// read again.
+pub(crate) fn toggle_record(show: String, episode: String, title: String) {
+    if show.is_empty() {
         say("Can't record this one", 5);
         return;
     }
     if with(|s| std::mem::replace(&mut s.recording, true)) { return; }
-    let existing = with(|s| s.rules.iter().find(|r| r.guid == guid).map(|r| r.id.clone()));
+    let step = with(|s| {
+        let rules: Vec<(String, String)> = s.rules.iter().map(|r| (r.id.clone(), r.guid.clone())).collect();
+        next_record_step(&rules, &show, if episode.is_empty() { &show } else { &episode })
+    });
     let client = plx_plex::plex::client();
     let spawned = std::thread::Builder::new().name("livetv-record".into()).spawn(move || {
         let name = if title.is_empty() { "it".to_string() } else { title };
-        let note = match existing {
-            Some(id) => match client.livetv_cancel(&id) {
-                Ok(()) => { plx_base::eventlog::log(&format!("livetv: recording rule {id} cancelled")); format!("Recording of {name} cancelled") }
-                Err(why) => { plx_base::eventlog::log(&format!("livetv: cancel of rule {id} failed - {why}")); format!("Couldn't cancel: {why}") }
+        let log = |m: &str| plx_base::eventlog::log(&format!("livetv: {m}"));
+        let note = match step {
+            RecordStep::Cancel(id) => match client.livetv_cancel(&id) {
+                Ok(()) => { log(&format!("recording rule {id} cancelled")); format!("Recording of {name} cancelled") }
+                Err(why) => { log(&format!("cancel of rule {id} failed - {why}")); format!("Couldn't cancel: {why}") }
             },
-            None => match client.livetv_record(&guid) {
-                Ok(id) => { plx_base::eventlog::log(&format!("livetv: recording rule {id} created")); format!("Recording {name}") }
-                Err(why) => { plx_base::eventlog::log(&format!("livetv: record failed - {why}")); format!("Couldn't record: {why}") }
+            RecordStep::Add(guid) => match client.livetv_record(&guid) {
+                Ok(id) => { log(&format!("recording rule {id} created")); if guid == show { format!("Recording {name}") } else { format!("Recording this episode of {name}") } }
+                Err(why) => { log(&format!("record failed - {why}")); format!("Couldn't record: {why}") }
+            },
+            RecordStep::Upgrade { add, drop } => match client.livetv_record(&add) {
+                Ok(id) => {
+                    log(&format!("series rule {id} created"));
+                    // the series covers the episode; the episode's own rule only duplicates it
+                    if let Err(why) = client.livetv_cancel(&drop) { log(&format!("episode rule {drop} not dropped - {why}")); }
+                    format!("Recording every episode of {name}")
+                }
+                Err(why) => { log(&format!("series record failed - {why}")); format!("Couldn't record the series: {why}") }
             },
         };
         if let Some(rules) = client.livetv_rules() { with(|s| s.rules = rules); }
@@ -517,6 +546,25 @@ pub(crate) fn toggle_record(guid: String, title: String) {
         say(&note, 6);
     });
     if spawned.is_err() { with(|s| s.recording = false); }
+}
+
+#[cfg(test)]
+mod record_tests {
+    use super::{next_record_step, RecordStep};
+    fn r(id: &str, g: &str) -> (String, String) { (id.into(), g.into()) }
+    #[test]
+    fn an_episode_steps_to_the_series_and_then_off() {
+        assert_eq!(next_record_step(&[], "show", "ep"), RecordStep::Add("ep".into()));
+        assert_eq!(next_record_step(&[r("1", "ep")], "show", "ep"), RecordStep::Upgrade { add: "show".into(), drop: "1".into() });
+        assert_eq!(next_record_step(&[r("2", "show")], "show", "ep"), RecordStep::Cancel("2".into()));
+        // both held (an older state): the series wins and is the one cancelled
+        assert_eq!(next_record_step(&[r("1", "ep"), r("2", "show")], "show", "ep"), RecordStep::Cancel("2".into()));
+    }
+    #[test]
+    fn a_film_records_and_cancels() {
+        assert_eq!(next_record_step(&[], "film", "film"), RecordStep::Add("film".into()));
+        assert_eq!(next_record_step(&[r("3", "film")], "film", "film"), RecordStep::Cancel("3".into()));
+    }
 }
 
 /// A passing line on the guide for `seconds`.

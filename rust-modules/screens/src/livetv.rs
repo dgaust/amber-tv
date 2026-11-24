@@ -83,8 +83,8 @@ pub enum LiveTvOut {
     Tune { channel: String },
     /// Amber: record the focused airing's show or film, or cancel its rule (the application knows
     /// which). WRITES to the server.
-    Record { guid: String, title: String },
-    // (guid is the SHOW's for INFO and the EPISODE's for REC; the screen picks)
+    /// `show` is what a series rule is made for, `episode` the airing's own (equal for a film).
+    Record { show: String, episode: String, title: String },
 }
 
 const ELEM: u32 = 1;
@@ -382,13 +382,13 @@ impl LiveTvScreen {
             let hint = if !self.model.note.is_empty() {
                 self.model.note.clone()
             } else if series {
-                "Recording the series \u{b7} INFO to cancel".to_string()
+                "Recording the series \u{b7} REC to cancel".to_string()
             } else if single {
-                "Recording this episode \u{b7} REC to cancel".to_string()
+                "Recording this episode \u{b7} REC again for the series".to_string()
             } else if film {
-                "Press REC or INFO to record this".to_string()
+                "Press REC to record this".to_string()
             } else {
-                "REC: this episode \u{b7} INFO: the whole series".to_string()
+                "Press REC to record this episode".to_string()
             };
             let ink = if recording { REC_RED } else { theme::TEXT_SECONDARY };
             Self::text(p, &hint, LEFT, 352.0, theme::size::CAPTION, ink, if recording { 1 } else { 0 }, w);
@@ -465,8 +465,18 @@ impl LiveTvScreen {
                     }
                 }
                 let (ink, sub) = if focused { (theme::ACCENT_INK, theme::ACCENT_INK) } else { (theme::TEXT_PRIMARY, theme::TEXT_SECONDARY) };
-                if w > 40.0 && !s.record_guid.is_empty() && self.model.rules.iter().any(|g| *g == s.record_guid || (!s.episode_guid.is_empty() && *g == s.episode_guid)) {
-                    p.rrect(Rect::new(x + w - 22.0, y + 10.0, 12.0, 12.0), 6.0, 6.0, REC_RED);
+                if w > 40.0 && !s.record_guid.is_empty() {
+                    let series = self.model.rules.iter().any(|g| *g == s.record_guid);
+                    let single = !series && !s.episode_guid.is_empty() && self.model.rules.iter().any(|g| *g == s.episode_guid);
+                    if series && w > 80.0 {
+                        // the series: three dots, each fainter than the last
+                        for (i, a) in [1.0f32, 0.6, 0.3].iter().enumerate() {
+                            let c = [REC_RED[0], REC_RED[1], REC_RED[2], REC_RED[3] * a];
+                            p.rrect(Rect::new(x + w - 22.0 - 15.0 * i as f32, y + 10.0, 12.0, 12.0), 6.0, 6.0, c);
+                        }
+                    } else if series || single {
+                        p.rrect(Rect::new(x + w - 22.0, y + 10.0, 12.0, 12.0), 6.0, 6.0, REC_RED);
+                    }
                 }
                 let tw = w - 24.0;
                 // a sliver too narrow to read carries no text at all; a narrow slot carries its
@@ -535,9 +545,10 @@ impl<H: ContentLike> Machine<H> for LiveTvScreen {
             // INFO, or a held OK: record the focused airing's show (or cancel its rule)
             ScreenEvent::PressHold(_) if holds => {
                 if let Some((_, s)) = self.focused() {
-                    // REC records this episode; INFO or a held OK the whole series
-                    let guid = if plx_ui::dispatch::take_rec_hold() && !s.episode_guid.is_empty() { s.episode_guid.clone() } else { s.record_guid.clone() };
-                    fx.push(Fx::App(AppFx::LiveTv(LiveTvOut::Record { guid, title: s.title.clone() })));
+                    // REC, INFO or a held OK: the application steps episode -> series -> off
+                    plx_ui::dispatch::take_rec_hold();
+                    let episode = if s.episode_guid.is_empty() { s.record_guid.clone() } else { s.episode_guid.clone() };
+                    fx.push(Fx::App(AppFx::LiveTv(LiveTvOut::Record { show: s.record_guid.clone(), episode, title: s.title.clone() })));
                 }
                 Handled::Yes
             }
