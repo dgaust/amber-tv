@@ -295,6 +295,8 @@ pub(crate) fn retitle(ps: &mut plx_media::route::PlaybackSession, now: i64) {
         let name = s.channels.iter().find(|c| c.id == channel).map(|c| c.title.clone()).unwrap_or_default();
         let title = if name.is_empty() { p.title.clone() } else { format!("{name} \u{b7} {}", p.title) };
         let ctx = if p.subtitle.is_empty() { meta_of(p) } else { p.subtitle.clone() };
+        let ctx = with_next(ctx, s.grid.iter().filter(|n| n.channel == channel && n.begins >= p.ends)
+            .min_by_key(|n| n.begins).map(|n| n.title.as_str()));
         Some((title, ctx))
     });
     if let Some((title, ctx)) = change {
@@ -355,6 +357,79 @@ pub(crate) fn keepalive(now_ms: u64) {
         BUSY.store(false, Ordering::Release);
     });
     if spawned.is_err() { BUSY.store(false, Ordering::Release); }
+}
+
+/// The HUD's context line with what airs next on the channel appended.
+fn with_next(ctx: String, next: Option<&str>) -> String {
+    match next.filter(|t| !t.is_empty()) {
+        Some(t) if ctx.is_empty() => format!("Next: {t}"),
+        Some(t) => format!("{ctx}  \u{b7}  Next: {t}"),
+        None => ctx,
+    }
+}
+
+/// Pure: the channel `dir` steps (+1 next, -1 previous) from `cur` in `ids`, wrapping at the ends.
+/// `None` when `cur` is not among them or there is nowhere else to go.
+pub(crate) fn step_channel(ids: &[String], cur: &str, dir: i32) -> Option<usize> {
+    if ids.len() < 2 { return None; }
+    let i = ids.iter().position(|c| c == cur)?;
+    let n = ids.len() as i32;
+    Some((i as i32 + dir.signum()).rem_euclid(n) as usize)
+}
+
+/// Is a live session what the player has now?
+pub(crate) fn playing_live() -> bool {
+    plx_media::route::timeline_identity().is_some_and(|(rk, _)| rk.starts_with("/livetv/sessions/"))
+}
+
+/// Amber: CH+ / CH- while a live channel plays - tune the next or previous channel that has an
+/// airing now, in the guide's order, wrapping. The tune replaces the playing session when it lands
+/// (`take_ready`); the tuning screen names the channel meanwhile. True when a change was started
+/// or one is already in flight.
+pub(crate) fn change_channel(dir: i32, now: i64) -> bool {
+    if !playing_live() { return false; }
+    let target = with(|s| {
+        if s.tuning.is_some() { return Some(None); }
+        let (cur, _) = s.playing.clone()?;
+        let ids: Vec<String> = s.channels.iter()
+            .filter(|c| s.grid.iter().any(|p| p.channel == c.id && p.begins <= now && now < p.ends))
+            .map(|c| c.id.clone()).collect();
+        let i = step_channel(&ids, &cur, dir)?;
+        Some(Some(ids[i].clone()))
+    });
+    match target {
+        Some(None) => true,
+        Some(Some(channel)) => {
+            plx_base::eventlog::log(&format!("livetv: channel {} -> {channel}", if dir > 0 { "up" } else { "down" }));
+            tune(channel);
+            true
+        }
+        None => false,
+    }
+}
+
+#[cfg(test)]
+mod channel_tests {
+    use super::{step_channel, with_next};
+    fn ids(v: &[&str]) -> Vec<String> { v.iter().map(|s| s.to_string()).collect() }
+    #[test]
+    fn steps_and_wraps() {
+        let c = ids(&["a", "b", "c"]);
+        assert_eq!(step_channel(&c, "a", 1), Some(1));
+        assert_eq!(step_channel(&c, "c", 1), Some(0));
+        assert_eq!(step_channel(&c, "a", -1), Some(2));
+    }
+    #[test]
+    fn nowhere_to_go() {
+        assert_eq!(step_channel(&ids(&["a"]), "a", 1), None);
+        assert_eq!(step_channel(&ids(&["a", "b"]), "z", 1), None);
+    }
+    #[test]
+    fn next_joins_the_context_line() {
+        assert_eq!(with_next("S1 E2".into(), Some("News")), "S1 E2  \u{b7}  Next: News");
+        assert_eq!(with_next(String::new(), Some("News")), "Next: News");
+        assert_eq!(with_next("S1 E2".into(), None), "S1 E2");
+    }
 }
 
 /// Amber: how many re-tunes a failing live stream gets, and over how long, before the player is

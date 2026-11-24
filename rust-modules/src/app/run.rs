@@ -2278,6 +2278,7 @@ pub(crate) unsafe fn playback_tick(app: &mut App, fr: &mut Frame) {
         // would take it is still the player (input is step 2 of the frame, the dip crosses its
         // floor at step 4), so the whole batch goes to Home on the next frame.
         super::playback::return_hold_inputs(app, fr.now);
+        live_channel_keys(app);
         // post-playback home refresh (armed by every exit_player): refetch the hubs so
         // Continue Watching shows the new resume point / next episode. It waits for the stop
         // report to have reached the server (`timeline_stop_landed`), not for a clock: a read that
@@ -9977,6 +9978,31 @@ mod lifecycle_regression_tests {
         let stops = stop_reports(&rig, "2");
         assert_eq!(stops.len(), 1, "{:?}", rig.requests.lock().unwrap());
         assert!(stops[0].contains("time=30000&"), "{}", stops[0]);
+    }
+}
+
+/// Amber: while a live channel plays, the remote's CH+ / CH- change channel (`livetv::change_channel`)
+/// and never reach the player page. Every edge of the key is taken so a release cannot leak through.
+fn live_channel_keys(app: &mut super::App) {
+    use plx_machine::machine::InputKind;
+    if !matches!(app.route(), AppArg::Player) || !super::livetv::playing_live() { return; }
+    let now = crate::app::clock::unix_ms().map_or(0, |ms| ms / 1000);
+    let mut dirs: Vec<i32> = Vec::new();
+    app.inputs.retain(|ev| match ev.kind {
+        InputKind::Key { sym, wcode, edge, .. } => match plx_ui::consts::page_dir(sym, wcode) {
+            Some(d) => {
+                if matches!(edge, plx_machine::machine::Edge::Down) {
+                    // CH+ is page_dir -1 (up); it means the next channel
+                    dirs.push(-d);
+                }
+                false
+            }
+            None => true,
+        },
+        _ => true,
+    });
+    for d in dirs {
+        super::livetv::change_channel(d, now);
     }
 }
 
