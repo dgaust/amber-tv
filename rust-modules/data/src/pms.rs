@@ -760,6 +760,10 @@ static LIVE_ROW: std::sync::Mutex<Vec<PmsMovie>> = std::sync::Mutex::new(Vec::ne
 static LIVE_GEN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 thread_local! { static SEEN_LIVE: std::cell::Cell<u32> = const { std::cell::Cell::new(0) }; }
 pub const LIVE_ROW_ID: &str = "amber.livetv.onnow";
+/// More Home rows built from the same guide (`set_live_extra`): `(row id, title, cards)`.
+static LIVE_EXTRA: std::sync::Mutex<Vec<(String, String, Vec<PmsMovie>)>> = std::sync::Mutex::new(Vec::new());
+pub const LIVE_MOVIES_ID: &str = "amber.livetv.movies";
+pub const LIVE_SHOWS_ID: &str = "amber.livetv.shows";
 pub const LIVE_KEY_PREFIX: &str = "livetv:";
 
 /// Replace the On Now row's cards (an empty list removes the row). A list equal to the one held
@@ -773,32 +777,49 @@ pub fn set_live_row(items: Vec<PmsMovie>) {
     LIVE_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// Replace the extra live rows ("Movies On Now", "Shows On Now"). Same rule as [`set_live_row`]: a
+/// list equal to the one held changes nothing.
+pub fn set_live_extra(rows: Vec<(String, String, Vec<PmsMovie>)>) {
+    let mut held = LIVE_EXTRA.lock().unwrap_or_else(|e| e.into_inner());
+    let same = held.len() == rows.len() && held.iter().zip(&rows).all(|(a, b)| {
+        a.0 == b.0 && a.1 == b.1 && a.2.len() == b.2.len()
+            && a.2.iter().zip(&b.2).all(|(x, y)| x.rk == y.rk && x.title == y.title && x.thumb == y.thumb && x.art == y.art)
+    });
+    if same { return; }
+    *held = rows;
+    LIVE_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
 fn live_row_moved() -> bool {
     let now = LIVE_GEN.load(std::sync::atomic::Ordering::Relaxed);
     SEEN_LIVE.with(|s| { let moved = s.get() != now; s.set(now); moved })
 }
 
 fn add_live_row(build: &mut HubBuild) {
-    let items = LIVE_ROW.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let on_now = LIVE_ROW.lock().unwrap_or_else(|e| e.into_inner()).clone();
     // not on its own: before the server's rows land it would stand alone at the top and then be
     // shoved down the page as they arrive around it
-    if items.is_empty() || build.1.is_empty() { return; }
-    if build.1.iter().any(|h| h.hub_id == LIVE_ROW_ID) { return; }
-    let start = build.0.len();
-    let n = items.len();
-    build.0.extend(items.into_iter().map(Arc::new));
-    build.1.push(HubRow {
-        title: "On Now \u{b7} Live TV".into(),
-        hub_id: LIVE_ROW_ID.into(),
-        key: String::new(),
-        source: String::new(),
-        total: n,
-        start,
-        len: n,
-        offset: 0,
-        more: false,
-        epoch: 0,
-    });
+    if on_now.is_empty() || build.1.is_empty() { return; }
+    let mut rows: Vec<(String, String, Vec<PmsMovie>)> = vec![(LIVE_ROW_ID.into(), "On Now \u{b7} Live TV".into(), on_now)];
+    rows.extend(LIVE_EXTRA.lock().unwrap_or_else(|e| e.into_inner()).iter().filter(|r| !r.2.is_empty()).cloned());
+    for (id, title, items) in rows {
+        if build.1.iter().any(|h| h.hub_id == id) { continue; }
+        let start = build.0.len();
+        let n = items.len();
+        build.0.extend(items.into_iter().map(Arc::new));
+        build.1.push(HubRow {
+            title,
+            hub_id: id,
+            key: String::new(),
+            source: String::new(),
+            total: n,
+            start,
+            len: n,
+            offset: 0,
+            more: false,
+            epoch: 0,
+        });
+    }
 }
 
 // ---- Amber: the viewer's arrangement of Home's rows ------------------------------------------------

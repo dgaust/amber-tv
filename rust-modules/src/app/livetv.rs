@@ -312,10 +312,12 @@ pub(crate) fn publish_on_now(now: i64) {
     let stamp = now / 30 + i64::from(generation()) * 1_000_000_007;
     if LAST.swap(stamp, Ordering::Relaxed) == stamp { return; }
     let sid = plx_plex::plex::current_server();
-    let items = with(|s| {
+    // every channel's airing now, with whether it is a film (no episode, a year) or an episode
+    let cards: Vec<(bool, plx_data::pms::PmsMovie)> = with(|s| {
         s.channels.iter().filter_map(|c| {
             let p = s.grid.iter().find(|p| p.channel == c.id && p.begins <= now && now < p.ends)?;
-            Some(plx_data::pms::PmsMovie {
+            let film = p.season == 0 && p.episode == 0 && p.subtitle.is_empty() && p.year > 0;
+            Some((film, plx_data::pms::PmsMovie {
                 sid,
                 rk: format!("{}{}", plx_data::pms::LIVE_KEY_PREFIX, c.id),
                 title: if p.subtitle.is_empty() { p.title.clone() } else { format!("{} \u{b7} {}", p.title, p.subtitle) },
@@ -326,10 +328,51 @@ pub(crate) fn publish_on_now(now: i64) {
                 art: p.art.clone(),
                 dur_ns: (p.ends - p.begins) * 1_000_000_000,
                 ..Default::default()
-            })
-        }).collect::<Vec<_>>()
+            }))
+        }).collect()
     });
-    plx_data::pms::set_live_row(items);
+    let extra = split_on_now(&cards);
+    plx_data::pms::set_live_row(cards.into_iter().map(|(_, m)| m).collect());
+    plx_data::pms::set_live_extra(extra);
+}
+
+/// Pure: the "Movies On Now" and "Shows On Now" rows out of what airs now (`film` marks a film).
+/// A row needs two cards, and a row that would only repeat On Now whole is left out.
+pub(crate) fn split_on_now(cards: &[(bool, plx_data::pms::PmsMovie)]) -> Vec<(String, String, Vec<plx_data::pms::PmsMovie>)> {
+    let pick = |want: bool| cards.iter().filter(|(film, _)| *film == want).map(|(_, m)| m.clone()).collect::<Vec<_>>();
+    let mut out = Vec::new();
+    for (id, title, items) in [
+        (plx_data::pms::LIVE_MOVIES_ID, "Movies On Now \u{b7} Live TV", pick(true)),
+        (plx_data::pms::LIVE_SHOWS_ID, "Shows On Now \u{b7} Live TV", pick(false)),
+    ] {
+        if items.len() >= 2 && items.len() < cards.len() {
+            out.push((id.to_string(), title.to_string(), items));
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod split_tests {
+    use super::split_on_now;
+    use plx_data::pms::PmsMovie;
+    fn card(film: bool, n: u32) -> (bool, PmsMovie) {
+        (film, PmsMovie { rk: format!("livetv:{n}"), title: format!("t{n}"), ..Default::default() })
+    }
+    #[test]
+    fn splits_films_from_shows() {
+        let cards = [card(true, 1), card(false, 2), card(true, 3), card(false, 4), card(false, 5)];
+        let rows = split_on_now(&cards);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].2.len(), 2, "two films");
+        assert_eq!(rows[1].2.len(), 3, "three shows");
+    }
+    #[test]
+    fn a_lone_card_or_a_whole_repeat_is_no_row() {
+        assert!(split_on_now(&[card(true, 1), card(false, 2), card(false, 3)]).iter().all(|r| r.2.len() >= 2));
+        assert!(split_on_now(&[card(false, 1), card(false, 2)]).is_empty(), "all shows: it would repeat On Now");
+        assert!(split_on_now(&[card(true, 1), card(false, 2)]).is_empty(), "one each: no row of one");
+    }
 }
 
 /// Amber: keep a playing live session alive. PMS ends a live transcode it hears nothing about for
