@@ -39,6 +39,7 @@ pub(crate) fn route_word(route: &AppArg) -> &'static str {
         AppArg::Watchlist => "watchlist",
         AppArg::LiveTv => "livetv",
         AppArg::Screensaver => "screensaver",
+        AppArg::QuitPrompt => "quitprompt",
         AppArg::Player => "player",
         AppArg::Home => "home",
         // Not pages: a surface's word is ` overlay=`, and none of these reaches the page stack's

@@ -2555,7 +2555,16 @@ pub(super) fn reduce_navigation_request(request: plx_screens::registry::LoopReq,
     -> Result<(), plx_screens::registry::LoopReq> {
     match request {
         // Root BACK belongs to platform Home; first-run Onboard BACK has an in-app destination.
-        plx_screens::registry::LoopReq::BackAtRoot => back_at_root(),
+        // Amber: at the top of Home it asks whether to quit (it used to hand the screen to the
+        // television's Home and keep running); the first consent question still goes Home.
+        plx_screens::registry::LoopReq::BackAtRoot => {
+            if matches!(pages.top_arg(), Some(plx_screens::registry::AppArg::Home)) {
+                pages.request(plx_machine::machine::MachineId::Nav,
+                    plx_machine::machine::NavOp::Push(plx_screens::registry::AppArg::QuitPrompt));
+            } else {
+                back_at_root();
+            }
+        }
         plx_screens::registry::LoopReq::OnboardBack => enter_profiles_from_onboard(pages),
         other => return Err(other),
     }
@@ -2970,6 +2979,10 @@ pub(crate) unsafe fn update(app: &mut App, fr: &mut Frame) {
         app.bridge.catalog_feed(&mut app.pages);
         app.bridge.livetv_feed(&mut app.pages);
         super::screensaver::tick(&mut app.pages, app.last_input);
+    if plx_screens::quit_prompt::take_quit() {
+        log("quit: asked to at the Home root");
+        app.running = false;
+    }
         if let Some(now) = crate::app::clock::unix_ms().map(|ms| ms / 1000).filter(|s| *s > 0) {
             super::livetv::retitle(&mut app.player.session, now);
         }
@@ -3459,7 +3472,7 @@ pub(crate) unsafe fn report(app: &mut App, fr: &mut Frame) {
                 AppArg::Watchlist => crate::focusprobe::Screen::Watchlist,
                 // Amber: the guide fingerprints as the Watchlist does - a strip destination page.
                 AppArg::LiveTv => crate::focusprobe::Screen::Watchlist,
-                AppArg::Screensaver => crate::focusprobe::Screen::Home,
+                AppArg::Screensaver | AppArg::QuitPrompt => crate::focusprobe::Screen::Home,
                 // The same words the heartbeat's `overlay=` uses, and — since phase 9 — from the
                 // same place: the SURFACE that is up. There is no second table; see
                 // `heartbeat_word_tests::focusprobe_player_overlay_delegates_to_the_shared_overlay_word_function`.

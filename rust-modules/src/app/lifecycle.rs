@@ -339,9 +339,11 @@ mod root_back_tests {
             [plx_screens::registry::LoopReq::BackAtRoot]));
         assert!(rig.screen_command_receipts.iter().any(|(_, _, outcome)|
             *outcome == plx_machine::machine::AppCommandOutcome::Completed));
-        assert_eq!(plx_platform::tv::home::home_requests(), before + 1);
-        assert_eq!(d.nav.top_page().map(|page| page.id), Some(entry));
-        assert_eq!(d.nav.instance_of(entry), Some(instance));
+        // Amber: the television's Home is no longer asked for; the viewer is asked whether to quit
+        assert_eq!(plx_platform::tv::home::home_requests(), before);
+        crate::app::bridge::frame(&mut d, &mut rig, plx_machine::machine::Tick { ms: 32, dt_us: 16_000 }, vec![]);
+        assert!(d.top_screen().unwrap().as_any().unwrap().is::<plx_screens::quit_prompt::QuitPromptScreen>());
+        let _ = (entry, instance);
         plx_platform::tv::home::release_root_press();
     }
 

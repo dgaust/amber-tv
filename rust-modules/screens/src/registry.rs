@@ -1920,6 +1920,7 @@ pub mod page_id {
     pub const WATCHLIST: ScreenId = ScreenId(25);
     pub const LIVETV: ScreenId = ScreenId(40);
     pub const SCREENSAVER: ScreenId = ScreenId(41);
+    pub const QUIT_PROMPT: ScreenId = ScreenId(42);
     pub const LIBRARY_COLLECTIONS: ScreenId = ScreenId(28);
     pub const LIBRARY_RECOMMENDED: ScreenId = ScreenId(29);
 }
@@ -2025,6 +2026,8 @@ pub enum AppArg {
     LiveTv,
     /// Amber: the screensaver, pushed over the page when the viewer has been idle.
     Screensaver,
+    /// Amber: "Quit Amber?", asked when BACK is pressed at the top of Home.
+    QuitPrompt,
     /// Playback. Its panels are NOT here — they are entries on the player page's own
     /// `ModalStack` ([`Self::PlayerOverlay`]), and the container owns which one is up.
     Player,
@@ -2096,6 +2099,7 @@ impl LogicalState for AppArg {
             // Amber: 40, clear of everything upstream may still allocate.
             Self::LiveTv => { c.u32(0).u32(40); }
             Self::Screensaver => { c.u32(0).u32(41); }
+            Self::QuitPrompt => { c.u32(0).u32(42); }
             Self::Player => { c.u32(0).u32(10); }
             // 12 and 13, forward of Watchlist's 11 (both are in `ARG_SHAPE`).
             Self::LibraryCollections { section } => { c.u32(0).u32(12).u32(*section); }
@@ -2127,6 +2131,7 @@ impl plx_ui::screen::ScreenArg for AppArg {
             | AppArg::Profiles
             | AppArg::Onboard
             | AppArg::Screensaver
+            | AppArg::QuitPrompt
             | AppArg::Player
             | AppArg::Settings(_)
             | AppArg::FirstRunConsent(_)
@@ -2170,6 +2175,7 @@ impl plx_ui::screen::ScreenArg for AppArg {
             AppArg::Watchlist => page_id::WATCHLIST.0,
             AppArg::LiveTv => page_id::LIVETV.0,
             AppArg::Screensaver => page_id::SCREENSAVER.0,
+            AppArg::QuitPrompt => page_id::QUIT_PROMPT.0,
             AppArg::WatchlistMenu(_) => 26,
             // The seven page ids are the ones `Legacy(Route)` computed, unchanged: an id is a
             // screen's identity in a recorded state and in `same_instance`, so they are allocated
@@ -2430,6 +2436,7 @@ where
             AppArg::Watchlist => Box::new(crate::watchlist::page::WatchlistScreen::loading(entry)),
             AppArg::LiveTv => Box::new(crate::livetv::LiveTvScreen::new(entry)),
             AppArg::Screensaver => Box::new(crate::screensaver::ScreensaverScreen::new(entry)),
+            AppArg::QuitPrompt => Box::new(crate::quit_prompt::QuitPromptScreen::new(entry)),
             // Phase 9: the player is an OWNED screen — the instance that holds the HUD, the scrub
             // gesture, the held-key timer, the control row's springs and the Up Next countdown,
             // and that answers `RenderStrategy::VideoPlane`. Its transport is pinned from the
@@ -2566,6 +2573,7 @@ pub fn every_surface_arg() -> Vec<AppArg> {
             | AppArg::Watchlist
             | AppArg::LiveTv
             | AppArg::Screensaver
+            | AppArg::QuitPrompt
             | AppArg::Player
             | AppArg::Content(_) => {
                 panic!("a page argument is not a surface: its word is `route=`")
