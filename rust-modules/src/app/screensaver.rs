@@ -69,8 +69,15 @@ fn load() {
     plx_data::saver::set(found);
 }
 
+/// The first read waits this long after Amber starts, so it never competes with the start-up.
+const START_DELAY_S: i64 = 90;
+static FIRST_TICK: AtomicI64 = AtomicI64::new(0);
+
 fn ensure_loaded() {
     let now = unix_s();
+    let first = FIRST_TICK.load(Ordering::Relaxed);
+    if first == 0 { FIRST_TICK.store(now, Ordering::Relaxed); return; }
+    if now - first < START_DELAY_S { return; }
     let have = plx_data::saver::count() > 0;
     let wait = if have { REFRESH_S } else { RETRY_S };
     if LOADING.load(Ordering::Relaxed) || now - LAST_TRY.load(Ordering::Relaxed) < wait { return; }
