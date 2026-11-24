@@ -763,6 +763,7 @@ pub const LIVE_ROW_ID: &str = "amber.livetv.onnow";
 /// More Home rows built from the same guide (`set_live_extra`): `(row id, title, cards)`.
 static LIVE_EXTRA: std::sync::Mutex<Vec<(String, String, Vec<PmsMovie>)>> = std::sync::Mutex::new(Vec::new());
 pub const LIVE_MOVIES_ID: &str = "amber.livetv.movies";
+pub const LIVE_RECENT_ID: &str = "amber.livetv.recent";
 pub const LIVE_SHOWS_ID: &str = "amber.livetv.shows";
 pub const LIVE_KEY_PREFIX: &str = "livetv:";
 

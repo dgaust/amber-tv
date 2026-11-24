@@ -233,6 +233,7 @@ pub(crate) fn tune(channel: String) {
         s.tune_failed = false;
         s.dvr.clone()
     }) else { return };
+    plx_data::layout::note_recent_channel(&channel);
     let title = with(|s| s.channels.iter().find(|c| c.id == channel).map(|c| c.title.clone()).unwrap_or_default());
     // The forms this channel goes by: the guide's id first (what Plex Web sends), then the tuner's.
     let candidates: Vec<String> = with(|s| {
@@ -327,7 +328,14 @@ pub(crate) fn retitle(ps: &mut plx_media::route::PlaybackSession, now: i64) {
 /// Called every frame; the data layer ignores a list equal to the one it holds.
 pub(crate) fn publish_on_now(now: i64) {
     static LAST: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(-1);
-    let stamp = now / 30 + i64::from(generation()) * 1_000_000_007;
+    let recent_ids = plx_data::layout::get().recent_channels;
+    let recent_hash = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        recent_ids.hash(&mut h);
+        (h.finish() >> 40) as i64
+    };
+    let stamp = now / 30 + i64::from(generation()) * 1_000_000_007 + recent_hash * 17_000_000_000_000;
     if LAST.swap(stamp, Ordering::Relaxed) == stamp { return; }
     let sid = plx_plex::plex::current_server();
     // every channel's airing now, with whether it is a film (no episode, a year) or an episode
@@ -349,7 +357,30 @@ pub(crate) fn publish_on_now(now: i64) {
             }))
         }).collect()
     });
-    let extra = split_on_now(&cards);
+    let mut extra = split_on_now(&cards);
+    // Recent Channels: what is on each channel the viewer last tuned, the channel's logo as the card
+    let recent: Vec<plx_data::pms::PmsMovie> = with(|s| {
+        recent_ids.iter().filter_map(|id| {
+            let c = s.channels.iter().find(|c| c.id == *id)?;
+            let p = s.grid.iter().find(|p| p.channel == c.id && p.begins <= now && now < p.ends)
+                .or_else(|| s.grid.iter().filter(|p| p.channel == c.id && p.begins > now).min_by_key(|p| p.begins))?;
+            Some(plx_data::pms::PmsMovie {
+                sid,
+                rk: format!("{}{}", plx_data::pms::LIVE_KEY_PREFIX, c.id),
+                title: if p.subtitle.is_empty() { p.title.clone() } else { format!("{} \u{b7} {}", p.title, p.subtitle) },
+                summary: p.summary.clone(),
+                year: p.year,
+                rating: p.rating.clone(),
+                thumb: if c.thumb.is_empty() { p.thumb.clone() } else { c.thumb.clone() },
+                art: p.art.clone(),
+                dur_ns: (p.ends - p.begins) * 1_000_000_000,
+                ..Default::default()
+            })
+        }).collect()
+    });
+    if !recent.is_empty() {
+        extra.insert(0, (plx_data::pms::LIVE_RECENT_ID.to_string(), "Recent Channels".to_string(), recent));
+    }
     plx_data::pms::set_live_row(cards.into_iter().map(|(_, m)| m).collect());
     plx_data::pms::set_live_extra(extra);
 }

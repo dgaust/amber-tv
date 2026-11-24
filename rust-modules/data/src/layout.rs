@@ -19,6 +19,8 @@ pub struct Layout {
     pub sidebar_hidden: Vec<String>,
     pub home_order: Vec<String>,
     pub home_hidden: Vec<String>,
+    /// Live TV channels the viewer has tuned, most recent first (guide channel ids).
+    pub recent_channels: Vec<String>,
 }
 
 static CACHE: Mutex<Option<Layout>> = Mutex::new(None);
@@ -59,6 +61,20 @@ pub fn update(f: impl FnOnce(&mut Layout)) {
     f(l);
     save(l);
     GEN.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Most channels the "Recent Channels" row remembers.
+pub const RECENT_CHANNELS: usize = 12;
+
+/// The viewer tuned `id`: it goes to the front of the recent channels.
+pub fn note_recent_channel(id: &str) {
+    if id.is_empty() { return; }
+    update(|l| {
+        if l.recent_channels.first().is_some_and(|c| c == id) { return; }
+        l.recent_channels.retain(|c| c != id);
+        l.recent_channels.insert(0, id.to_string());
+        l.recent_channels.truncate(RECENT_CHANNELS);
+    });
 }
 
 /// Moves on every change: what a derived list re-reads on.
