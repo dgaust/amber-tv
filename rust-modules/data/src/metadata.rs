@@ -2298,7 +2298,7 @@ fn fetch_detail(client: &'static plx_plex::plex::Client, sid: plx_plex::plex::Se
         edition: it.edition_title.clone(),
         logo: it.clear_logo().map(str::to_owned),
         year: it.year,
-        rating: it.content_rating.clone(),
+        rating: crate::saver::rating_label(&it.content_rating),
         summary: it.summary.clone(),
         tagline: it.tagline.clone(),
         aired: it.originally_available_at.clone(),
@@ -3417,7 +3417,7 @@ fn convert_episode(x: &plx_plex::plex::Metadata) -> Episode {
         // `viewedLeafCount` to `leafCount`; an episode is a leaf and has neither.)
         watched: x.view_count > 0,
         part: x.default_part().map(|p| p.key.clone()).unwrap_or_default(),
-        rating: x.content_rating.clone(),
+        rating: crate::saver::rating_label(&x.content_rating),
         vcodec: media0.map(|m| m.video_codec.clone()).unwrap_or_default(),
         acodec: media0.map(|m| m.audio_codec.clone()).unwrap_or_default(),
         versions: crate::pms::versions_of(x),

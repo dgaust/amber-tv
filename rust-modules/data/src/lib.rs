@@ -19,6 +19,7 @@ pub mod hudpacks; // the player-HUD package store: installed packs, the selectio
 pub mod metadata; // item detail data layer (detail page): full metadata + seasons/episodes + cast + related
 pub mod person; // person/actor page data layer: the header handed in by the cast row + /library/people/{id}/media
 pub mod layout; // Amber: the viewer's arrangement of the sidebar and Home's rows
+pub mod saver; // Amber: the screensaver's pictures
 pub mod pms; // the Home catalog: hubs merged across every source
 pub mod sortfacts; // one name and one direction wording per sort fact, for the Library's and the Watchlist's Sort & Filter panels
 pub mod subsearch; // the player's subtitle search & download: agent search, install, install poll

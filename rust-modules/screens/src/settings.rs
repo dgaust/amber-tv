@@ -1077,6 +1077,8 @@ struct ServerMachineId(String);
 enum RootId {
     Favourites,
     UnderPosters,
+    /// Amber: minutes idle before the screensaver; a press steps through the choices.
+    Screensaver,
     Playback,
     AudioSubtitles,
     Language,
@@ -1112,6 +1114,7 @@ impl FormId for RootId {
             RootId::Resolution => 10,
             RootId::UnderPosters => 11,
             RootId::Diagnostics => 12,
+            RootId::Screensaver => 13,
             // the base; `root_form` adds the position (`item_keyed`)
             RootId::Plaintext(_) => PLAINTEXT_KEY_BASE,
         })
@@ -1126,6 +1129,8 @@ enum Action {
     Door,
     AutoSignIn,
     TrailerAutoplay,
+    /// Amber: step the screensaver's idle time.
+    Screensaver,
     /// A server's "connect without encryption" switch.
     Plaintext(ServerMachineId),
 }
@@ -1234,6 +1239,8 @@ struct RootInputs {
     auto_sign_in: bool,
     trailer_autoplay: bool,
     resolution: UiResolution,
+    /// Amber: the screensaver's idle minutes (0 is off).
+    screensaver: u32,
     /// Whether this set is offered the Interface resolution row at all: webOS 1-3 only
     /// (`plx_platform::tv::device::ui_resolution_offered`). A plain flag, like the others, so the
     /// builder stays pure and a test can state either answer.
@@ -1284,6 +1291,7 @@ fn sentence_for(id: Option<&RootId>) -> Cow<'static, str> {
         Some(RootId::Diagnostics) => Cow::Borrowed(msg::settings_diagnostics_detail()),
         Some(RootId::Legal) => Cow::Borrowed(msg::settings_legal_detail()),
         Some(RootId::About) => Cow::Borrowed(msg::settings_about_detail()),
+        Some(RootId::Screensaver) => Cow::Borrowed("Shows fanart from films rated M and under after this long without a button press. Press OK to change it."),
         Some(RootId::Plaintext(_)) | None => Cow::Borrowed(msg::settings_root_copy()),
     }
 }
@@ -1352,6 +1360,13 @@ fn root_form(inputs: &RootInputs) -> Form<RootId, Action, SettingsPage> {
             RowKind::Toggle,
             Action::TrailerAutoplay,
             Row::new(plx_platform::i18n::msg::settings_trailers_title()).toggle(inputs.trailer_autoplay),
+        )
+        .item_if(
+            signed_in,
+            RootId::Screensaver,
+            RowKind::Button,
+            Action::Screensaver,
+            Row::new("Screensaver").value(plx_data::layout::screensaver_label(inputs.screensaver)),
         )
         // Signed in AND on webOS 1-3 only (`resolution_offered`), like the switches above for the
         // first: the signed-out root is the sign-in path's own short list. On webOS 4+ the root is
@@ -1483,6 +1498,7 @@ impl RootPage {
             trace: self.state.trace,
             signed_in, multi_user, library_count: directory.pinned_count() as i64,
             auto_sign_in, trailer_autoplay, resolution, resolution_offered, language: self.state.language,
+            screensaver: plx_data::layout::screensaver_minutes(),
             under_posters: self.state.under_posters, plaintext,
         });
         let keep = self.form.selected_id().cloned();
@@ -1594,6 +1610,10 @@ impl RootPage {
                 self.trailer_seat = self.inputs.profile.seat();
                 self.trailer_scope = self.inputs.profile.generation;
                 self.pending_trailer = Some((on, receipt));
+                self.rebuild(directory);
+            }
+            Action::Screensaver => {
+                plx_data::layout::step_screensaver_minutes();
                 self.rebuild(directory);
             }
             Action::Plaintext(ServerMachineId(machine)) => {

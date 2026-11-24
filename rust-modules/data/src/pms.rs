@@ -656,7 +656,7 @@ pub fn parse_item(it: &plx_plex::plex::Metadata, sid: ServerId) -> PmsMovie {
     if matches!(m.kind, 0 | KIND_SHOW | KIND_SEASON | KIND_EPISODE) { m.sort_info = Some(SortInfo::of(it)); }
     m.title = clean(&it.title);
     m.year = it.year as c_int;
-    m.rating = clean(&it.content_rating);
+    m.rating = clean(&crate::saver::rating_label(&it.content_rating));
     m.dur_ns = if it.duration > 0 {
         it.duration * 1_000_000
     } else {

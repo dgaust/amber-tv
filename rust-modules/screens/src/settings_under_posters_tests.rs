@@ -717,7 +717,7 @@ fn text_fit_inputs() -> RootInputs {
         trace: plx_platform::playback_trace::Status::Off,
         signed_in: true, multi_user: false, library_count: 0,
         auto_sign_in: false, trailer_autoplay: true, resolution: UiResolution::Auto, resolution_offered: false,
-        language: plx_platform::i18n::Preference::System,
+        language: plx_platform::i18n::Preference::System, screensaver: 2,
         under_posters: plx_plex::plex::session::UnderPosters::DEFAULT, plaintext: Vec::new(),
     }
 }

@@ -19,6 +19,7 @@ pub mod tracks_panel;
 pub mod versions_panel; // the Detail hero's Play Version list
 pub mod consent;
 pub mod catalog;
+pub mod screensaver; // Amber: the idle slideshow
 pub mod livetv; // Amber: the Live TV guide // the catalog page's view-model (plan W6)
 pub mod collection;
 #[cfg(test)]

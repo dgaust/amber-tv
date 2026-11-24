@@ -2969,6 +2969,7 @@ pub(crate) unsafe fn update(app: &mut App, fr: &mut Frame) {
         super::bridge::execute_endpoint_outcomes(&mut app.pages, endpoints);
         app.bridge.catalog_feed(&mut app.pages);
         app.bridge.livetv_feed(&mut app.pages);
+        super::screensaver::tick(&mut app.pages, app.last_input);
         if let Some(now) = crate::app::clock::unix_ms().map(|ms| ms / 1000).filter(|s| *s > 0) {
             super::livetv::retitle(&mut app.player.session, now);
         }
@@ -3458,6 +3459,7 @@ pub(crate) unsafe fn report(app: &mut App, fr: &mut Frame) {
                 AppArg::Watchlist => crate::focusprobe::Screen::Watchlist,
                 // Amber: the guide fingerprints as the Watchlist does - a strip destination page.
                 AppArg::LiveTv => crate::focusprobe::Screen::Watchlist,
+                AppArg::Screensaver => crate::focusprobe::Screen::Home,
                 // The same words the heartbeat's `overlay=` uses, and — since phase 9 — from the
                 // same place: the SURFACE that is up. There is no second table; see
                 // `heartbeat_word_tests::focusprobe_player_overlay_delegates_to_the_shared_overlay_word_function`.

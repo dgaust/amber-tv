@@ -21,6 +21,8 @@ pub struct Layout {
     pub home_hidden: Vec<String>,
     /// Live TV channels the viewer has tuned, most recent first (guide channel ids).
     pub recent_channels: Vec<String>,
+    /// Minutes idle before the screensaver; 0 is off, absent is [`SCREENSAVER_DEFAULT_MINUTES`].
+    pub screensaver_minutes: Option<u32>,
 }
 
 static CACHE: Mutex<Option<Layout>> = Mutex::new(None);
@@ -61,6 +63,34 @@ pub fn update(f: impl FnOnce(&mut Layout)) {
     f(l);
     save(l);
     GEN.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Idle minutes before the screensaver, unless the viewer chose another.
+pub const SCREENSAVER_DEFAULT_MINUTES: u32 = 2;
+/// What the Settings row steps through (0 is off).
+pub const SCREENSAVER_CHOICES: [u32; 6] = [0, 1, 2, 5, 10, 30];
+
+/// The screensaver's idle time in minutes; 0 means it is off.
+pub fn screensaver_minutes() -> u32 {
+    get().screensaver_minutes.unwrap_or(SCREENSAVER_DEFAULT_MINUTES)
+}
+
+/// The next choice after the current one, wrapping.
+pub fn step_screensaver_minutes() -> u32 {
+    let now = screensaver_minutes();
+    let at = SCREENSAVER_CHOICES.iter().position(|m| *m == now).unwrap_or(0);
+    let next = SCREENSAVER_CHOICES[(at + 1) % SCREENSAVER_CHOICES.len()];
+    update(|l| l.screensaver_minutes = Some(next));
+    next
+}
+
+/// "Off", "1 minute", "5 minutes".
+pub fn screensaver_label(minutes: u32) -> String {
+    match minutes {
+        0 => "Off".to_string(),
+        1 => "1 minute".to_string(),
+        n => format!("{n} minutes"),
+    }
 }
 
 /// Most channels the "Recent Channels" row remembers.
