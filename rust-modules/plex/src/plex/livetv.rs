@@ -49,6 +49,10 @@ pub struct LiveProgramme {
     pub thumb: String,
     /// Landscape art: the airing's fan art, its show's, else an episode's still.
     pub art: String,
+    /// Amber: what a recording rule is made for - the film's own guid, or an episode's SHOW guid
+    /// (`tv.plex.xmltv://show/<title>`). Empty from a guide cached before this existed.
+    #[serde(default)]
+    pub record_guid: String,
 }
 
 fn s(v: &Value, k: &str) -> String {
@@ -141,6 +145,7 @@ pub fn parse_grid(body: &[u8]) -> Vec<LiveProgramme> {
                 rating: s(m, "contentRating"),
                 thumb,
                 art,
+                record_guid: if episode { s(m, "grandparentGuid") } else { s(m, "guid") },
             });
         }
     }
@@ -276,6 +281,115 @@ impl Client {
     }
 }
 
+// ---- Amber: recording (the DVR) --------------------------------------------------------------------
+// Shapes measured on the same PMS 1.43.5:
+// - `GET /media/subscriptions/template?guid=<show or film guid>` -> `SubscriptionTemplate[0].
+//   MediaSubscription[]`: `type` (2 = show, 1 = movie), `targetLibrarySectionID`, `parameters` (an
+//   already-encoded query string to send back as it is), and `Setting[]` with each one's `id` and
+//   default `value`;
+// - `POST /media/subscriptions?...` creates a rule; `DELETE /media/subscriptions/<id>` cancels it;
+// - `GET /media/subscriptions` lists the rules, `/media/subscriptions/scheduled` what will record.
+
+/// What the server says a rule for one show or film is made of.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RecordTemplate {
+    pub kind: i64,
+    pub section: i64,
+    /// Encoded `a=b&c=d`, the server's own, sent back untouched.
+    pub parameters: String,
+    /// `(setting id, default value)`.
+    pub prefs: Vec<(String, String)>,
+}
+
+pub fn parse_template(body: &[u8]) -> Option<RecordTemplate> {
+    let v = serde_json::from_slice::<Value>(body).ok()?;
+    let subs = arr(&v, "/MediaContainer/SubscriptionTemplate/0/MediaSubscription");
+    // the one the server marks selected, else the first
+    let m = subs.iter().find(|m| m.get("selected").and_then(|x| x.as_bool()) == Some(true)).or_else(|| subs.first())?;
+    let parameters = s(m, "parameters");
+    if parameters.is_empty() { return None; }
+    let prefs = m.get("Setting").and_then(|x| x.as_array()).map_or_else(Vec::new, |a| {
+        a.iter().filter_map(|st| {
+            let (id, value) = (s(st, "id"), s(st, "value"));
+            // an empty value is the server's default; sending it adds nothing
+            (!id.is_empty() && !value.is_empty()).then_some((id, value))
+        }).collect()
+    });
+    Some(RecordTemplate { kind: n(m, "type"), section: n(m, "targetLibrarySectionID"), parameters, prefs })
+}
+
+/// The POST that creates a rule from its template.
+pub fn create_path(t: &RecordTemplate) -> String {
+    let mut path = format!(
+        "/media/subscriptions?targetLibrarySectionID={}&targetSectionLocationID=-1&type={}&includeGrabs=1&{}",
+        t.section, t.kind, t.parameters);
+    for (id, value) in &t.prefs {
+        path.push_str(&format!("&prefs%5B{}%5D={}", enc(id), enc(value)));
+    }
+    path
+}
+
+/// A recording rule the server holds.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LiveRule {
+    /// The id `DELETE /media/subscriptions/<id>` takes.
+    pub id: String,
+    pub title: String,
+    /// The show's or film's guid, when the server says it.
+    pub guid: String,
+}
+
+pub fn parse_rules(body: &[u8]) -> Vec<LiveRule> {
+    let Ok(v) = serde_json::from_slice::<Value>(body) else { return Vec::new() };
+    arr(&v, "/MediaContainer/MediaSubscription").iter().filter_map(|m| {
+        // `key` is the id, or the path ending in it
+        let key = s(m, "key");
+        let id = key.rsplit('/').next().unwrap_or("").to_string();
+        if id.is_empty() { return None; }
+        let target = m.get("Directory").or_else(|| m.get("Video")).unwrap_or(m);
+        let title = [s(target, "title"), s(m, "title")].into_iter().find(|t| !t.is_empty()).unwrap_or_default();
+        Some(LiveRule { id, title, guid: s(target, "guid") })
+    }).collect()
+}
+
+/// The id of the rule a create answered with.
+pub fn parse_created(body: &[u8]) -> Option<String> {
+    parse_rules(body).into_iter().next().map(|r| r.id)
+}
+
+impl Client {
+    pub fn livetv_rules(&self) -> Option<Vec<LiveRule>> {
+        let body = self.body_2xx_bulk("/media/subscriptions", &[crate::http::ACCEPT_JSON])?;
+        Some(parse_rules(&body))
+    }
+
+    /// Record `guid` (a show's, or a film's): read the server's template for it, create a rule from
+    /// it. `Ok` is the new rule's id. `Err` says why not, for the event log and the guide's note.
+    /// THIS WRITES to the server.
+    pub fn livetv_record(&self, guid: &str) -> Result<String, String> {
+        let tpl_path = format!("/media/subscriptions/template?guid={}", enc(guid));
+        let body = self.body_2xx_bulk(&tpl_path, &[crate::http::ACCEPT_JSON]).ok_or("no template from the server")?;
+        let tpl = parse_template(&body).ok_or("the server's template was empty")?;
+        let reply = self.send(&create_path(&tpl), crate::http::Method::Post, &[crate::http::ACCEPT_JSON])
+            .ok_or("no answer to the record request")?;
+        if !reply.ok() {
+            let head = String::from_utf8_lossy(&reply.body[..reply.body.len().min(160)]).replace('\n', " ");
+            return Err(format!("HTTP {}: {head}", reply.status));
+        }
+        Ok(parse_created(&reply.body).unwrap_or_default())
+    }
+
+    /// Cancel a rule. THIS WRITES to the server.
+    pub fn livetv_cancel(&self, id: &str) -> Result<(), String> {
+        if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
+            return Err("not a rule id".into());
+        }
+        let reply = self.send(&format!("/media/subscriptions/{id}"), crate::http::Method::Delete, &[crate::http::ACCEPT_JSON])
+            .ok_or("no answer to the cancel request")?;
+        if reply.ok() { Ok(()) } else { Err(format!("HTTP {}", reply.status)) }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,5 +412,37 @@ mod tests {
     fn a_session_path_is_its_own_item_path() {
         assert_eq!(item_path("123"), "/library/metadata/123");
         assert_eq!(item_path("/livetv/sessions/abc"), "/livetv/sessions/abc");
+    }
+
+    #[test]
+    fn a_template_becomes_the_create_request() {
+        let body = br#"{"MediaContainer":{"size":1,"SubscriptionTemplate":[{"MediaSubscription":[{"parameters":"hints%5Bguid%5D=g&params%5BlibraryType%5D=2","selected":true,"type":2,"targetLibrarySectionID":3,
+            "Setting":[{"id":"onlyNewAirings","value":"1"},{"id":"lineupChannel","value":""},{"id":"minVideoQuality","value":"0"}]}]}]}}"#;
+        let t = parse_template(body).unwrap();
+        assert_eq!((t.kind, t.section), (2, 3));
+        assert_eq!(t.prefs, [("onlyNewAirings".to_string(), "1".to_string()), ("minVideoQuality".to_string(), "0".to_string())],
+            "an empty value is left out");
+        assert_eq!(create_path(&t),
+            "/media/subscriptions?targetLibrarySectionID=3&targetSectionLocationID=-1&type=2&includeGrabs=1&hints%5Bguid%5D=g&params%5BlibraryType%5D=2&prefs%5BonlyNewAirings%5D=1&prefs%5BminVideoQuality%5D=0");
+    }
+    #[test]
+    fn an_empty_template_is_none() {
+        assert!(parse_template(br#"{"MediaContainer":{"size":0}}"#).is_none());
+    }
+    #[test]
+    fn rules_read_with_their_ids() {
+        let body = br#"{"MediaContainer":{"size":1,"MediaSubscription":[{"key":"/media/subscriptions/7","Directory":{"title":"Plebs","guid":"tv.plex.xmltv://show/Plebs"}}]}}"#;
+        let r = parse_rules(body);
+        assert_eq!(r, [LiveRule { id: "7".into(), title: "Plebs".into(), guid: "tv.plex.xmltv://show/Plebs".into() }]);
+        assert!(parse_rules(br#"{"MediaContainer":{"size":0}}"#).is_empty());
+    }
+    #[test]
+    fn a_grid_airing_carries_the_guid_a_rule_is_made_for() {
+        let body = br#"{"MediaContainer":{"Metadata":[{"type":"episode","title":"E","grandparentTitle":"Plebs","guid":"tv.plex.xmltv://episode/Plebs/4/5","grandparentGuid":"tv.plex.xmltv://show/Plebs",
+            "Media":[{"channelIdentifier":"C1","beginsAt":1,"endsAt":2}]},{"type":"movie","title":"M","guid":"tv.plex.xmltv://movie/M/1999",
+            "Media":[{"channelIdentifier":"C1","beginsAt":3,"endsAt":4}]}]}}"#;
+        let g = parse_grid(body);
+        assert_eq!(g[0].record_guid, "tv.plex.xmltv://show/Plebs");
+        assert_eq!(g[1].record_guid, "tv.plex.xmltv://movie/M/1999");
     }
 }

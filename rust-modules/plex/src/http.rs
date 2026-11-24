@@ -84,6 +84,8 @@ pub enum Method {
     Get,
     Put,
     Post,
+    /// Amber: cancelling a DVR recording rule (`DELETE /media/subscriptions/<id>`).
+    Delete,
 }
 
 impl Method {
@@ -93,6 +95,7 @@ impl Method {
             Method::Get => "GET",
             Method::Put => "PUT",
             Method::Post => "POST",
+            Method::Delete => "DELETE",
         }
     }
 }
@@ -1004,6 +1007,7 @@ mod tests {
         assert_eq!(Method::Get.as_str(), "GET");
         assert_eq!(Method::Put.as_str(), "PUT");
         assert_eq!(Method::Post.as_str(), "POST");
+        assert_eq!(Method::Delete.as_str(), "DELETE");
     }
 
     /// **A `Reply` is a response, not a success.** The fold every caller used to inherit from
