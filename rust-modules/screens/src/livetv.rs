@@ -19,6 +19,8 @@ use plx_ui::screen::{
     At, AxisMask, Dir, DrawFrame, EdgeRule, ElemKind, FocusSource, Focusable, GroupKind, GroupSpec, HitSource,
     Placed, RenderStrategy, Screen, ScreenEvent, Seat, Step,
 };
+use plx_ui::page_header::{HeaderItem, HeaderSwap, PageHeader, PageHeaderSpec};
+use plx_ui::widgets::{CtlPop, TabStrip};
 use plx_ui::{theme, Painter, Rect};
 use std::ffi::CString;
 
@@ -122,7 +124,10 @@ const GROUP: GroupId = GroupId(0);
 
 const LEFT: f32 = plx_ui::consts::MARGIN_X;
 const RIGHT: f32 = plx_ui::consts::SCR_W - plx_ui::consts::MARGIN_X - plx_ui::widgets::PAGE_SHIFT_CLOSED;
-const RULER_Y: f32 = 388.0;
+/// Amber: the tab row (Guide | Recordings) stands where a library page's header row does; the
+/// page's own content starts this far lower than it did without it.
+const HEAD_SHIFT: f32 = 128.0;
+const RULER_Y: f32 = 388.0 + HEAD_SHIFT;
 const RULER_H: f32 = 34.0;
 const GRID_Y: f32 = RULER_Y + RULER_H + 10.0;
 const ROW_H: f32 = 84.0;
@@ -151,14 +156,18 @@ pub struct LiveTvScreen {
     recs: bool,
     rec_sel: usize,
     rec_first: usize,
+    /// Focus is on the tab row.
+    tabs: bool,
+    hcaps: TabStrip,
+    hpop: CtlPop<1>,
 }
 
 impl LiveTvScreen {
     pub const WORD: &'static str = "livetv";
-    pub const SHAPE: &'static str = "LiveTvScreen{entry:u32,row:u32,slot:u32,recs:u32,sel:u32}";
+    pub const SHAPE: &'static str = "LiveTvScreen{entry:u32,row:u32,slot:u32,recs:u32,sel:u32,tabs:u32}";
 
     pub fn new(entry: EntryId) -> Self {
-        Self { entry, model: LiveTvModel::default(), now: 0, row: 0, slot: 0, first_row: 0, window: 0, recs: false, rec_sel: 0, rec_first: 0 }
+        Self { entry, model: LiveTvModel::default(), now: 0, row: 0, slot: 0, first_row: 0, window: 0, recs: false, rec_sel: 0, rec_first: 0, tabs: false, hcaps: TabStrip::new(), hpop: CtlPop::new() }
     }
 
     /// Amber: a page that has had no snapshot yet; the feed rebuilds one for it whatever its stamp.
@@ -247,12 +256,40 @@ impl LiveTvScreen {
         }
     }
 
+    /// Amber: keys on the tab row. Left and Right move between the tabs and show each as they land
+    /// (two tabs: a view each); Down goes back into the page.
+    fn tab_key<H: ContentLike>(&mut self, key: Key, fx: &mut Effects<'_, H>) -> Handled {
+        match key {
+            Key::Left if self.recs => self.recs = false,
+            Key::Left => return Handled::No,
+            Key::Right if !self.recs => {
+                self.recs = true;
+                self.rec_sel = 0;
+                self.rec_first = 0;
+            }
+            Key::Right | Key::Up | Key::Ok => return Handled::Yes,
+            Key::Down => self.tabs = false,
+            _ => return Handled::No,
+        }
+        fx.invalidate(Provenance::Input);
+        Handled::Yes
+    }
+
+    /// The tab row, laid out the way the library pages' header row is.
+    fn header(&self, measure: &dyn plx_machine::machine::Measure) -> (PageHeader, plx_ui::page_header::HeaderLayout) {
+        let tab = |label: &str, on: bool| HeaderItem { label: label.to_owned(), selected_plate: on, focusable: true, ..Default::default() };
+        let spec = PageHeaderSpec { left: vec![tab("Guide", !self.recs), tab("Recordings", self.recs)], ..Default::default() };
+        let page = PageHeader::new(spec, &[], measure);
+        let layout = page.layout(plx_ui::consts::SCR_W, measure);
+        (page, layout)
+    }
+
     /// Amber: keys in the Recordings view. Up from its first line returns to the guide.
     fn rec_key<H: ContentLike>(&mut self, key: Key, fx: &mut Effects<'_, H>) -> Handled {
         let n = self.model.recs.len();
         match key {
             Key::Up if self.rec_sel > 0 => self.rec_sel -= 1,
-            Key::Up => self.recs = false,
+            Key::Up => self.tabs = true,
             Key::Down if self.rec_sel + 1 < n => self.rec_sel += 1,
             Key::Down | Key::Right | Key::Ok => return Handled::Yes,
             Key::Left => return Handled::No,
@@ -266,12 +303,11 @@ impl LiveTvScreen {
     }
 
     fn key_press<H: ContentLike>(&mut self, key: Key, fx: &mut Effects<'_, H>) -> Handled {
+        if self.tabs { return self.tab_key(key, fx); }
         if self.recs { return self.rec_key(key, fx); }
-        // Up from the top channel opens the Recordings view
+        // Up from the top channel goes to the tab row
         if key == Key::Up && self.row == 0 && self.model.status == LiveStatus::Ready {
-            self.recs = true;
-            self.rec_sel = 0;
-            self.rec_first = 0;
+            self.tabs = true;
             fx.invalidate(Provenance::Input);
             return Handled::Yes;
         }
@@ -397,8 +433,8 @@ impl LiveTvScreen {
         let Some((row, s)) = self.focused() else { return };
         // the text stops short of the artwork card
         let w = (Self::art_rect().x - 48.0 - LEFT).min(1080.0);
-        Self::text(p, &s.title, LEFT, 104.0, theme::size::TITLE, theme::TEXT_PRIMARY, 1, w);
-        let mut y = 152.0;
+        Self::text(p, &s.title, LEFT, 104.0 + HEAD_SHIFT, theme::size::TITLE, theme::TEXT_PRIMARY, 1, w);
+        let mut y = 152.0 + HEAD_SHIFT;
         if !s.subtitle.is_empty() {
             Self::text(p, &s.subtitle, LEFT, y, theme::size::BODY, theme::TEXT_PRIMARY, 1, w);
             y += 40.0;
@@ -454,8 +490,7 @@ impl LiveTvScreen {
                 "Press REC to record this episode".to_string()
             };
             let ink = if recording { REC_RED } else { theme::TEXT_SECONDARY };
-            let hint = if self.row == 0 { format!("{hint} \u{b7} Up for Recordings") } else { hint };
-            Self::text(p, &hint, LEFT, 352.0, theme::size::CAPTION, ink, if recording { 1 } else { 0 }, w);
+            Self::text(p, &hint, LEFT, 352.0 + HEAD_SHIFT, theme::size::CAPTION, ink, if recording { 1 } else { 0 }, w);
         }
     }
 
@@ -472,19 +507,18 @@ impl LiveTvScreen {
     fn draw_recs(&self, p: Painter, active: bool) {
         let recs = &self.model.recs;
         let rules = recs.iter().filter(|r| r.kind != RecKind::Scheduled).count();
-        Self::text(p, "Recordings", LEFT, 104.0, theme::size::TITLE, theme::TEXT_PRIMARY, 1, 1000.0);
         let count = format!("{} rule{} \u{b7} {} scheduled", rules, if rules == 1 { "" } else { "s" }, recs.len() - rules);
-        Self::text(p, &count, LEFT, 152.0, theme::size::BODY, theme::TEXT_SECONDARY, 0, 1000.0);
+        Self::text(p, &count, LEFT, 104.0 + HEAD_SHIFT, theme::size::TITLE, theme::TEXT_PRIMARY, 1, 1000.0);
         let hint = if !self.model.note.is_empty() {
             self.model.note.clone()
         } else {
             match recs.get(self.rec_sel) {
                 None => "Nothing is set to record yet. Press REC on a programme in the guide.".to_string(),
-                Some(r) if r.kind == RecKind::Scheduled => "Lined up by a rule \u{b7} Up to return to the guide".to_string(),
-                Some(_) => "REC to cancel this rule \u{b7} Up to return to the guide".to_string(),
+                Some(r) if r.kind == RecKind::Scheduled => "Lined up by a rule".to_string(),
+                Some(_) => "Press REC to cancel this rule".to_string(),
             }
         };
-        Self::text(p, &hint, LEFT, 352.0, theme::size::CAPTION, theme::TEXT_SECONDARY, 0, 1200.0);
+        Self::text(p, &hint, LEFT, 352.0 + HEAD_SHIFT, theme::size::CAPTION, theme::TEXT_SECONDARY, 0, 1200.0);
         let band = theme::with_a(theme::TEXT_PRIMARY, 0.06);
         p.rrect(Rect::new(LEFT, RULER_Y, CHANNEL_W, RULER_H), 4.0, 4.0, band);
         Self::text(p, "TYPE", LEFT + 16.0, RULER_Y + RULER_H * 0.5, theme::size::MICRO, theme::TEXT_SECONDARY, 1, CHANNEL_W);
@@ -643,7 +677,7 @@ impl LiveTvScreen {
 
 impl LogicalState for LiveTvScreen {
     fn write(&self, c: &mut Canon) {
-        c.u32(self.entry.0).u32(self.row as u32).u32(self.slot as u32).u32(self.recs as u32).u32(self.rec_sel as u32);
+        c.u32(self.entry.0).u32(self.row as u32).u32(self.slot as u32).u32(self.recs as u32).u32(self.rec_sel as u32).u32(self.tabs as u32);
     }
     fn probe(&self, out: &mut String) {
         out.push_str(&format!("livetv rows={} row={} slot={}", self.model.rows.len(), self.row, self.slot));
@@ -666,10 +700,18 @@ impl<H: ContentLike> Machine<H> for LiveTvScreen {
                 fx.invalidate(Provenance::Input);
                 Handled::Yes
             }
+            // the tab row's motion: its capsules travel and its focused tab pops
+            ScreenEvent::Tick(t) => {
+                let (page, layout) = self.header(cx.measure);
+                let focused = if self.tabs && holds { i32::from(self.recs) } else { -1 };
+                PageHeader::step(&layout, page.selected(&layout), focused, &mut self.hcaps, &mut self.hpop, t.dt());
+                Handled::No
+            }
             // OK on a control commits as a press (or, by pointer, an activation)
             ScreenEvent::Activate(e) if *e == ELEM => self.key_press(Key::Ok, fx),
             ScreenEvent::PressCommit(_) if holds => self.key_press(Key::Ok, fx),
             // INFO, or a held OK: record the focused airing's show (or cancel its rule)
+            ScreenEvent::PressHold(_) if holds && self.tabs => Handled::Yes,
             ScreenEvent::PressHold(_) if holds && self.recs => {
                 // in the Recordings view the same keys end the selected rule
                 plx_ui::dispatch::take_rec_hold();
@@ -748,16 +790,19 @@ impl<H: ContentLike> Screen<H> for LiveTvScreen {
             self.draw_status(p);
             return;
         }
+        let holds = f.focus.current.is_some_and(|k| k.entry == self.entry && k.elem == ELEM);
+        {
+            let (page, layout) = self.header(f.measure);
+            page.draw_with(p, &layout, &self.hcaps, self.hpop.scale_with(0, f.press), None, &HeaderSwap::new());
+        }
         if self.recs {
-            let active = f.focus.current.is_some_and(|k| k.entry == self.entry && k.elem == ELEM);
-            self.draw_recs(p, active);
+            self.draw_recs(p, holds && !self.tabs);
             return;
         }
         self.draw_art(p);
         self.draw_details(p, f.measure);
         self.draw_ruler(p);
-        let active = f.focus.current.is_some_and(|k| k.entry == self.entry && k.elem == ELEM);
-        self.draw_grid(p, active);
+        self.draw_grid(p, holds && !self.tabs);
     }
     fn render(&self) -> RenderStrategy {
         RenderStrategy::Page
