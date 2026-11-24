@@ -322,9 +322,9 @@ pub enum Key {
 /// Amber: the LG remote's INFO key as the webOS SDL port reports it (scancode 499, no sym),
 /// measured on an OLED65B9 (webOS 4.x). It opens the focused item's actions, as a held OK does.
 pub const WCODE_INFO: c_uint = 499;
-/// Amber: the remote's REC key (webOS keyCode 416). Not yet measured on these TVs - a remote without
+/// Amber: the remote's REC key (scancode 453, read off an OLED65B9 remote press). A remote without
 /// the key never sends it. On the Live TV guide it records the focused airing's EPISODE.
-pub const WCODE_REC: c_uint = 416;
+pub const WCODE_REC: c_uint = 453;
 
 pub fn classify(sym: c_uint, wcode: c_uint) -> Key {
     match sym {
