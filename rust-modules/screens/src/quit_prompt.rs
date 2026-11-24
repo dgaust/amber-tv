@@ -164,6 +164,10 @@ impl<H: ContentLike> Screen<H> for QuitPromptScreen {
     fn name(&self) -> &'static str {
         Self::WORD
     }
+    /// the whole screen is this page's: the sidebar and clock are gone
+    fn hides_chrome(&self) -> f32 {
+        1.0
+    }
     fn state(&self) -> &dyn LogicalState {
         self
     }
@@ -180,7 +184,7 @@ impl<H: ContentLike> Screen<H> for QuitPromptScreen {
         for (i, label) in [(0u8, "Quit"), (1u8, "Stay")] {
             let r = self.button(i);
             let on = self.choice == i;
-            let (fill, ink) = if on { (theme::ACCENT, theme::ACCENT_INK) } else { ([1.0, 1.0, 1.0, 0.10], theme::TEXT_PRIMARY) };
+            let (fill, ink) = if on { ([1.0, 1.0, 1.0, 1.0], [0.04, 0.04, 0.06, 1.0]) } else { ([1.0, 1.0, 1.0, 0.10], theme::TEXT_PRIMARY) };
             p.rrect(r, 14.0, 0.0, fill);
             Self::text(p, label, r.x + r.w * 0.5, r.y + r.h * 0.5, theme::size::BODY, ink, i32::from(on), Some(f.measure));
         }

@@ -25,6 +25,8 @@ const SLIDE_S: f32 = 20.0;
 const FADE_S: f32 = 3.0;
 /// The slow push-in over a picture's time: 1.0 up to this scale.
 const DRIFT: f32 = 1.08;
+/// How long a picture's caption is up for, from the picture's start.
+const CAPTION_S: f32 = 9.0;
 /// A pointer has to move this far from where it first was to count as the viewer.
 const POINTER_WAKE: f32 = 60.0;
 
@@ -192,6 +194,10 @@ impl<H: ContentLike> Screen<H> for ScreensaverScreen {
     fn name(&self) -> &'static str {
         Self::WORD
     }
+    /// the whole screen is this page's: the sidebar and clock are gone
+    fn hides_chrome(&self) -> f32 {
+        1.0
+    }
     fn state(&self) -> &dyn LogicalState {
         self
     }
@@ -210,23 +216,45 @@ impl<H: ContentLike> Screen<H> for ScreensaverScreen {
         }
         self.draw_picture(p, self.idx, fade, self.elapsed);
         if let Some(img) = self.images.get(self.idx) {
-            // a soft shade under the caption, and the caption: its corner moves with each picture
-            let corner = self.shown % 4;
-            let left = corner % 2 == 0;
-            let top = corner >= 2;
-            let band_h = 170.0;
-            let band = if top { Rect::new(0.0, 0.0, w, band_h) } else { Rect::new(0.0, h - band_h, w, band_h) };
-            p.rrect(band, 0.0, 0.0, theme::scrim(0.35 * fade));
-            let mut title = if img.year > 0 { format!("{} ({})", img.title, img.year) } else { img.title.clone() };
-            if !img.rating.is_empty() { title.push_str(&format!("   \u{b7}   {}", img.rating)); }
-            let y = if top { 90.0 } else { h - 90.0 };
-            let (x, room) = (plx_ui::consts::MARGIN_X, w - 2.0 * plx_ui::consts::MARGIN_X);
-            let ink = [1.0, 1.0, 1.0, 0.85 * fade];
-            if left {
-                Self::text(p, &title, x, y, theme::size::BODY, ink, 0, room);
+            // The caption is up for the first part of each picture only (it comes in, stays, goes out), and
+            // sits bottom-left or bottom-right by turns, so no mark stays put on the panel.
+            let t = self.elapsed;
+            let cap = if self.prev.is_some() && t < FADE_S {
+                0.0
             } else {
-                let tw = CString::new(title.clone()).map_or(0.0, |c| f.measure.width(&c, theme::size::BODY, false)).min(room);
-                Self::text(p, &title, w - plx_ui::consts::MARGIN_X - tw, y, theme::size::BODY, ink, 0, room);
+                (t - 1.0).clamp(0.0, 1.0).min(((CAPTION_S - t) / 1.5).clamp(0.0, 1.0))
+            };
+            if cap > 0.0 {
+                let right = self.shown % 2 == 1;
+                let m = plx_ui::consts::MARGIN_X;
+                let room = w - 2.0 * m;
+                // a shade rising from the bottom edge, so the words read on any picture
+                let shade_h = 320.0;
+                let steps = 16;
+                for i in 0..steps {
+                    let k = i as f32 / steps as f32;
+                    let band = Rect::new(0.0, h - shade_h + k * shade_h, w, shade_h / steps as f32 + 1.0);
+                    p.rrect(band, 0.0, 0.0, [0.0, 0.0, 0.0, 0.62 * k * k * cap * fade]);
+                }
+                let mut sub = String::new();
+                if img.year > 0 {
+                    sub.push_str(&img.year.to_string());
+                }
+                if !img.rating.is_empty() {
+                    if !sub.is_empty() {
+                        sub.push_str("   \u{b7}   ");
+                    }
+                    sub.push_str(&img.rating);
+                }
+                let place = |s: &str, sz: i32, bold: i32, y: f32, ink: [f32; 4]| {
+                    let tw = CString::new(s).map_or(0.0, |c| f.measure.width(&c, sz, bold != 0)).min(room);
+                    let x = if right { w - m - tw } else { m };
+                    Self::text(p, s, x, y, sz, ink, bold, room);
+                };
+                place(&img.title, theme::size::TITLE, 1, h - 130.0, [1.0, 1.0, 1.0, 0.95 * cap * fade]);
+                if !sub.is_empty() {
+                    place(&sub, theme::size::BODY, 0, h - 76.0, [1.0, 1.0, 1.0, 0.7 * cap * fade]);
+                }
             }
         }
     }
