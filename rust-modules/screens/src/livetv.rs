@@ -35,6 +35,8 @@ pub struct LiveSlot {
     /// Landscape art for the details panel, else a poster; a server path.
     pub art: String,
     pub poster: String,
+    /// What a recording rule is made for (a show's or film's guid); empty when unknown.
+    pub record_guid: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -67,15 +69,24 @@ pub struct LiveTvModel {
     pub tune_failed: bool,
     /// The server the art paths belong to (raw id).
     pub sid: u16,
+    /// Amber: the guids a recording rule exists for.
+    pub rules: Vec<String>,
+    /// Amber: a short, passing status ("Recording Plebs", why a record failed); empty when none.
+    pub note: String,
 }
 
 /// What the guide asks of the application.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LiveTvOut {
     Tune { channel: String },
+    /// Amber: record the focused airing's show or film, or cancel its rule (the application knows
+    /// which). WRITES to the server.
+    Record { guid: String, title: String },
 }
 
 const ELEM: u32 = 1;
+/// The recording mark.
+const REC_RED: [f32; 4] = [0.93, 0.27, 0.27, 1.0];
 /// Group 0: the group a page's fresh entry seats focus in, so opening the guide lands in it.
 const GROUP: GroupId = GroupId(0);
 
@@ -359,6 +370,19 @@ impl LiveTvScreen {
         if !line.is_empty() && lines < 3 {
             Self::text(p, &line, LEFT, y, theme::size::LABEL, theme::TEXT_READING, 0, w);
         }
+        // Amber: recording - its state, a passing note, and the key that changes it
+        if !s.record_guid.is_empty() {
+            let recording = self.model.rules.iter().any(|g| *g == s.record_guid);
+            let hint = if !self.model.note.is_empty() {
+                self.model.note.clone()
+            } else if recording {
+                "Recording \u{b7} press INFO to cancel".to_string()
+            } else {
+                "Press INFO to record this".to_string()
+            };
+            let ink = if recording { REC_RED } else { theme::TEXT_SECONDARY };
+            Self::text(p, &hint, LEFT, 352.0, theme::size::CAPTION, ink, if recording { 1 } else { 0 }, w);
+        }
     }
 
     fn draw_ruler(&self, p: Painter) {
@@ -431,6 +455,9 @@ impl LiveTvScreen {
                     }
                 }
                 let (ink, sub) = if focused { (theme::ACCENT_INK, theme::ACCENT_INK) } else { (theme::TEXT_PRIMARY, theme::TEXT_SECONDARY) };
+                if w > 40.0 && !s.record_guid.is_empty() && self.model.rules.iter().any(|g| *g == s.record_guid) {
+                    p.rrect(Rect::new(x + w - 22.0, y + 10.0, 12.0, 12.0), 6.0, 6.0, REC_RED);
+                }
                 let tw = w - 24.0;
                 // a sliver too narrow to read carries no text at all; a narrow slot carries its
                 // title alone, centred, rather than a title and a squashed time range
@@ -495,6 +522,13 @@ impl<H: ContentLike> Machine<H> for LiveTvScreen {
             // OK on a control commits as a press (or, by pointer, an activation)
             ScreenEvent::Activate(e) if *e == ELEM => self.key_press(Key::Ok, fx),
             ScreenEvent::PressCommit(_) if holds => self.key_press(Key::Ok, fx),
+            // INFO, or a held OK: record the focused airing's show (or cancel its rule)
+            ScreenEvent::PressHold(_) if holds => {
+                if let Some((_, s)) = self.focused() {
+                    fx.push(Fx::App(AppFx::LiveTv(LiveTvOut::Record { guid: s.record_guid.clone(), title: s.title.clone() })));
+                }
+                Handled::Yes
+            }
             ScreenEvent::Input(input) if holds => match input.kind {
                 InputKind::Key { key, edge: Edge::Down | Edge::Repeat, at_edge: false, .. }
                     if matches!(key, Key::Up | Key::Down | Key::Left | Key::Right) => self.key_press(key, fx),

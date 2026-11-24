@@ -2,7 +2,7 @@
 //! the frame thread. The guide page reads a snapshot of it each frame (`Bridge::livetv_feed`); a
 //! tune that lands is played by the frame loop (`take_ready`).
 
-use plx_plex::plex::livetv::{LiveChannel, LiveDvr, LiveProgramme};
+use plx_plex::plex::livetv::{LiveChannel, LiveDvr, LiveProgramme, LiveRule};
 use plx_screens::livetv::{LiveRow, LiveSlot, LiveStatus, LiveTvModel};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
@@ -22,6 +22,12 @@ struct Shared {
     /// The guide channel of the live session now playing, and the airing its title was last set
     /// from (`retitle`).
     playing: Option<(String, i64)>,
+    /// Amber: the server's recording rules, a passing status line and when it goes, and whether a
+    /// record or cancel is in flight.
+    rules: Vec<LiveRule>,
+    note: String,
+    note_until: i64,
+    recording: bool,
 }
 
 static SHARED: Mutex<Option<Shared>> = Mutex::new(None);
@@ -114,6 +120,7 @@ pub(crate) fn tick(now: i64, active: bool) {
             None => Err(()),
             Some(None) => Ok((None, Vec::new(), Vec::new())),
             Some(Some(dvr)) => {
+                if let Some(rules) = client.livetv_rules() { with(|s| s.rules = rules); }
                 let channels = client.livetv_channels(&dvr.epg);
                 let grid = client.livetv_grid(&dvr.epg, now - 3600, now + 6 * 3600);
                 match (channels, grid) {
@@ -177,6 +184,9 @@ pub(crate) fn model_stamp(now: i64) -> u64 {
         s.grid.len().hash(&mut h);
         s.tuning.hash(&mut h);
         s.tune_failed.hash(&mut h);
+        s.rules.iter().map(|r| r.id.as_str()).collect::<Vec<_>>().hash(&mut h);
+        (now < s.note_until).hash(&mut h);
+        s.note.hash(&mut h);
     });
     (now / 60).hash(&mut h);
     plx_plex::plex::current_server().raw().hash(&mut h);
@@ -200,10 +210,13 @@ pub(crate) fn model(now: i64) -> LiveTvModel {
                 summary: p.summary.clone(),
                 art: p.art.clone(),
                 poster: p.thumb.clone(),
+                record_guid: p.record_guid.clone(),
             }).collect(),
         }).filter(|r| !r.slots.is_empty()).collect();
         LiveTvModel { status: s.status, rows, tuning: s.tuning.clone(), tune_failed: s.tune_failed,
-            sid: plx_plex::plex::current_server().raw() }
+            sid: plx_plex::plex::current_server().raw(),
+            rules: s.rules.iter().map(|r| r.guid.clone()).collect(),
+            note: if now < s.note_until { s.note.clone() } else { String::new() } }
     })
 }
 
@@ -473,6 +486,44 @@ mod channel_tests {
         assert_eq!(with_next(String::new(), Some("News")), "Next: News");
         assert_eq!(with_next("S1 E2".into(), None), "S1 E2");
     }
+}
+
+/// Amber: INFO on a guide airing - record its show (or film), or cancel the rule that already
+/// records it. WRITES to the server, off the frame thread; the guide shows the outcome as a
+/// passing note and the rules are read again.
+pub(crate) fn toggle_record(guid: String, title: String) {
+    if guid.is_empty() {
+        say("Can't record this one", 5);
+        return;
+    }
+    if with(|s| std::mem::replace(&mut s.recording, true)) { return; }
+    let existing = with(|s| s.rules.iter().find(|r| r.guid == guid).map(|r| r.id.clone()));
+    let client = plx_plex::plex::client();
+    let spawned = std::thread::Builder::new().name("livetv-record".into()).spawn(move || {
+        let name = if title.is_empty() { "it".to_string() } else { title };
+        let note = match existing {
+            Some(id) => match client.livetv_cancel(&id) {
+                Ok(()) => { plx_base::eventlog::log(&format!("livetv: recording rule {id} cancelled")); format!("Recording of {name} cancelled") }
+                Err(why) => { plx_base::eventlog::log(&format!("livetv: cancel of rule {id} failed - {why}")); format!("Couldn't cancel: {why}") }
+            },
+            None => match client.livetv_record(&guid) {
+                Ok(id) => { plx_base::eventlog::log(&format!("livetv: recording rule {id} created")); format!("Recording {name}") }
+                Err(why) => { plx_base::eventlog::log(&format!("livetv: record failed - {why}")); format!("Couldn't record: {why}") }
+            },
+        };
+        if let Some(rules) = client.livetv_rules() { with(|s| s.rules = rules); }
+        with(|s| s.recording = false);
+        say(&note, 6);
+    });
+    if spawned.is_err() { with(|s| s.recording = false); }
+}
+
+/// A passing line on the guide for `seconds`.
+fn say(note: &str, seconds: i64) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+    // the head of a long server answer is plenty
+    let note: String = note.chars().take(90).collect();
+    with(|s| { s.note = note; s.note_until = now + seconds; });
 }
 
 /// Amber: how many re-tunes a failing live stream gets, and over how long, before the player is
