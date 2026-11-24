@@ -199,7 +199,7 @@ fn every_gap_of_the_right_cluster_is_one_gap_whatever_the_collections_count_is()
         let row = page.header.row().unwrap();
         let cluster: Vec<_> = row.layout.items.iter()
             .filter_map(|rect| match rect.slot { Slot::Right(i) => Some((rect, &row.page.spec().right[i])), _ => None })
-            .filter(|(_, item)| !item.divider).collect();
+            .filter(|(_, item)| !item.divider && !item.readout).collect();
         assert_eq!(cluster.len(), if answer == Ok(0) { 2 } else { 3 }, "{answer:?}: the controls on the row");
         for pair in cluster.windows(2) {
             let gap = pair[1].0.text.x - (pair[0].0.text.x + pair[0].0.text.w);
@@ -223,10 +223,14 @@ fn the_cluster_declares_places_a_divider_and_a_value_only_sort_control() {
     knows_collections(&[(1, Ok(4))]);
     let (_, page, _) = grid_page(2);
     let row = page.header.row().unwrap();
-    let right = &row.page.spec().right;
+    // Amber: an unfiltered library leads its cluster with the count read-out ("27 films")
+    let all = &row.page.spec().right;
+    let lead = all.iter().take_while(|it| it.readout).count();
+    assert_eq!(lead, 1, "the count read-out leads the cluster");
+    let right = &all[lead..];
     assert_eq!(right.iter().map(|it| (it.place, it.divider)).collect::<Vec<_>>(),
         [(true, false), (true, false), (false, true), (false, false)], "Collections, Recommended, divider, sort");
-    let divider = row.layout.items.iter().find(|r| r.slot == Slot::Right(2)).unwrap();
+    let divider = row.layout.items.iter().find(|r| r.slot == Slot::Right(2 + lead)).unwrap();
     assert!(!divider.focusable && !right[2].focusable, "the divider is no stop");
     let sort = &right[3];
     assert_eq!(sort.label, plx_platform::i18n::msg::library_header_sort_filter(), "its name stays 'Sort & Filter'");
@@ -396,7 +400,7 @@ fn the_header_cluster_leaves_the_names_room_in_every_shipped_language() {
         let (_, widest) = page.header_right(&cx);
         let width = plx_ui::page_header::cluster_width(&widest, &measure);
         let row = plx_ui::page_header::TEXT_X1 - plx_ui::page_header::TEXT_X0;
-        if width > row * 0.6 {
+        if width > row * 0.62 { // Amber: 0.6 upstream; the count read-out adds ~100px
             out.push(format!("{}: right cluster {width:.0}px of a {row:.0}px row", language.tag()));
         }
     }
@@ -680,7 +684,7 @@ fn filtered_page() -> (Fixture, LibraryScreen, FocusEngine<u32>, u32) {
         for _ in 0..frames { ms += 16; fixture.step(page, engine, ScreenEvent::Tick(Tick { ms, dt_us: 16_667 })); }
     };
     settle(&fixture, &mut page, &mut engine, 30);
-    assert!(page.header.row().is_some_and(|row| row.readout().is_none()), "premise: unfiltered, no read-out");
+    assert!(page.header.row().is_some_and(|row| row.readout().is_some_and(|text| !text.contains("12"))), "premise: unfiltered, the plain count");
     fixture.listing = fixture.listing.clone().with_unwatched(true).with_query(2).with_total(12);
     settle(&fixture, &mut page, &mut engine, 120);
     assert!(page.header.row().is_some_and(|row| row.readout().is_some()), "premise: the filter puts the read-out on the row");
@@ -782,11 +786,12 @@ fn a_held_readout_is_dropped_when_the_filter_terms_change() {
     pick(&fixture, &mut page, &mut engine, QueryEdit::Unwatched(false));
     fixture.listing = base.clone().with_unwatched(false).with_query(4).with_total(0).with_fetch(SecFetch::Loading, -1);
     tick(&fixture, &mut page, &mut engine, &mut ms, 60);
-    assert_eq!(readout(&page), None, "the filter is off: no read-out while the listing loads");
+    // Amber: unfiltered, the row says the plain total; what must be gone is the held filtered count.
+    assert!(readout(&page).is_none_or(|text| text != held), "the filter is off: the held count is gone while the listing loads");
     // The filter is put back: ITS listing is loading, and the count of the one before is not shown.
     fixture.listing = base.clone().with_unwatched(true).with_query(5).with_total(0).with_fetch(SecFetch::Loading, -1);
     tick(&fixture, &mut page, &mut engine, &mut ms, 60);
-    assert_eq!(readout(&page), None, "a filter turned on again shows no count until its own listing lands");
+    assert!(readout(&page).is_none_or(|text| text != held), "a filter turned on again shows no count until its own listing lands");
     // And it lands: the read-out is the new listing's own.
     fixture.listing = base.with_query(5).with_total(9).with_fetch(SecFetch::Ready, 9);
     tick(&fixture, &mut page, &mut engine, &mut ms, 60);

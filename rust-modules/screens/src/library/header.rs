@@ -159,8 +159,14 @@ impl LibraryScreen {
     /// listing's own (`LibraryType::count_label`, the words the Sources list's counts wear), so the
     /// read-out cannot be taken for a count of the Collections beside it.
     fn filtered_readout<H: LibraryLike>(&self, cx: &Cx<'_, H>) -> Option<String> {
-        if !self.filter_active(cx) { return None; }
         let listing = H::listing(cx);
+        // Amber: with no filter on, the row still says how many there are ("413 films"), as the
+        // official app's library page does.
+        if !self.filter_active(cx) {
+            let (_, total) = self.unfiltered.as_ref()?;
+            if *total <= 0 { return None; }
+            return Some(listing.library_type().count_label(self.kind, *total));
+        }
         let (_, total) = self.unfiltered.as_ref()?;
         // The listing's own count once it has one; while it reloads under the same terms, the count
         // held for them (see [`Self::note_totals`]).
