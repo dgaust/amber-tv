@@ -7018,5 +7018,6 @@ fn recent_channels_is_a_shelf_of_squares_at_the_poster_pitch() {
     };
     let style = super::style_of(&id);
     assert_eq!(style.w, style.h, "square");
+    assert_eq!(style.w, RowStyle::HOME.w, "a poster's width");
     assert_eq!(style.pitch_fixed(), RowStyle::HOME.pitch_fixed(), "the poster shelf's pitch");
 }
