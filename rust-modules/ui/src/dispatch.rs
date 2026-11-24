@@ -1800,7 +1800,7 @@ where
                         // change it stands where it will rest.
                         crate::widgets::note_page_transition(navigation.page_alpha < 0.999);
                         crate::widgets::reset_page_scroll();
-                        let page_painter = Painter::root().translate(crate::widgets::page_shift(navigation.chrome_alpha), 0.0);
+                        let page_painter = Painter::root().translate(if inst.screen.claims_screen() { 0.0 } else { crate::widgets::page_shift(navigation.chrome_alpha) }, 0.0);
                         let mut f = DrawFrame::with_navigation(&page_cx, page_painter, page_navigation);
                         f.lifted = lifted;
                         // The stack's page alpha is already in `navigation`; apply it once.

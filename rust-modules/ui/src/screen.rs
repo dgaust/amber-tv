@@ -132,6 +132,11 @@ pub trait Screen<H: Host>: Machine<H, Ev = ScreenEvent<H>> + Focusable<H> {
     fn hides_chrome(&self) -> f32 {
         0.0
     }
+    /// Amber: the page stands at the screen's own left edge, not beside the sidebar - a page that covers
+    /// everything (the screensaver, the quit prompt), so its picture and its middle are the screen's.
+    fn claims_screen(&self) -> bool {
+        false
+    }
     fn state(&self) -> &dyn LogicalState;
     fn crumb(&self, cx: &Cx<'_, H>) -> Option<Cow<'_, str>>;
     /// RENDER resources only.

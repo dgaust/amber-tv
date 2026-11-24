@@ -198,6 +198,9 @@ impl<H: ContentLike> Screen<H> for ScreensaverScreen {
     fn hides_chrome(&self) -> f32 {
         1.0
     }
+    fn claims_screen(&self) -> bool {
+        true
+    }
     fn state(&self) -> &dyn LogicalState {
         self
     }
