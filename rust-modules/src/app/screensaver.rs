@@ -2,7 +2,7 @@
 //!
 //! After the viewer's idle time (`plx_data::layout::screensaver_minutes`, 2 by default, 0 = off)
 //! with nothing playing, the screensaver page is pushed over whatever is showing; any key or click
-//! closes it. The pictures are the fanart of the films the server holds that are rated M and under
+//! closes it. The pictures are the fanart of the films and shows the server holds that are rated M and under
 //! (`plx_data::saver::rating_allowed`), read in the background and shuffled, then refreshed hourly.
 
 use plx_machine::machine::{MachineId, NavOp};
@@ -42,9 +42,10 @@ fn load() {
     let client = plx_plex::plex::client();
     let Some(sections) = client.sections() else { return };
     let mut found: Vec<plx_data::saver::SaverImage> = Vec::new();
-    for dir in sections.directory.iter().filter(|d| d.kind == "movie") {
+    // films and shows both: a show's fanart is as good as a film's
+    for dir in sections.directory.iter().filter(|d| d.kind == "movie" || d.kind == "show") {
         let Ok(key) = dir.key.parse::<i64>() else { continue };
-        let filters = vec![("type".to_string(), "1".to_string())];
+        let filters = vec![("type".to_string(), if dir.kind == "show" { "2" } else { "1" }.to_string())];
         let mut start = 0;
         while start < PER_LIBRARY {
             let q = plx_plex::plex::SectionQuery {

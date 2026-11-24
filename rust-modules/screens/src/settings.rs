@@ -1291,7 +1291,7 @@ fn sentence_for(id: Option<&RootId>) -> Cow<'static, str> {
         Some(RootId::Diagnostics) => Cow::Borrowed(msg::settings_diagnostics_detail()),
         Some(RootId::Legal) => Cow::Borrowed(msg::settings_legal_detail()),
         Some(RootId::About) => Cow::Borrowed(msg::settings_about_detail()),
-        Some(RootId::Screensaver) => Cow::Borrowed("Shows fanart from films rated M and under after this long without a button press. Press OK to change it."),
+        Some(RootId::Screensaver) => Cow::Borrowed("Shows fanart from films and shows rated M and under after this long without a button press. Press OK to change it."),
         Some(RootId::Plaintext(_)) | None => Cow::Borrowed(msg::settings_root_copy()),
     }
 }

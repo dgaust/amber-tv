@@ -1,7 +1,7 @@
-//! Amber: the screensaver - a slow slideshow of fanart over black, shown when the viewer has been
+//! Amber: the screensaver - a slow slideshow of fanart (films and shows) over black, shown when the viewer has been
 //! idle (`app::screensaver` opens it). Any key or click closes it and does nothing else.
 //!
-//! The pictures are `plx_data::saver`'s (films rated M and under). Each stays on for [`SLIDE_S`]
+//! The pictures are `plx_data::saver`'s (films and shows rated M and under). Each stays on for [`SLIDE_S`]
 //! seconds, drifting in slowly, and the next fades in over [`FADE_S`]. The title sits in a corner
 //! that moves with each picture, so no screen element holds one place on a panel.
 

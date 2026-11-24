@@ -42,12 +42,13 @@ pub fn rating_label(content_rating: &str) -> String {
     content_rating.rsplit('/').next().unwrap_or("").trim().to_string()
 }
 
-/// Is a film with this content rating one the screensaver may show? Ratings M and under: G, PG and
-/// M, however the server spells them ("M", "au/M", "gb/PG", "G"). Anything else - PG-13, R, MA15+,
+/// Is a film or show with this content rating one the screensaver may show? Ratings M and under: G, PG and
+/// M (and TV-Y to TV-PG), however the server spells them ("M", "au/M", "gb/PG", "G"). Anything else - PG-13, R, MA15+,
 /// R18+, an unrated film - stays out.
 pub fn rating_allowed(content_rating: &str) -> bool {
     let tail = content_rating.rsplit('/').next().unwrap_or("").trim();
-    matches!(tail.to_ascii_uppercase().as_str(), "G" | "PG" | "M")
+    // the TV scale's equivalents ride along: TV-Y, TV-Y7, TV-G and TV-PG are at or under PG
+    matches!(tail.to_ascii_uppercase().as_str(), "G" | "PG" | "M" | "TV-Y" | "TV-Y7" | "TV-Y7-FV" | "TV-G" | "TV-PG")
 }
 
 #[cfg(test)]
@@ -62,10 +63,10 @@ mod tests {
     }
     #[test]
     fn m_and_under_only() {
-        for ok in ["G", "PG", "M", "au/M", "au/PG", "gb/G", " m ", "pg"] {
+        for ok in ["G", "PG", "M", "au/M", "au/PG", "gb/G", " m ", "pg", "TV-PG", "TV-G", "TV-Y7"] {
             assert!(rating_allowed(ok), "{ok}");
         }
-        for no in ["", "PG-13", "R", "MA15+", "R18+", "au/MA15+", "NC-17", "X18+", "NR", "Not Rated", "TV-MA", "15", "18"] {
+        for no in ["", "PG-13", "R", "MA15+", "R18+", "au/MA15+", "NC-17", "X18+", "NR", "Not Rated", "TV-MA", "TV-14", "au/M15+", "au/Revoked", "15", "18"] {
             assert!(!rating_allowed(no), "{no}");
         }
     }
