@@ -41,6 +41,8 @@ pub struct ScreensaverScreen {
     pointer: Option<(f32, f32)>,
     /// How many pictures have been shown: moves the caption's corner.
     shown: u32,
+    /// The picture on has its image loaded (the clock and caption wait for it).
+    ready: bool,
 }
 
 impl ScreensaverScreen {
@@ -48,7 +50,7 @@ impl ScreensaverScreen {
     pub const SHAPE: &'static str = "ScreensaverScreen{entry:u32,idx:u32}";
 
     pub fn new(entry: EntryId) -> Self {
-        Self { entry, images: Vec::new(), gen: u32::MAX, idx: 0, prev: None, elapsed: 0.0, pointer: None, shown: 0 }
+        Self { entry, images: Vec::new(), gen: u32::MAX, idx: 0, prev: None, elapsed: 0.0, pointer: None, shown: 0, ready: false }
     }
 
     fn refresh(&mut self) {
@@ -62,6 +64,7 @@ impl ScreensaverScreen {
 
     /// Advance the clock; `true` when a new picture began.
     fn advance(&mut self, dt: f32) -> bool {
+        if !self.ready { return false; }
         self.elapsed += dt;
         if self.images.len() > 1 && self.elapsed >= SLIDE_S {
             self.prev = Some(self.idx);
@@ -78,11 +81,11 @@ impl ScreensaverScreen {
         if self.prev.is_none() { 1.0 } else { (self.elapsed / FADE_S).clamp(0.0, 1.0) }
     }
 
-    fn draw_picture(&self, p: Painter, i: usize, alpha: f32, age: f32) {
-        let Some(img) = self.images.get(i) else { return };
-        if img.art.is_empty() || alpha <= 0.0 { return; }
+    fn draw_picture(&self, p: Painter, i: usize, alpha: f32, age: f32) -> bool {
+        let Some(img) = self.images.get(i) else { return false };
+        if img.art.is_empty() || alpha <= 0.0 { return false; }
         let (tex, iw, ih) = plx_ui::widgets::resolve_tex_wh_on(img.sid, &img.art, 1920, 1080, 0);
-        if tex == 0 || iw <= 0.0 || ih <= 0.0 { return; }
+        if tex == 0 || iw <= 0.0 || ih <= 0.0 { return false; }
         let (w, h) = (plx_ui::consts::SCR_W, plx_ui::consts::SCR_H);
         // cover the screen: crop the picture to its shape
         let (ra, ia) = (w / h, iw / ih);
@@ -97,6 +100,7 @@ impl ScreensaverScreen {
         let k = 1.0 + (DRIFT - 1.0) * (age / (SLIDE_S + FADE_S)).clamp(0.0, 1.0);
         let r = Rect::new((w - w * k) * 0.5, (h - h * k) * 0.5, w * k, h * k);
         p.tex_uv(tex, uv, r, 0.0, [1.0, 1.0, 1.0, alpha]);
+        true
     }
 
     fn text(p: Painter, s: &str, x: f32, cy: f32, sz: i32, ink: [f32; 4], bold: i32, max_w: f32) {
@@ -217,7 +221,7 @@ impl<H: ContentLike> Screen<H> for ScreensaverScreen {
             // the picture going out holds full until the new one has covered it
             self.draw_picture(p, prev, 1.0, SLIDE_S + self.elapsed);
         }
-        self.draw_picture(p, self.idx, fade, self.elapsed);
+        self.ready = self.draw_picture(p, self.idx, fade.max(0.001), self.elapsed);
         if let Some(img) = self.images.get(self.idx) {
             // The caption is up for the first part of each picture only (it comes in, stays, goes out), and
             // sits bottom-left or bottom-right by turns, so no mark stays put on the panel.
