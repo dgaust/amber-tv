@@ -2539,7 +2539,8 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Screen<H> for 
     /// Amber: a trailer gone full screen stands at the screen's own left edge, not beside the sidebar it
     /// has hidden, so its scrim and play bar run the full width.
     fn claims_screen(&self) -> bool {
-        !cfg!(any(test, feature = "test-support")) && self.preview_chrome <= 0.01
+        !cfg!(any(test, feature = "test-support"))
+            && (self.preview_chrome <= 0.01 || (self.preview_promoted && plx_media::player::preview::view().picture))
     }
     fn name(&self) -> &'static str {
         "detail"
