@@ -152,8 +152,6 @@ pub struct PlayerScreen {
     seek_burst: player_hud::seek_jump::SeekBurst,
     /// A dedicated FF/REW press that has not yet repeated or been released.
     transport_tap: bool,
-    /// Amber: OK has grabbed the slider; Left/Right move it until OK confirms or focus leaves it.
-    slider_grabbed: bool,
     /// **The cadence a HELD Left/Right walks the open Chapters strip at.** The remote streams `Edge::Repeat` at
     /// roughly 50 ms and a list walked at that rate reads as a blur, so the strip admits one repeat per
     /// [`PANEL_REPEAT_MS`], the same `RepeatGate` the overlay's panels pace a held direction with. The press
@@ -223,7 +221,6 @@ impl PlayerScreen {
             scrub: Scrub::IDLE,
             seek_burst: player_hud::seek_jump::SeekBurst::IDLE,
             transport_tap: false,
-            slider_grabbed: false,
             repeat: RepeatGate::IDLE,
             row: HudMotion::new(),
             up_next: Countdown::default(),
@@ -1355,15 +1352,6 @@ impl PlayerScreen {
         if self.hud.sections.any() && self.modal() && matches!(key, Key::Left { alt: true } | Key::Right { alt: true }) {
             return Handled::Yes;
         }
-        // Amber: the slider holds still while it is merely focused; OK grabs it (`key_ok`)
-        if self.hud.nav.focus != GROUP_SCRUB { self.slider_grabbed = false; }
-        // (a scrub already under way - begun by Left/Right over the bare picture - is a grab of its own)
-        if input::AMBER && self.hud.visible_at_press && self.hud.nav.focus == GROUP_SCRUB && !self.slider_grabbed
-            && !self.scrub.is_live()
-            && matches!(key, Key::Left { alt: false } | Key::Right { alt: false }) {
-            if edge == Edge::Down { self.hud.extend(now, input::HUD_LINGER_MS); }
-            return Handled::Yes;
-        }
         if self.jump_key(ps, key, edge, now, fx, instant_dpad_seeking, interval) {
             return Handled::Yes;
         }
@@ -1427,7 +1415,6 @@ impl PlayerScreen {
             // (`HudState::settle`, on the Tick). A rebuffer that pops the transport up after the
             // viewer hid it in normal play, or long after a busy hide, still takes two presses.
             Key::Back if edge == Edge::Down && self.scrub.is_live() => {
-                self.slider_grabbed = false;
                 self.key_back_scrub(now);
                 Handled::Yes
             }
@@ -1454,7 +1441,6 @@ impl PlayerScreen {
                 let home = if input::AMBER { GROUP_ROW } else { GROUP_SCRUB };
                 self.hud.nav.focus = home;
                 Self::repair_focus(fx, home);
-                self.slider_grabbed = false;
                 self.scrub.ns = -1;
                 self.scrub.disengage();
                 self.hud.hide(plx_media::player::loading(ps));
@@ -1534,18 +1520,6 @@ impl PlayerScreen {
             // OK over the bare picture shows the controls, on play/pause; the film plays on
             self.hud.nav.focus = GROUP_ROW;
             Self::repair_focus(fx, GROUP_ROW);
-            self.hud.extend(now, input::HUD_LINGER_MS);
-            self.publish();
-            return Handled::Yes;
-        }
-        if input::AMBER && self.hud.nav.focus == GROUP_SCRUB && (self.slider_grabbed || !self.scrub.is_live()) {
-            // OK grabs the slider, and once it has been moved, OK again goes there
-            if self.slider_grabbed {
-                self.slider_grabbed = false;
-                let _ = self.take_target(now, fx);
-            } else {
-                self.slider_grabbed = true;
-            }
             self.hud.extend(now, input::HUD_LINGER_MS);
             self.publish();
             return Handled::Yes;
@@ -1664,7 +1638,6 @@ impl PlayerScreen {
             (Some(_), consts::Key::Up) if transport && order.top() == group && self.hud.sections.any() => {}
             (Some(_), consts::Key::Up) if transport && order.top() == group => {
                 self.hud.nav.focus = if input::AMBER { GROUP_ROW } else { GROUP_SCRUB };
-                self.slider_grabbed = false;
                 self.scrub.ns = -1;
                 self.scrub.disengage();
                 self.hud.hide(false);

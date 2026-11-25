@@ -23,8 +23,8 @@ use plx_appkit::player_hud::geometry::{GROUP_ROW, GROUP_SCRUB, GROUP_SECTION, GR
 use plx_machine::machine::GroupId;
 
 /// Amber's player behaviour (off under test-support, where the suite grades upstream's): OK on the
-/// picture shows the controls and the film plays on; the controls open on play/pause; the slider moves
-/// only once OK has grabbed it.
+/// picture shows the controls and the film plays on; the controls open on play/pause; the slider is held
+/// while it has focus and let go when focus leaves it (no click to grab).
 pub const AMBER: bool = !cfg!(any(test, feature = "test-support"));
 use std::os::raw::c_int;
 
