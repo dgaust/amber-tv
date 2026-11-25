@@ -1190,12 +1190,18 @@ fn library_publication_command(
     }
 }
 
+/// How long without a key press before Home takes what the server staged (see home_publication_command).
+const HOME_IDLE_PUBLISH_MS: u32 = 4000;
+
 /// What the store may land of the reads it staged quietly, this frame: Home is looked at when it
 /// is the page on top and the dip is not holding it dark. The store decides in data
 /// ([`plx_data::stores::hubs::HubsCmd::Publish`]); the press check and the command are adjacent,
 /// like [`library_publication_command`].
 fn home_publication_command(app: &App) -> plx_data::stores::hubs::HubsCmd {
-    let visible = app.route() == AppArg::Home && !app.pages.nav.tabs.stack.transition.floor_held();
+    // Amber: a person who has not pressed anything for a few seconds is not being moved under, so what
+    // waited for them to leave Home lands where they sit (a new item on Plex shows without a detour).
+    let idle = super::clock::now().wrapping_sub(app.last_input) > HOME_IDLE_PUBLISH_MS;
+    let visible = app.route() == AppArg::Home && !app.pages.nav.tabs.stack.transition.floor_held() && !idle;
     plx_data::stores::hubs::HubsCmd::Publish {
         home_top_visible: visible,
         focused_hub: app.bridge.home_focused_hub(&app.pages),

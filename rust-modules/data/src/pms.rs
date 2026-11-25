@@ -1854,6 +1854,11 @@ fn refetch_source_quiet(state: &mut PmsState, adapter: &PmsAdapter, scope: &Brow
     let prompted_out = srcs.iter().any(|s| (s.fetching || s.deferred) && !s.quiet && s.page.is_none());
     if let Some(i) = srcs.iter().position(|s| s.sid == sid) {
         let s = &mut srcs[i];
+        if !(s.page.is_none() && !prompted_out && !s.fetching && !s.deferred && s.state == HubState::Ready && s.quiet_after <= 0.0) {
+            plx_base::eventlog::log(&format!(
+                "hubs: quiet refetch of source {} waits (page={} prompted_out={} fetching={} deferred={} ready={} spacing={:.0}s)",
+                sid.raw(), s.page.is_some(), prompted_out, s.fetching, s.deferred, s.state == HubState::Ready, s.quiet_after));
+        }
         if s.page.is_some() {
             s.quiet_owed = true;
         } else if !prompted_out && !s.fetching && !s.deferred && s.state == HubState::Ready {
@@ -3444,7 +3449,7 @@ fn kick_with(gen: u32, adapter: &PmsAdapter, s: &mut Src, scope: &BrowseScope, l
     // mid-request cannot redirect a fetch already out (`plex::servers` leaks each client precisely
     // so the reference stays live), and the fetch never asks which server is current.
     let Some(key) = scope.clients.key(s.sid) else {
-        if s.quiet { quiet_failed(s); return None; }
+        if s.quiet { plx_base::eventlog::log("hubs: quiet refetch dropped, no client for the source"); quiet_failed(s); return None; }
         return Some(landed_fail(s));
     };
     let Some(mut request) = s.begin_request(key, gen,
