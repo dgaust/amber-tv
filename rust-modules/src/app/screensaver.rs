@@ -20,6 +20,8 @@ const RETRY_S: i64 = 600;
 
 static LOADING: AtomicBool = AtomicBool::new(false);
 static LAST_TRY: AtomicI64 = AtomicI64::new(0);
+/// When something last played (a film, a trailer), on the app clock; 0 = never.
+static LAST_WATCHING: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 fn unix_s() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
@@ -102,8 +104,20 @@ pub(crate) fn tick(d: &mut Dispatcher<super::bridge::AppHost>, last_input: u32) 
     // pictures are read ahead, so the screensaver can start the moment it is due
     ensure_loaded();
     let Some(top) = d.top_arg() else { return };
-    if !coverable(top) || plx_data::saver::count() == 0 { return; }
-    let idle_ms = super::clock::now().wrapping_sub(last_input);
+    // Watching is not idling: while a film plays (the player page) or a trailer shows, the clock
+    // restarts, so the picture that follows is not counted from the last key press before it.
+    let now = super::clock::now();
+    if !coverable(top) || plx_media::player::preview::view().picture {
+        LAST_WATCHING.store(now, Ordering::Relaxed);
+        return;
+    }
+    if plx_data::saver::count() == 0 { return; }
+    let last_active = if now.wrapping_sub(last_input) < now.wrapping_sub(LAST_WATCHING.load(Ordering::Relaxed)) {
+        last_input
+    } else {
+        LAST_WATCHING.load(Ordering::Relaxed)
+    };
+    let idle_ms = now.wrapping_sub(last_active);
     // a wrapped clock (negative in effect) reads as huge: not idle
     if idle_ms > u32::MAX / 2 || idle_ms < minutes * 60_000 { return; }
     plx_base::eventlog::log(&format!("screensaver: starting after {minutes} min idle"));

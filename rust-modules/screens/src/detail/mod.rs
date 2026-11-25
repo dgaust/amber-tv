@@ -2536,6 +2536,11 @@ impl<H: ContentLike + crate::registry::MetadataLike + PlayerLike> Screen<H> for 
     fn hides_chrome(&self) -> f32 {
         if cfg!(any(test, feature = "test-support")) { 0.0 } else { 1.0 - self.preview_chrome.clamp(0.0, 1.0) }
     }
+    /// Amber: a trailer gone full screen stands at the screen's own left edge, not beside the sidebar it
+    /// has hidden, so its scrim and play bar run the full width.
+    fn claims_screen(&self) -> bool {
+        !cfg!(any(test, feature = "test-support")) && self.preview_chrome <= 0.01
+    }
     fn name(&self) -> &'static str {
         "detail"
     }
