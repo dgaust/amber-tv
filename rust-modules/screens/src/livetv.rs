@@ -141,10 +141,9 @@ const X0: f32 = LEFT + CHANNEL_W + CELL_GAP;
 const WINDOW_S: i64 = 2 * 3600;
 const HALF_HOUR: i64 = 1800;
 
-/// Amber: the remote's colour keys, as the TV reports them: evdev 398 to 401 (red, green, yellow, blue) and
-/// the web keycodes 404 to 406. Not 403: that is the channel rocker's down.
+/// Amber: the remote's colour keys as this TV reports them (red 486, green 487, yellow 488, blue 489; ).
 fn is_colour_key(wcode: u32) -> bool {
-    matches!(wcode, 398..=401 | 404..=406)
+    matches!(wcode, 486..=489)
 }
 
 fn rows_visible() -> usize {
