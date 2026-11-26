@@ -141,6 +141,12 @@ const X0: f32 = LEFT + CHANNEL_W + CELL_GAP;
 const WINDOW_S: i64 = 2 * 3600;
 const HALF_HOUR: i64 = 1800;
 
+/// Amber: the remote's colour keys, as the TV reports them: evdev 398 to 401 (red, green, yellow, blue) and
+/// the web keycodes 404 to 406. Not 403: that is the channel rocker's down.
+fn is_colour_key(wcode: u32) -> bool {
+    matches!(wcode, 398..=401 | 404..=406)
+}
+
 fn rows_visible() -> usize {
     (((plx_ui::consts::SCR_H - plx_ui::consts::MARGIN_Y - GRID_Y) / (ROW_H + ROW_GAP)).floor() as usize).max(1)
 }
@@ -160,8 +166,7 @@ pub struct LiveTvScreen {
     rec_first: usize,
     /// Focus is on the tab row.
     tabs: bool,
-    /// Amber: focus is on the Reorder tab (the guide stays showing), and the channel being moved.
-    arrange_tab: bool,
+    /// Amber: the focused channel has been picked up (a colour key) and Up/Down carry it.
     moving: bool,
     hcaps: TabStrip,
     hpop: CtlPop<1>,
@@ -172,7 +177,7 @@ impl LiveTvScreen {
     pub const SHAPE: &'static str = "LiveTvScreen{entry:u32,row:u32,slot:u32,recs:u32,sel:u32,tabs:u32}";
 
     pub fn new(entry: EntryId) -> Self {
-        Self { entry, model: LiveTvModel::default(), now: 0, row: 0, slot: 0, first_row: 0, window: 0, recs: false, rec_sel: 0, rec_first: 0, tabs: false, arrange_tab: false, moving: false, hcaps: TabStrip::new(), hpop: CtlPop::new() }
+        Self { entry, model: LiveTvModel::default(), now: 0, row: 0, slot: 0, first_row: 0, window: 0, recs: false, rec_sel: 0, rec_first: 0, tabs: false, moving: false, hcaps: TabStrip::new(), hpop: CtlPop::new() }
     }
 
     /// Amber: a page that has had no snapshot yet; the feed rebuilds one for it whatever its stamp.
@@ -266,29 +271,14 @@ impl LiveTvScreen {
     /// (two tabs: a view each); Down goes back into the page.
     fn tab_key<H: ContentLike>(&mut self, key: Key, fx: &mut Effects<'_, H>) -> Handled {
         match key {
-            Key::Left if self.arrange_tab => {
-                self.arrange_tab = false;
-                self.recs = true;
-            }
             Key::Left if self.recs => self.recs = false,
             Key::Left => return Handled::No,
-            Key::Right if self.arrange_tab => return Handled::Yes,
-            Key::Right if self.recs => {
-                self.recs = false;
-                self.arrange_tab = true;
-            }
-            Key::Right => {
+            Key::Right if !self.recs => {
                 self.recs = true;
                 self.rec_sel = 0;
                 self.rec_first = 0;
             }
-            // Down from the Reorder tab picks up the channel focus was on: Up/Down then carry it
-            Key::Down if self.arrange_tab && !self.model.rows.is_empty() => {
-                self.arrange_tab = false;
-                self.tabs = false;
-                self.moving = true;
-            }
-            Key::Up | Key::Ok => return Handled::Yes,
+            Key::Right | Key::Up | Key::Ok => return Handled::Yes,
             Key::Down => self.tabs = false,
             _ => return Handled::No,
         }
@@ -299,7 +289,7 @@ impl LiveTvScreen {
     /// The tab row, laid out the way the library pages' header row is.
     fn header(&self, measure: &dyn plx_machine::machine::Measure) -> (PageHeader, plx_ui::page_header::HeaderLayout) {
         let tab = |label: &str, on: bool| HeaderItem { label: label.to_owned(), selected_plate: on, focusable: true, ..Default::default() };
-        let spec = PageHeaderSpec { left: vec![tab("Guide", !self.recs && !self.arrange_tab), tab("Recordings", self.recs), tab("Reorder", self.arrange_tab)], ..Default::default() };
+        let spec = PageHeaderSpec { left: vec![tab("Guide", !self.recs), tab("Recordings", self.recs)], ..Default::default() };
         let page = PageHeader::new(spec, &[], measure);
         let layout = page.layout(plx_ui::consts::SCR_W, measure);
         (page, layout)
@@ -746,7 +736,7 @@ impl<H: ContentLike> Machine<H> for LiveTvScreen {
             // the tab row's motion: its capsules travel and its focused tab pops
             ScreenEvent::Tick(t) => {
                 let (page, layout) = self.header(cx.measure);
-                let focused = if self.tabs && holds { if self.arrange_tab { 2 } else { i32::from(self.recs) } } else { -1 };
+                let focused = if self.tabs && holds { i32::from(self.recs) } else { -1 };
                 PageHeader::step(&layout, page.selected(&layout), focused, &mut self.hcaps, &mut self.hpop, t.dt());
                 Handled::No
             }
@@ -778,6 +768,18 @@ impl<H: ContentLike> Machine<H> for LiveTvScreen {
                 }
                 Handled::Yes
             }
+            // a colour key (red, green, yellow, blue) on the grid picks the focused channel up; again, it is dropped
+            ScreenEvent::Input(input) if holds && !self.tabs && !self.recs && matches!(input.kind,
+                InputKind::Key { wcode, edge: Edge::Down, .. } if is_colour_key(wcode)) => {
+                if !self.model.rows.is_empty() {
+                    self.moving = !self.moving;
+                    fx.invalidate(Provenance::Input);
+                }
+                Handled::Yes
+            }
+            // (a key the guide has no use for is logged once, to learn what the remote sends)
+            ScreenEvent::Input(input) if holds && matches!(input.kind, InputKind::Key { key: Key::Other, wcode, edge: Edge::Down, .. }
+                if { plx_base::eventlog::log(&format!("livetv: unused key wcode={wcode}")); false }) => Handled::No,
             ScreenEvent::Input(input) if holds => match input.kind {
                 InputKind::Key { key, edge: Edge::Down | Edge::Repeat, at_edge: false, .. }
                     if matches!(key, Key::Up | Key::Down | Key::Left | Key::Right) => self.key_press(key, fx),
@@ -852,10 +854,8 @@ impl<H: ContentLike> Screen<H> for LiveTvScreen {
         self.draw_details(p, f.measure);
         self.draw_ruler(p);
         self.draw_grid(p, holds && !self.tabs);
-        let hint = if self.moving { "Up / Down moves the channel     OK when it is where you want it" }
-            else if self.arrange_tab && self.tabs { "Press Down to pick up the channel you are on, then move it with Up / Down" } else { "" };
-        if !hint.is_empty() {
-            Self::text(p, hint, LEFT, RULER_Y - 22.0, theme::size::MICRO, theme::TEXT_SECONDARY, 0, 1200.0);
+        if self.moving {
+            Self::text(p, "Moving this channel: Up / Down to place it, OK to drop it", LEFT, RULER_Y - 22.0, theme::size::MICRO, theme::TEXT_SECONDARY, 0, 1200.0);
         }
     }
     fn render(&self) -> RenderStrategy {
