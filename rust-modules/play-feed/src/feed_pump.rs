@@ -773,15 +773,17 @@ pub fn tick_load(feed: &mut FeedResources, mt: &MainThread, now: u32,
         // before AAC is present produced silent initial playback that recovered only after a seek
         // (the seek path already primed both lanes). Progressive initial play keeps its proven
         // immediate-start behavior.
+        // Amber: a live channel primes before Play too, deeper than a film (`LIVE_HOLD_NS`)
+        let live_hold = crate::native_executor::begin_live_hold_if_armed();
         if eng.startup_controlled {
             // The common runner owns the first Play. A progressive source is ready to issue it
             // immediately; a seek or segmented stream still waits for the existing prime proof.
-            eng.startup_immediate_play = !prime_before_play(eng.rebase_pending, segmented_hls);
+            eng.startup_immediate_play = !(prime_before_play(eng.rebase_pending, segmented_hls) || live_hold);
             eng.prime_play = true;
             if !eng.startup_immediate_play {
                 log("SMP loadCompleted (priming before Play)");
             }
-        } else if prime_before_play(eng.rebase_pending, segmented_hls) {
+        } else if prime_before_play(eng.rebase_pending, segmented_hls) || live_hold {
             eng.prime_play = true;
             log("SMP loadCompleted (priming before Play)");
         } else {

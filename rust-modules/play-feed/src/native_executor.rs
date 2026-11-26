@@ -294,6 +294,46 @@ fn drain_one(q: Option<&mut Box<AuQueue>>) {
     }
 }
 
+/// Amber: a live channel holds its start until this much is buffered, so a pause in the server's feed
+/// (a live transcode runs at about real time, with no lead to spend) does not empty the pipeline and
+/// freeze the picture. Bounded by [`LIVE_HOLD_MAX_MS`]: a source that cannot be buffered that deep
+/// (the pipeline's own queue is capped) starts anyway.
+pub const LIVE_HOLD_NS: i64 = 10_000_000_000;
+pub const LIVE_HOLD_MAX_MS: u32 = 15_000;
+/// How long an arm stays good for the Load it was made for.
+const LIVE_HOLD_ARM_MS: u32 = 20_000;
+/// The clock (ms) at which the application armed the hold for the next Load; 0 = not armed.
+static LIVE_HOLD_ARMED_MS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// The clock (ms) at which the running hold began; 0 = no hold.
+static LIVE_HOLD_SINCE_MS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The application is about to start a live channel: its next Load holds the start (`LIVE_HOLD_NS`).
+pub fn arm_live_hold() {
+    LIVE_HOLD_ARMED_MS.store(crate::shared::vclock_ms().max(1), Ordering::Relaxed);
+}
+
+/// The Load has completed: take the arm, if there is a fresh one, and begin the hold.
+pub fn begin_live_hold_if_armed() -> bool {
+    let at = LIVE_HOLD_ARMED_MS.swap(0, Ordering::Relaxed);
+    let now = crate::shared::vclock_ms();
+    let armed = at != 0 && now.wrapping_sub(at) < LIVE_HOLD_ARM_MS;
+    LIVE_HOLD_SINCE_MS.store(if armed { now.max(1) } else { 0 }, Ordering::Relaxed);
+    if armed {
+        plx_base::eventlog::log("live: holding the start until 10 s are buffered");
+    }
+    armed
+}
+
+/// May a Fresh prime play, as far as a live hold is concerned? Always, with no hold running.
+fn live_hold_ready(accepted_vbuf: i64, accepted_abuf: i64, audio_expected: bool) -> bool {
+    let since = LIVE_HOLD_SINCE_MS.load(Ordering::Relaxed);
+    if since == 0 {
+        return true;
+    }
+    let deep = accepted_vbuf >= LIVE_HOLD_NS && (!audio_expected || accepted_abuf >= LIVE_HOLD_NS - 500_000_000);
+    deep || crate::shared::vclock_ms().wrapping_sub(since) >= LIVE_HOLD_MAX_MS
+}
+
 /// Re-prime at the currently presented physical point without changing the clock.
 pub fn arm_live_clock_prime(eng: &mut Engine) {
     let shared = eng.shared;
@@ -1302,7 +1342,7 @@ pub fn try_prime(mt: &MainThread, eng: &mut Engine, transport: &Transport, hooks
             };
             recovery.ready(playable)
         }
-        HlsPrimeKind::Fresh => balanced_runway_ready,
+        HlsPrimeKind::Fresh => balanced_runway_ready && live_hold_ready(accepted_vbuf, accepted_abuf, audio_expected),
         // A viewer Resume continues an existing timeline, not a replay of every acquisition
         // since the rung was selected. That historical worst-permutation reserve can exceed
         // native + AU queue capacity (#1216); no further media can arrive until Play. Keep the
@@ -1339,6 +1379,7 @@ pub fn try_prime(mt: &MainThread, eng: &mut Engine, transport: &Transport, hooks
                     (hooks.mirror_playstate)(mt, eng.stage, true);
                 }
                 eng.prime_play = false;
+                LIVE_HOLD_SINCE_MS.store(0, Ordering::Relaxed);
                 shared.seeking.store(false, Ordering::Relaxed); // playback resumed at the new position → HUD spinner off
                 if let Some(seek) = landing {
                     seek.play = baseline;

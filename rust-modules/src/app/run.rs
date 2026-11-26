@@ -2990,6 +2990,7 @@ pub(crate) unsafe fn update(app: &mut App, fr: &mut Frame) {
         }
         if let Some(mm) = super::livetv::take_ready() {
             plx_base::eventlog::log("livetv: starting playback of the tuned session");
+            plx_play_feed::native_executor::arm_live_hold();
             // A live session plays as a film would: from its start (it has no resume point).
             unsafe {
                 super::playback::play_item_now(&mut app.player.session, &mut app.adapters.player, &mm, true,
