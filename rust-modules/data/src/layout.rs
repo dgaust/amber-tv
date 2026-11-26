@@ -21,6 +21,9 @@ pub struct Layout {
     pub home_hidden: Vec<String>,
     /// Live TV channels the viewer has tuned, most recent first (guide channel ids).
     pub recent_channels: Vec<String>,
+    /// Amber: the viewer's order of the Live TV guide's channels (guide channel ids); a channel it does
+    /// not name follows the named ones in the server's order.
+    pub channel_order: Vec<String>,
     /// Minutes idle before the screensaver; 0 is off, absent is [`SCREENSAVER_DEFAULT_MINUTES`].
     pub screensaver_minutes: Option<u32>,
 }

@@ -186,6 +186,7 @@ pub(crate) fn model_stamp(now: i64) -> u64 {
         s.grid.len().hash(&mut h);
         s.tuning.hash(&mut h);
         s.tune_failed.hash(&mut h);
+        plx_data::layout::generation().hash(&mut h);
         s.rules.iter().map(|r| r.id.as_str()).collect::<Vec<_>>().hash(&mut h);
         s.scheduled.iter().map(|r| (r.title.as_str(), r.begins)).collect::<Vec<_>>().hash(&mut h);
         (now < s.note_until).hash(&mut h);
@@ -199,7 +200,7 @@ pub(crate) fn model_stamp(now: i64) -> u64 {
 /// What the guide page draws: every channel with its airings from an hour ago on.
 pub(crate) fn model(now: i64) -> LiveTvModel {
     with(|s| {
-        let rows = s.channels.iter().map(|c| LiveRow {
+        let mut rows: Vec<LiveRow> = s.channels.iter().map(|c| LiveRow {
             id: c.id.clone(),
             number: c.number.clone(),
             title: c.title.clone(),
@@ -217,12 +218,23 @@ pub(crate) fn model(now: i64) -> LiveTvModel {
                 episode_guid: p.episode_guid.clone(),
             }).collect(),
         }).filter(|r| !r.slots.is_empty()).collect();
+        // the viewer's own order (a stable sort: channels it does not name keep the server's order, after)
+        let order = plx_data::layout::get().channel_order;
+        if !order.is_empty() { rows.sort_by_key(|r| order.iter().position(|o| *o == r.id).unwrap_or(usize::MAX)); }
         LiveTvModel { status: s.status, rows, tuning: s.tuning.clone(), tune_failed: s.tune_failed,
             sid: plx_plex::plex::current_server().raw(),
             rules: s.rules.iter().map(|r| r.guid.clone()).collect(),
             recs: build_recs(&s.rules, &s.scheduled),
             note: if now < s.note_until { s.note.clone() } else { String::new() } }
     })
+}
+
+/// Amber: move the guide channel `id` one place up (`-1`) or down (`1`) among the channels the guide shows,
+/// and keep the order.
+pub(crate) fn move_channel(id: &str, dir: i32) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+    let shown: Vec<String> = model(now).rows.into_iter().map(|r| r.id).collect();
+    plx_data::layout::update(|l| plx_data::layout::Layout::step(&mut l.channel_order, &shown, id, dir));
 }
 
 /// Tune `channel` and, when the server answers with a live session, hand it to the frame loop.
