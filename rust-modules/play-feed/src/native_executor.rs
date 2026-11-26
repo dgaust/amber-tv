@@ -298,8 +298,11 @@ fn drain_one(q: Option<&mut Box<AuQueue>>) {
 /// (a live transcode runs at about real time, with no lead to spend) does not empty the pipeline and
 /// freeze the picture. Bounded by [`LIVE_HOLD_MAX_MS`]: a source that cannot be buffered that deep
 /// (the pipeline's own queue is capped) starts anyway.
-pub const LIVE_HOLD_NS: i64 = 10_000_000_000;
-pub const LIVE_HOLD_MAX_MS: u32 = 15_000;
+/// The depth is chosen per source by the application (`arm_live_hold`): a broadcast tuner's feed has no lead
+/// to spend, a generated or streamed channel's does.
+static LIVE_HOLD_NS: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+/// How much longer than the depth a hold may last before the start goes ahead regardless.
+const LIVE_HOLD_SLACK_MS: u32 = 5_000;
 /// How long an arm stays good for the Load it was made for.
 const LIVE_HOLD_ARM_MS: u32 = 20_000;
 /// The clock (ms) at which the application armed the hold for the next Load; 0 = not armed.
@@ -307,8 +310,10 @@ static LIVE_HOLD_ARMED_MS: std::sync::atomic::AtomicU32 = std::sync::atomic::Ato
 /// The clock (ms) at which the running hold began; 0 = no hold.
 static LIVE_HOLD_SINCE_MS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
-/// The application is about to start a live channel: its next Load holds the start (`LIVE_HOLD_NS`).
-pub fn arm_live_hold() {
+/// The application is about to start a live channel whose source needs `hold_ms` buffered before it plays:
+/// its next Load holds the start. Not called for a source that needs none.
+pub fn arm_live_hold(hold_ms: u32) {
+    LIVE_HOLD_NS.store(i64::from(hold_ms) * 1_000_000, Ordering::Relaxed);
     LIVE_HOLD_ARMED_MS.store(crate::shared::vclock_ms().max(1), Ordering::Relaxed);
 }
 
@@ -319,7 +324,7 @@ pub fn begin_live_hold_if_armed() -> bool {
     let armed = at != 0 && now.wrapping_sub(at) < LIVE_HOLD_ARM_MS;
     LIVE_HOLD_SINCE_MS.store(if armed { now.max(1) } else { 0 }, Ordering::Relaxed);
     if armed {
-        plx_base::eventlog::log("live: holding the start until 10 s are buffered");
+        plx_base::eventlog::log(&format!("live: holding the start until {} ms are buffered", LIVE_HOLD_NS.load(Ordering::Relaxed) / 1_000_000));
     }
     armed
 }
@@ -330,8 +335,9 @@ fn live_hold_ready(accepted_vbuf: i64, accepted_abuf: i64, audio_expected: bool)
     if since == 0 {
         return true;
     }
-    let deep = accepted_vbuf >= LIVE_HOLD_NS && (!audio_expected || accepted_abuf >= LIVE_HOLD_NS - 500_000_000);
-    deep || crate::shared::vclock_ms().wrapping_sub(since) >= LIVE_HOLD_MAX_MS
+    let target = LIVE_HOLD_NS.load(Ordering::Relaxed);
+    let deep = accepted_vbuf >= target && (!audio_expected || accepted_abuf >= target - 500_000_000);
+    deep || crate::shared::vclock_ms().wrapping_sub(since) >= (target / 1_000_000) as u32 + LIVE_HOLD_SLACK_MS
 }
 
 /// Re-prime at the currently presented physical point without changing the clock.

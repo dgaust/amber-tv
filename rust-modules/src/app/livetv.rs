@@ -305,6 +305,19 @@ pub(crate) fn tune(channel: String) {
     }
 }
 
+/// Amber: how much a channel's source must have buffered before its start plays, or `None` for a source
+/// that needs no hold. A broadcast tuner (a plain channel number: "102") delivers in real time and has no
+/// lead to spend, so a pause in its feed freezes the picture; a generated or streamed channel (ErsatzTV: ids
+/// like `C2.146.ersatztv.org`) is served well ahead. The channel is the one just tuned (`playing`).
+pub(crate) fn start_hold_ms() -> Option<u32> {
+    with(|s| s.playing.as_ref().map(|(c, _)| source_hold_ms(c))).flatten()
+}
+
+fn source_hold_ms(channel_id: &str) -> Option<u32> {
+    let broadcast = !channel_id.is_empty() && channel_id.chars().all(|c| c.is_ascii_digit() || c == '.') && !channel_id.contains("..");
+    if broadcast { Some(10_000) } else { None }
+}
+
 /// A tuned session ready to play, as the row the player starts from.
 pub(crate) fn take_ready() -> Option<plx_data::pms::PmsMovie> {
     with(|s| s.ready.take())
