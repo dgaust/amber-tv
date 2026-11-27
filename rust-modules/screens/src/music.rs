@@ -71,6 +71,8 @@ pub struct MusicModel {
     pub shuffle: bool,
     pub repeat: Repeat,
     pub note: String,
+    /// The viewer pressed blue on another page: open on Now Playing.
+    pub open_now_playing: bool,
 }
 
 /// What the page asks of the application.
@@ -191,7 +193,13 @@ impl MusicScreen {
         if model == self.model {
             return false;
         }
+        let open = model.open_now_playing && model.now.is_some() && self.view != View::NowPlaying;
         self.model = model;
+        if open {
+            self.stack.clear();
+            self.view = View::Home;
+            self.push(View::NowPlaying);
+        }
         let n = self.len();
         self.cur = self.cur.min(n.saturating_sub(1));
         true
@@ -1286,5 +1294,83 @@ impl<H: ContentLike> Screen<H> for MusicScreen {
     }
     fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
         Some(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn album(rk: &str) -> MusicItem {
+        MusicItem { rk: rk.into(), kind: MusicKind::Album, title: format!("album {rk}"), ..Default::default() }
+    }
+
+    fn screen_with_albums(n: usize) -> MusicScreen {
+        let mut s = MusicScreen::new(EntryId(1));
+        let mut m = MusicModel { status: MusicStatus::Ready, ..Default::default() };
+        m.lists.insert("albums".into(), MusicList { items: (0..n).map(|i| album(&i.to_string())).collect(), total: n, loaded: true, ..Default::default() });
+        s.input(m);
+        s.goto_tab(2);
+        s
+    }
+
+    #[test]
+    fn times_read_as_minutes_and_seconds() {
+        assert_eq!(MusicScreen::fmt_time(0), "0:00");
+        assert_eq!(MusicScreen::fmt_time(65_000), "1:05");
+        assert_eq!(MusicScreen::fmt_time(-5), "0:00");
+    }
+
+    #[test]
+    fn the_tabs_map_to_views_and_back() {
+        let mut s = MusicScreen::new(EntryId(1));
+        for t in 0..TABS.len() {
+            s.goto_tab(t);
+            assert_eq!(s.tab_index(), t);
+            assert!(s.top_level());
+        }
+    }
+
+    #[test]
+    fn a_grid_asks_for_its_own_list_once() {
+        let mut s = MusicScreen::new(EntryId(1));
+        let mut m = MusicModel { status: MusicStatus::Ready, ..Default::default() };
+        s.input(m.clone());
+        s.goto_tab(2);
+        assert_eq!(s.next_load().as_deref(), Some("albums"));
+        assert_eq!(s.next_load(), None, "asked once");
+        m.lists.insert("albums".into(), MusicList::default());
+        s.input(m);
+        assert_eq!(s.next_load(), None);
+    }
+
+    #[test]
+    fn the_cursor_stays_inside_the_list_when_the_list_shrinks() {
+        let mut s = screen_with_albums(20);
+        s.cur = 19;
+        let mut m = s.model.clone();
+        m.lists.insert("albums".into(), MusicList { items: (0..5).map(|i| album(&i.to_string())).collect(), total: 5, loaded: true, ..Default::default() });
+        s.input(m);
+        assert_eq!(s.cur, 4);
+    }
+
+    #[test]
+    fn an_artist_page_counts_two_buttons_before_its_albums() {
+        let mut s = MusicScreen::new(EntryId(1));
+        let artist = MusicItem { rk: "7".into(), kind: MusicKind::Artist, ..Default::default() };
+        let mut m = MusicModel { status: MusicStatus::Ready, ..Default::default() };
+        m.lists.insert("artist:7".into(), MusicList { items: vec![album("1"), album("2"), album("3")], total: 3, loaded: true, ..Default::default() });
+        s.input(m);
+        s.push(View::Artist(artist));
+        assert_eq!(s.len(), 5);
+        assert!(s.pop());
+        assert!(!s.pop(), "nothing left to go back to");
+    }
+
+    #[test]
+    fn the_card_width_fits_six_columns_between_the_margins() {
+        let w = card_w();
+        assert!(w > 100.0);
+        assert!(LEFT + COLS as f32 * w + (COLS as f32 - 1.0) * GRID_GAP <= RIGHT + 0.5);
     }
 }

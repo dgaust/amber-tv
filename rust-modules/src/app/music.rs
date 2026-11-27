@@ -58,6 +58,8 @@ struct Queue {
 static SHARED: Mutex<Option<Shared>> = Mutex::new(None);
 /// Moves when the sidebar's question (is there music?) may have a new answer.
 static GEN: AtomicU32 = AtomicU32::new(0);
+/// Set by the blue key on another page: the music page opens on Now Playing when it next gets its snapshot.
+static OPEN_NP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn with<R>(f: impl FnOnce(&mut Shared) -> R) -> R {
     let mut g = SHARED.lock().unwrap_or_else(|e| e.into_inner());
@@ -298,6 +300,7 @@ pub(crate) fn model() -> MusicModel {
         shuffle: s.q.shuffle,
         repeat: s.q.repeat,
         note: if now_secs() < s.note_until { s.note.clone() } else { String::new() },
+        open_now_playing: OPEN_NP.swap(false, Ordering::AcqRel),
     })
 }
 
@@ -510,6 +513,8 @@ struct Engine {
     jump: Option<usize>,
     /// The end of the last track is on the timeline; release once the clock passes it.
     drained: bool,
+    /// Feeds the pipeline answered with an error in a row (it is gone: the app was backgrounded, say).
+    feed_errors: u32,
     /// Decode this queue position (from this many ms) as soon as its file is here.
     restart_at: Option<(usize, i64)>,
     /// The track that follows the one decoded, once it is time to start it.
@@ -546,6 +551,7 @@ impl Default for Engine {
             stop_asked: false,
             jump: None,
             drained: false,
+            feed_errors: 0,
             restart_at: None,
             restart_next_pos: None,
         }
@@ -610,6 +616,11 @@ pub(crate) fn seek_to(ms: i64) {
 
 pub(crate) fn stop() {
     ENGINE.with(|e| e.borrow_mut().stop_asked = true);
+}
+
+pub(crate) fn request_now_playing() {
+    OPEN_NP.store(true, Ordering::Release);
+    with(bump);
 }
 
 /// Is there a music session (playing or paused)? The global media keys ask.
@@ -1166,13 +1177,22 @@ impl Engine {
             }
             let r = unsafe { sink.feed(mt, au.pcm.as_ptr(), au.pcm.len() as u32, pts, ES_AUDIO) } as u8;
             if r == b'O' {
+                self.feed_errors = 0;
                 cur.last_end_pts = pts + dur;
                 self.next_audio_pts = self.next_audio_pts.max(pts + dur);
             } else {
+                if r != b'B' {
+                    self.feed_errors += 1;
+                }
                 // the pipeline's queue is full: this unit goes first next tick
                 self.pending_au = Some(au);
                 break;
             }
+        }
+        if self.feed_errors >= 200 {
+            with(|s| note(s, "The audio output stopped."));
+            self.release(mt, "the pipeline stopped answering");
+            return;
         }
         // the next track's file, while this one plays
         if self.cur.is_some() && self.fade.is_none() && matches!(self.file, File::None) && self.restart_next_pos.is_none() {

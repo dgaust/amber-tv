@@ -10012,6 +10012,21 @@ fn music_keys(app: &mut super::App) {
     use plx_machine::machine::{Edge, InputKind};
     use plx_ui::consts::*;
     if matches!(app.route(), AppArg::Player) || !super::music::has_session() { return; }
+    // blue, anywhere but the music page itself, goes to Now Playing
+    if !matches!(app.route(), AppArg::Music) {
+        let mut blue = false;
+        app.inputs.retain(|ev| match ev.kind {
+            InputKind::Key { wcode: 489, edge, .. } => {
+                blue |= matches!(edge, Edge::Down);
+                false
+            }
+            _ => true,
+        });
+        if blue {
+            super::music::request_now_playing();
+            super::bridge::nav_tab(&mut app.pages, &mut app.bridge, plx_screens::registry::HomeTab::Music, None, None);
+        }
+    }
     let mut acts: Vec<u8> = Vec::new();
     app.inputs.retain(|ev| match ev.kind {
         InputKind::Key { wcode, edge, .. } => {
