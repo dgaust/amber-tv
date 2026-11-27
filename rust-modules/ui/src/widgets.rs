@@ -1093,7 +1093,8 @@ fn card_named_led_body(p: Painter, frame: Rect, art: Art, fan_name: Option<&str>
                 // Amber: a season's poster says how many episodes it holds (Recently Added shows a
                 // season, not the episode that arrived, and the count is what tells them apart)
                 if m.kind == TileKind::Season && poster_mark(&m) != PosterMark::Watched {
-                    if let Some(n) = m.leaf_count.filter(|n| *n > 0) {
+                    // only the episodes not yet watched
+                    if let Some(n) = m.leaf_count.map(|all| all.saturating_sub(m.viewed_leaf_count.unwrap_or(0))).filter(|n| *n > 0) {
                         episode_count_chip(p, r, n);
                     }
                 }
@@ -1377,7 +1378,7 @@ fn veil_tex() -> std::os::raw::c_uint {
     tex
 }
 
-/// Amber: the episode count of a season, as a bare number in a dark circle in the poster's upper right
+/// Amber: the number of episodes of a season not yet watched, as a bare number in a dark circle in the poster's upper right
 /// corner (the circle keeps it legible over any artwork). `card` is the rect actually drawn, so it rides
 /// the focus pop. The corner is the watched tick's, so a watched season wears the tick instead.
 fn episode_count_chip(p: Painter, card: Rect, n: u32) {
