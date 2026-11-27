@@ -30,6 +30,10 @@ const LEAD_NS: i64 = 1_500_000_000;
 const RUN_MS: u32 = 20_000;
 const START_AFTER_MS: u32 = 8_000;
 const ES_AUDIO: i32 = 2;
+const ES_VIDEO: i32 = 1;
+/// One black 320x180 H.264 picture (Annex B, with its parameter sets), fed once a second by the `dummyvideo`
+/// option so the pipeline has a picture to bind the output to, as it has in a film.
+const BLACK_FRAME: &[u8] = &[0, 0, 0, 1, 103, 66, 192, 11, 220, 20, 25, 249, 240, 17, 0, 0, 3, 0, 1, 0, 0, 3, 0, 2, 15, 20, 43, 128, 0, 0, 0, 1, 104, 206, 15, 44, 128, 0, 0, 1, 6, 5, 255, 255, 76, 220, 69, 233, 189, 230, 217, 72, 183, 150, 44, 216, 32, 217, 35, 238, 239, 120, 50, 54, 52, 32, 45, 32, 99, 111, 114, 101, 32, 49, 54, 53, 32, 45, 32, 72, 46, 50, 54, 52, 47, 77, 80, 69, 71, 45, 52, 32, 65, 86, 67, 32, 99, 111, 100, 101, 99, 32, 45, 32, 67, 111, 112, 121, 108, 101, 102, 116, 32, 50, 48, 48, 51, 45, 50, 48, 50, 53, 32, 45, 32, 104, 116, 116, 112, 58, 47, 47, 119, 119, 119, 46, 118, 105, 100, 101, 111, 108, 97, 110, 46, 111, 114, 103, 47, 120, 50, 54, 52, 46, 104, 116, 109, 108, 32, 45, 32, 111, 112, 116, 105, 111, 110, 115, 58, 32, 99, 97, 98, 97, 99, 61, 48, 32, 114, 101, 102, 61, 49, 32, 100, 101, 98, 108, 111, 99, 107, 61, 49, 58, 48, 58, 48, 32, 97, 110, 97, 108, 121, 115, 101, 61, 48, 120, 49, 58, 48, 120, 49, 49, 49, 32, 109, 101, 61, 104, 101, 120, 32, 115, 117, 98, 109, 101, 61, 55, 32, 112, 115, 121, 61, 49, 32, 112, 115, 121, 95, 114, 100, 61, 49, 46, 48, 48, 58, 48, 46, 48, 48, 32, 109, 105, 120, 101, 100, 95, 114, 101, 102, 61, 48, 32, 109, 101, 95, 114, 97, 110, 103, 101, 61, 49, 54, 32, 99, 104, 114, 111, 109, 97, 95, 109, 101, 61, 49, 32, 116, 114, 101, 108, 108, 105, 115, 61, 49, 32, 56, 120, 56, 100, 99, 116, 61, 48, 32, 99, 113, 109, 61, 48, 32, 100, 101, 97, 100, 122, 111, 110, 101, 61, 50, 49, 44, 49, 49, 32, 102, 97, 115, 116, 95, 112, 115, 107, 105, 112, 61, 49, 32, 99, 104, 114, 111, 109, 97, 95, 113, 112, 95, 111, 102, 102, 115, 101, 116, 61, 45, 50, 32, 116, 104, 114, 101, 97, 100, 115, 61, 54, 32, 108, 111, 111, 107, 97, 104, 101, 97, 100, 95, 116, 104, 114, 101, 97, 100, 115, 61, 49, 32, 115, 108, 105, 99, 101, 100, 95, 116, 104, 114, 101, 97, 100, 115, 61, 48, 32, 110, 114, 61, 48, 32, 100, 101, 99, 105, 109, 97, 116, 101, 61, 49, 32, 105, 110, 116, 101, 114, 108, 97, 99, 101, 100, 61, 48, 32, 98, 108, 117, 114, 97, 121, 95, 99, 111, 109, 112, 97, 116, 61, 48, 32, 99, 111, 110, 115, 116, 114, 97, 105, 110, 101, 100, 95, 105, 110, 116, 114, 97, 61, 48, 32, 98, 102, 114, 97, 109, 101, 115, 61, 48, 32, 119, 101, 105, 103, 104, 116, 112, 61, 48, 32, 107, 101, 121, 105, 110, 116, 61, 49, 32, 107, 101, 121, 105, 110, 116, 95, 109, 105, 110, 61, 49, 32, 115, 99, 101, 110, 101, 99, 117, 116, 61, 52, 48, 32, 105, 110, 116, 114, 97, 95, 114, 101, 102, 114, 101, 115, 104, 61, 48, 32, 114, 99, 61, 99, 114, 102, 32, 109, 98, 116, 114, 101, 101, 61, 48, 32, 99, 114, 102, 61, 50, 51, 46, 48, 32, 113, 99, 111, 109, 112, 61, 48, 46, 54, 48, 32, 113, 112, 109, 105, 110, 61, 48, 32, 113, 112, 109, 97, 120, 61, 54, 57, 32, 113, 112, 115, 116, 101, 112, 61, 52, 32, 105, 112, 95, 114, 97, 116, 105, 111, 61, 49, 46, 52, 48, 32, 97, 113, 61, 49, 58, 49, 46, 48, 48, 0, 128, 0, 0, 1, 101, 136, 132, 4, 188, 152, 160, 0, 56, 163, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 93, 117, 215, 128];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Variant {
@@ -41,7 +45,7 @@ enum Phase {
     Unchecked,
     Off,
     /// The Load is running on its own thread; `rv` is `i32::MIN` until it returns.
-    Loading { rv: Arc<AtomicI32>, at: u32, epoch: u32, bind: u8 },
+    Loading { rv: Arc<AtomicI32>, at: u32, epoch: u32, bind: u8, dummy: bool },
     /// Loaded; feeding. `play_at` is `None` until the pre-roll is in and Play has been asked for.
     Feeding(Feed),
     /// Finished; quit once `quit_at` passes.
@@ -54,6 +58,9 @@ struct Feed {
     /// 0 = no output binding, 1 = bind (setSinkType MAIN + setMediaId + LOADED), 2 = bind and start (PLAYING).
     bind: u8,
     bound: bool,
+    video_sent: bool,
+    dummy_video: bool,
+    next_video_pts_ns: i64,
     epoch: u32,
     next_pts_ns: i64,
     frames_fed: u64,
@@ -118,7 +125,8 @@ pub(crate) fn tick(app: &mut App, now: u32) {
                     *phase = Phase::Off;
                     return;
                 };
-                let variant = if text.contains("withvideo") { Variant::WithVideo } else { Variant::AudioOnly };
+                let variant = if text.contains("withvideo") || text.contains("dummyvideo") { Variant::WithVideo } else { Variant::AudioOnly };
+                let dummy = text.contains("dummyvideo");
                 let bind = if text.contains("start") { 2 } else if text.contains("bind") { 1 } else { 0 };
                 let Some(epoch) = FEED_SHARED.begin_native_session() else {
                     log("could not begin a native session (another Load owns the pipeline)");
@@ -147,9 +155,9 @@ pub(crate) fn tick(app: &mut App, now: u32) {
                     return;
                 }
                 VARIANT.with(|v| v.set(Some(variant)));
-                *phase = Phase::Loading { rv, at: now, epoch, bind };
+                *phase = Phase::Loading { rv, at: now, epoch, bind, dummy };
             }
-            Phase::Loading { rv, at, epoch, bind } => {
+            Phase::Loading { rv, at, epoch, bind, dummy } => {
                 let got = rv.load(Ordering::SeqCst);
                 if got == i32::MIN {
                     if now.wrapping_sub(*at) > 20_000 {
@@ -170,6 +178,9 @@ pub(crate) fn tick(app: &mut App, now: u32) {
                     variant,
                     bind: *bind,
                     bound: false,
+                    video_sent: false,
+                    dummy_video: *dummy,
+                    next_video_pts_ns: 0,
                     epoch: *epoch,
                     next_pts_ns: 0,
                     frames_fed: 0,
@@ -196,11 +207,34 @@ pub(crate) fn tick(app: &mut App, now: u32) {
                     if let Some(id) = id {
                         unsafe { sink.plane_bind(mt, id.as_ptr()) };
                         log(&format!("plane bound, media id {}", id.to_string_lossy()));
-                        if f.bind > 1 {
+                        f.bound = true;
+                    }
+                }
+                // what the video path then does, once a couple of pictures have gone through: hand the
+                // plane the pipeline's own description of the stream, then start it (setState PLAYING)
+                if f.bound && f.bind > 1 && !f.video_sent && FEED_SHARED.frames.load(Ordering::Relaxed) >= 2 {
+                    let info = FEED_SHARED.source_info.lock().unwrap().clone();
+                    if let Some(bytes) = info {
+                        let rv = unsafe { sink.plane_send_video_data(mt, bytes.as_ptr() as *const std::os::raw::c_char) };
+                        log(&format!("setMediaVideoData rv={rv}"));
+                        if rv != -1 {
                             unsafe { sink.plane_start(mt, 0, 0, 1920, 1080) };
                             log("plane started (PLAYING)");
+                            f.video_sent = true;
                         }
-                        f.bound = true;
+                    }
+                }
+                // one black picture a second, a little ahead of the audio
+                if f.dummy_video {
+                    let mut g = 0;
+                    while f.next_video_pts_ns <= f.next_pts_ns && g < 4 && loaded != 0 {
+                        g += 1;
+                        let r = unsafe { sink.feed(mt, BLACK_FRAME.as_ptr(), BLACK_FRAME.len() as u32, f.next_video_pts_ns, ES_VIDEO) } as u8 as char;
+                        if r != 'O' {
+                            if f.first_verdicts.len() < 12 { f.first_verdicts.push(r); }
+                            break;
+                        }
+                        f.next_video_pts_ns += 1_000_000_000;
                     }
                 }
                 let mut guard = 0;
@@ -228,7 +262,9 @@ pub(crate) fn tick(app: &mut App, now: u32) {
                     }
                 }
                 if f.play_at.is_none() && f.next_pts_ns >= PREROLL_NS {
+                    let vol = unsafe { sink.set_volume(mt, 100) };
                     let rv = unsafe { sink.play(mt) };
+                    log(&format!("set_volume(100) rv={vol}"));
                     log(&format!("pre-roll fed ({} ms); Play rv={rv}; first verdicts {:?}", f.next_pts_ns / 1_000_000, f.first_verdicts));
                     f.play_at = Some(now);
                 }
