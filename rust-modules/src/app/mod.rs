@@ -392,6 +392,10 @@ pub(crate) struct App {
 }
 
 impl App {
+    /// Ask the loop to end after this frame (the M0 music spike quits so the next start has a clean pipeline).
+    #[cfg(all(feature = "devtriggers", feature = "play-feed"))]
+    pub(crate) fn request_quit(&mut self) { self.running = false; }
+
     /// Application/runner mutations belong to the page, never an ambient damage queue.
     pub(crate) fn note_presentation_damage(&mut self, why: plx_machine::present::Provenance) {
         self.pages.present.note_in_scope(plx_machine::present::Scope::Page,
