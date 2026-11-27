@@ -2247,6 +2247,8 @@ pub struct DetailSeed {
     pub sid: plx_plex::plex::ServerId,
     pub rk: String,
     pub spot: plx_data::metadata::Spot,
+    /// Amber: an episode (its rating key) the page opens focused on, in the season the spot names.
+    pub episode: Option<String>,
 }
 
 #[derive(Default)]
@@ -2359,7 +2361,7 @@ where
                 if let PageMemory::Detail(spot) = &ret.memory {
                     page.restore_memory(spot, H::metadata(cx));
                 } else if let Some(seed) = self.seed.take() {
-                    if seed.sid == *sid && seed.rk == *rk { page.restore(&seed.spot, H::metadata(cx)); }
+                    if seed.sid == *sid && seed.rk == *rk { page.restore_episode(&seed.spot, seed.episode.as_deref(), H::metadata(cx)); }
                 }
                 Box::new(page)
             }

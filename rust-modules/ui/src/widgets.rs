@@ -1095,7 +1095,7 @@ fn card_named_led_body(p: Painter, frame: Rect, art: Art, fan_name: Option<&str>
                 if m.kind == TileKind::Season && poster_mark(&m) != PosterMark::Watched {
                     // only the episodes not yet watched
                     if let Some(n) = m.leaf_count.map(|all| all.saturating_sub(m.viewed_leaf_count.unwrap_or(0))).filter(|n| *n > 0) {
-                        episode_count_chip(p, r, n);
+                        episode_count_chip(p, r, rad, n);
                     }
                 }
             }
@@ -1378,19 +1378,21 @@ fn veil_tex() -> std::os::raw::c_uint {
     tex
 }
 
-/// Amber: the number of episodes of a season not yet watched, as a bare number in a dark circle in the poster's upper right
-/// corner (the circle keeps it legible over any artwork). `card` is the rect actually drawn, so it rides
-/// the focus pop. The corner is the watched tick's, so a watched season wears the tick instead.
-fn episode_count_chip(p: Painter, card: Rect, n: u32) {
+/// Amber: the number of episodes of a season not yet watched, drawn exactly as the watched tick is: the
+/// corner veil, then the number bare over it in the tick's slot, with the tick's own shadow. `card` is the
+/// rect actually drawn, so it rides the focus pop. The corner is the tick's, so a watched season wears the
+/// tick instead.
+fn episode_count_chip(p: Painter, card: Rect, rad: f32, n: u32) {
     let Ok(c) = std::ffi::CString::new(n.to_string()) else { return };
+    let v = card.w * VEIL_RATIO;
+    p.tex(veil_tex(), Rect::new(card.x + card.w - v, card.y, v, v), rad, theme::TILE_MARK_VEIL);
+    let d = ((card.w * TICK_RATIO) / 4.0).round() * 4.0;
+    let ins = card.w * TICK_INSET;
+    let slot = Rect::new(card.x + card.w - ins - d, card.y + ins, d, d);
     let sz = theme::size::CAPTION;
-    let d = (card.w * 0.15).round().max(30.0);
-    let ins = (card.w * 0.04).round();
-    let r = Rect::new(card.x + card.w - ins - d, card.y + ins, d, d);
-    p.rrect(r, d * 0.5, d * 0.5, theme::scrim(0.72));
     let tw = plx_gfx::text::text_width(c.as_ptr(), sz, 1);
-    let ty = plx_gfx::text::text_vcenter_y(sz, 1, r.y + d * 0.5);
-    p.text(c.as_ptr(), r.x + (d - tw) * 0.5, ty, sz, theme::TEXT_PRIMARY, 0, 1);
+    let ty = plx_gfx::text::text_vcenter_y(sz, 1, slot.y + d * 0.5);
+    p.text(c.as_ptr(), slot.x + (d - tw) * 0.5, ty, sz, theme::TILE_MARK_INK, 0, 1);
 }
 
 /// The **watched** mark on a poster: a corner veil, then a bare tick over it. `card` is the rect

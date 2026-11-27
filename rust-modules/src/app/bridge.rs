@@ -1324,8 +1324,8 @@ impl Bridge {
 
     /// Restore a detail page that is about to mount to a `Spot` no `ReturnState` holds — see
     /// [`plx_screens::registry::DetailSeed`].
-    pub(crate) fn seed_detail(&mut self, sid: plx_plex::plex::ServerId, rk: &str, spot: plx_data::metadata::Spot) {
-        self.mounter.seed = Some(plx_screens::registry::DetailSeed { sid, rk: rk.to_string(), spot });
+    pub(crate) fn seed_detail(&mut self, sid: plx_plex::plex::ServerId, rk: &str, spot: plx_data::metadata::Spot, episode: Option<String>) {
+        self.mounter.seed = Some(plx_screens::registry::DetailSeed { sid, rk: rk.to_string(), spot, episode });
     }
 
     /// Where the next player instance returns to — see `AppMounter::player_origin`.
@@ -5279,14 +5279,14 @@ pub(crate) fn open_detail(
         season: season.map(|s| s as i64),
         ..Default::default()
     };
-    open_detail_at(d, rig, sid, rk, spot, ret);
+    open_detail_at(d, rig, sid, rk, spot, None, ret);
 }
 
 /// Amber: [`open_detail`] with the whole mount spot given: a season opened from its poster lands on
 /// the episode strip's first unwatched episode.
 pub(crate) fn open_detail_at(
     d: &mut Dispatcher<AppHost>, rig: &mut Bridge,
-    sid: plx_plex::plex::ServerId, rk: &str, spot: plx_data::metadata::Spot,
+    sid: plx_plex::plex::ServerId, rk: &str, spot: plx_data::metadata::Spot, episode: Option<String>,
     ret: Option<ReturnState<u32, PageMemory>>,
 ) {
     use plx_ui::screen::ScreenArg;
@@ -5298,7 +5298,7 @@ pub(crate) fn open_detail_at(
     if d.nav.tabs.stack.pending_dest().is_some_and(|pending| pending.same_instance(&arg)) {
         return;
     }
-    rig.seed_detail(sid, rk, spot);
+    rig.seed_detail(sid, rk, spot, episode);
     match ret {
         Some(ret) => nav_push_with_return(d, arg, ret),
         None => nav_push(d, arg),

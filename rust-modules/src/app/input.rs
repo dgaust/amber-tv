@@ -468,11 +468,19 @@ pub(crate) unsafe fn activate_card(
         // first one not yet watched (Recently Added shows a season for a batch of new episodes)
         let spot = plx_data::metadata::Spot {
             season: Some(i64::from(mm.season_index)),
-            section: if mm.leaf_count.unwrap_or(0) > 1 { 2 } else { 0 },
-            first_unwatched: mm.leaf_count.unwrap_or(0) > 1,
+            section: 2,
+            first_unwatched: true,
             ..Default::default()
         };
-        super::bridge::open_detail_at(pages, bridge, mm.sid, &mm.show_rk, spot, ret.take());
+        super::bridge::open_detail_at(pages, bridge, mm.sid, &mm.show_rk, spot, None, ret.take());
+    } else if mm.kind == 3 && !mm.show_rk.is_empty() && mm.season_index != plx_data::pms::SEASON_UNKNOWN {
+        // Amber: an episode on Home opens its SHOW on the episode's season, with that episode focused
+        let spot = plx_data::metadata::Spot {
+            season: Some(i64::from(mm.season_index)),
+            section: 2,
+            ..Default::default()
+        };
+        super::bridge::open_detail_at(pages, bridge, mm.sid, &mm.show_rk, spot, Some(rk), ret.take());
     } else if mm.kind == 3 {
         // **An episode opens its OWN page**, which is the same page the card menu's "Go to Episode"
         // opens (`Action::GoToItem`) — `detail.rs` serves leaves. It used to open the SHOW's page
