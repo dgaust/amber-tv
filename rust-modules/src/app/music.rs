@@ -152,7 +152,7 @@ fn fetch_list(client: &plx_plex::plex::Client, section: i64, key: &str, start: u
     } else if key == "tracks" {
         client.music_list(section, MusicKind::Track, start, PAGE, "titleSort")
     } else if key == "playlists" {
-        return None;
+        client.music_playlists()
     } else if let Some(rk) = key.strip_prefix("artist:") {
         client.music_children(rk, false)
     } else if let Some(rk) = key.strip_prefix("album:") {
@@ -557,6 +557,11 @@ pub(crate) fn seek_to(ms: i64) {
 
 pub(crate) fn stop() {
     ENGINE.with(|e| e.borrow_mut().stop_asked = true);
+}
+
+/// Is there a music session (playing or paused)? The global media keys ask.
+pub(crate) fn has_session() -> bool {
+    ENGINE.with(|e| e.borrow().playing.is_some())
 }
 
 /// A film or channel is about to start: give the pipeline back first.
@@ -1132,6 +1137,25 @@ pub(crate) fn handle(o: plx_screens::music::MusicOut) {
         O::ToggleShuffle => toggle_shuffle(),
         O::CycleRepeat => cycle_repeat(),
         O::JumpTo { pos } => jump_to(pos),
+        O::Radio { rk } => radio(rk),
         O::Rate { rk, half_stars } => rate(rk, half_stars),
     }
+}
+
+/// Start a radio from `rk`: the track itself, then the tracks the server finds sonically near it.
+pub(crate) fn radio(rk: String) {
+    with(|s| note(s, "Starting a radio\u{2026}"));
+    let _ = std::thread::Builder::new().name("music-radio".into()).spawn(move || {
+        let client = plx_plex::plex::client();
+        let seed = client.music_item(&rk);
+        let near = client.music_nearest(&rk, 60);
+        match (seed, near) {
+            (Some(seed), Some(near)) if !near.items.is_empty() => {
+                let mut items = vec![seed];
+                items.extend(near.items.into_iter().filter(|i| i.rk != rk));
+                play(items, 0, false);
+            }
+            _ => with(|s| note(s, "This server has no sonic radio for that track.")),
+        }
+    });
 }

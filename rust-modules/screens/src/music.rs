@@ -91,6 +91,8 @@ pub enum MusicOut {
     ToggleShuffle,
     CycleRepeat,
     JumpTo { pos: usize },
+    /// Start a radio from a track: the tracks sonically near it follow. Needs Plex Pass and sonic analysis.
+    Radio { rk: String },
     /// Rate an item, half stars 0..10 (0 clears it). WRITES to the server.
     Rate { rk: String, half_stars: i32 },
 }
@@ -101,13 +103,14 @@ enum View {
     Artists,
     Albums,
     Tracks,
+    Playlists,
     Artist(MusicItem),
     Album(MusicItem),
     NowPlaying,
     Queue,
 }
 
-const TABS: [&str; 4] = ["Recommended", "Artists", "Albums", "Tracks"];
+const TABS: [&str; 5] = ["Recommended", "Artists", "Albums", "Tracks", "Playlists"];
 const ELEM: u32 = 1;
 const GROUP: GroupId = GroupId(0);
 const LEFT: f32 = plx_ui::consts::MARGIN_X;
@@ -146,6 +149,8 @@ pub struct MusicScreen {
     want_play: Option<(String, bool)>,
     /// The viewer opened a list from here; the first time its data arrives the cursor is reset.
     fresh: bool,
+    /// The picture is blacked out while the music plays (any key brings it back).
+    dark: bool,
 }
 
 impl MusicScreen {
@@ -171,6 +176,7 @@ impl MusicScreen {
             asked: Vec::new(),
             want_play: None,
             fresh: true,
+            dark: false,
         }
     }
 
@@ -198,7 +204,9 @@ impl MusicScreen {
             View::Artists => Some("artists".into()),
             View::Albums => Some("albums".into()),
             View::Tracks => Some("tracks".into()),
+            View::Playlists => Some("playlists".into()),
             View::Artist(a) => Some(format!("artist:{}", a.rk)),
+            View::Album(a) if a.kind == MusicKind::Playlist => Some(format!("playlist:{}", a.rk)),
             View::Album(a) => Some(format!("album:{}", a.rk)),
             View::NowPlaying | View::Queue => None,
         }
@@ -223,7 +231,7 @@ impl MusicScreen {
     }
 
     fn top_level(&self) -> bool {
-        matches!(self.view, View::Home | View::Artists | View::Albums | View::Tracks)
+        matches!(self.view, View::Home | View::Artists | View::Albums | View::Tracks | View::Playlists)
     }
 
     fn tab_index(&self) -> usize {
@@ -231,12 +239,13 @@ impl MusicScreen {
             View::Artists => 1,
             View::Albums => 2,
             View::Tracks => 3,
+            View::Playlists => 4,
             _ => 0,
         }
     }
 
     fn goto_tab(&mut self, t: usize) {
-        self.view = [View::Home, View::Artists, View::Albums, View::Tracks][t.min(3)].clone();
+        self.view = [View::Home, View::Artists, View::Albums, View::Tracks, View::Playlists][t.min(4)].clone();
         self.cur = 0;
         self.first = 0;
         self.fresh = true;
@@ -311,7 +320,7 @@ impl MusicScreen {
         }
         let h = match self.view.clone() {
             View::Home => self.home_key(key, fx),
-            View::Artists | View::Albums => self.grid_key(key, fx),
+            View::Artists | View::Albums | View::Playlists => self.grid_key(key, fx),
             View::Tracks => self.track_list_key(key, fx),
             View::Artist(a) => self.artist_key(key, &a, fx),
             View::Album(a) => self.album_key(key, &a, fx),
@@ -389,7 +398,7 @@ impl MusicScreen {
                 self.push(View::Artist(item));
                 self.want(fx);
             }
-            MusicKind::Album => {
+            MusicKind::Album | MusicKind::Playlist => {
                 self.push(View::Album(item));
                 self.want(fx);
             }
@@ -542,8 +551,18 @@ impl MusicScreen {
     fn np_key<H: ContentLike>(&mut self, key: Key, fx: &mut Effects<'_, H>) -> Handled {
         let Some(now) = self.model.now.clone() else { return Handled::No };
         match key {
-            Key::Up if self.np_row > 0 => self.np_row -= 1,
-            Key::Down if self.np_row < 3 => self.np_row += 1,
+            Key::Up if self.np_row > 0 => {
+                self.np_row -= 1;
+                if self.np_row == 2 {
+                    self.stars = now.item.user_rating.max(0.0) as i32;
+                }
+            }
+            Key::Down if self.np_row < 3 => {
+                self.np_row += 1;
+                if self.np_row == 2 {
+                    self.stars = now.item.user_rating.max(0.0) as i32;
+                }
+            }
             Key::Up => {}
             Key::Down => {}
             Key::Left | Key::Right => {
@@ -563,11 +582,11 @@ impl MusicScreen {
                         self.stars = s;
                     }
                     _ => {
-                        let c = self.np_col.min(1) as i32 + dir as i32;
+                        let c = self.np_col.min(3) as i32 + dir as i32;
                         if c < 0 {
                             return Handled::No;
                         }
-                        self.np_col = (c as usize).min(1);
+                        self.np_col = (c as usize).min(3);
                     }
                 }
             }
@@ -581,15 +600,20 @@ impl MusicScreen {
                     _ => Self::out(fx, MusicOut::CycleRepeat),
                 },
                 2 => Self::out(fx, MusicOut::Rate { rk: now.item.rk.clone(), half_stars: self.stars }),
-                _ => {
-                    if self.np_col == 0 {
+                _ => match self.np_col {
+                    0 => {
                         self.push(View::Queue);
                         self.cur = self.model.qpos;
-                    } else {
+                    }
+                    1 => {
+                        Self::out(fx, MusicOut::Radio { rk: now.item.rk.clone() });
+                    }
+                    2 => self.dark = true,
+                    _ => {
                         Self::out(fx, MusicOut::Stop);
                         self.pop();
                     }
-                }
+                },
             },
             _ => return Handled::No,
         }
@@ -694,6 +718,9 @@ impl MusicScreen {
         let line2 = match item.kind {
             MusicKind::Artist => {
                 if item.leaf_count > 0 { format!("{} albums", item.leaf_count) } else { String::new() }
+            }
+            MusicKind::Playlist => {
+                if item.leaf_count > 0 { format!("{} tracks", item.leaf_count) } else { String::new() }
             }
             MusicKind::Album => {
                 if item.year > 0 { format!("{} \u{b7} {}", item.parent_title, item.year) } else { item.parent_title.clone() }
@@ -808,7 +835,7 @@ impl MusicScreen {
         let tracks = self.list();
         let x = LEFT + 520.0;
         Self::text(p, &album.title, x, TOP + 20.0, 56, theme::TEXT_PRIMARY, 1, RIGHT - x);
-        Self::text(p, &album.parent_title, x, TOP + 78.0, theme::size::BODY, theme::RAIL_CURRENT, 0, RIGHT - x);
+        Self::text(p, if album.kind == MusicKind::Playlist { "Playlist" } else { &album.parent_title }, x, TOP + 78.0, theme::size::BODY, theme::RAIL_CURRENT, 0, RIGHT - x);
         let mut meta = Vec::new();
         if album.year > 0 {
             meta.push(album.year.to_string());
@@ -819,7 +846,7 @@ impl MusicScreen {
         if !tracks.is_empty() {
             let total: i64 = tracks.iter().map(|t| t.duration_ms).sum();
             meta.push(format!("{} tracks, {} min", tracks.len(), total / 60_000));
-            if let Some(t) = tracks.first() {
+            if let Some(t) = tracks.first().filter(|_| album.kind != MusicKind::Playlist) {
                 if !t.codec.is_empty() {
                     meta.push(t.quality_label());
                 }
@@ -962,7 +989,7 @@ impl MusicScreen {
         Self::text(p, &s, x, ry + 24.0, 44, theme::RAIL_CURRENT, 0, 400.0);
         Self::text(p, if rf { "Left / Right to rate, OK to save" } else { "Rating" }, x + 430.0, ry + 24.0, theme::size::MICRO, theme::TEXT_TERTIARY, 0, 360.0);
         // queue and stop
-        for (i, label) in ["Queue", "Stop"].iter().enumerate() {
+        for (i, label) in ["Queue", "Radio", "Screen off", "Stop"].iter().enumerate() {
             let f = active && self.np_row == 3 && self.np_col == i;
             Self::button(p, x + i as f32 * 216.0, 770.0, 200.0, label, f);
         }
@@ -1016,6 +1043,23 @@ impl<H: ContentLike> Machine<H> for MusicScreen {
 
     fn step(&mut self, ev: &Self::Ev, cx: &Cx<'_, H>, fx: &mut Effects<'_, H>) -> Handled {
         let holds = cx.focus.current.is_some_and(|k| k.entry == self.entry && k.elem == ELEM);
+        if self.dark {
+            // the dark screen takes every press (the key that brings the picture back does nothing else)
+            if let ScreenEvent::Input(input) = ev {
+                if matches!(input.kind, InputKind::Key { .. }) {
+                    if matches!(input.kind, InputKind::Key { edge: Edge::Down, .. }) {
+                        self.dark = false;
+                        fx.invalidate(Provenance::Input);
+                    }
+                    return Handled::Yes;
+                }
+            }
+            if matches!(ev, ScreenEvent::PressCommit(_) | ScreenEvent::Activate(_)) {
+                self.dark = false;
+                fx.invalidate(Provenance::Input);
+                return Handled::Yes;
+            }
+        }
         match ev {
             ScreenEvent::Enter(_) | ScreenEvent::Uncover | ScreenEvent::StoreChanged(..) => {
                 self.want(fx);
@@ -1073,6 +1117,14 @@ impl<H: ContentLike> Machine<H> for MusicScreen {
             }
             ScreenEvent::Input(input) if holds && matches!(input.kind, InputKind::Key { key: Key::Other, edge: Edge::Down, wcode, .. } if { self.media_key(wcode, fx) }) => {
                 fx.invalidate(Provenance::Input);
+                Handled::Yes
+            }
+            // the yellow key blacks the picture out while music plays
+            ScreenEvent::Input(input) if holds && matches!(input.kind, InputKind::Key { wcode: 488, edge: Edge::Down, .. }) => {
+                if self.model.now.is_some() {
+                    self.dark = true;
+                    fx.invalidate(Provenance::Input);
+                }
                 Handled::Yes
             }
             // the blue key opens Now Playing
@@ -1151,7 +1203,7 @@ impl<H: ContentLike> Screen<H> for MusicScreen {
         }
         match &self.view {
             View::Home => self.draw_home(p, holds),
-            View::Artists | View::Albums => self.draw_grid(p, holds),
+            View::Artists | View::Albums | View::Playlists => self.draw_grid(p, holds),
             View::Tracks => self.draw_tracks(p, holds),
             View::Artist(a) => self.draw_artist(p, a, holds),
             View::Album(a) => self.draw_album(p, a, holds),
@@ -1163,6 +1215,9 @@ impl<H: ContentLike> Screen<H> for MusicScreen {
         }
         if !self.model.note.is_empty() {
             Self::text(p, &self.model.note, LEFT, SCR_H - 150.0, theme::size::CAPTION, theme::TEXT_PRIMARY, 1, 1200.0);
+        }
+        if self.dark {
+            p.rrect(Rect::new(-200.0, -50.0, plx_ui::consts::SCR_W + 400.0, SCR_H + 100.0), 0.0, 0.0, [0.0, 0.0, 0.0, 1.0]);
         }
     }
     fn render(&self) -> RenderStrategy {

@@ -2279,6 +2279,7 @@ pub(crate) unsafe fn playback_tick(app: &mut App, fr: &mut Frame) {
         // floor at step 4), so the whole batch goes to Home on the next frame.
         super::playback::return_hold_inputs(app, fr.now);
         live_channel_keys(app);
+        music_keys(app);
         // post-playback home refresh (armed by every exit_player): refetch the hubs so
         // Continue Watching shows the new resume point / next episode. It waits for the stop
         // report to have reached the server (`timeline_stop_landed`), not for a clock: a read that
@@ -10001,6 +10002,45 @@ mod lifecycle_regression_tests {
         let stops = stop_reports(&rig, "2");
         assert_eq!(stops.len(), 1, "{:?}", rig.requests.lock().unwrap());
         assert!(stops[0].contains("time=30000&"), "{}", stops[0]);
+    }
+}
+
+/// Amber: while music plays, the remote's media keys work from any page but the player: play and pause toggle,
+/// stop ends the session, fast-forward / rewind and CH+ / CH- skip tracks. Every edge of a key taken here
+/// is removed, so a release cannot leak through to the page.
+fn music_keys(app: &mut super::App) {
+    use plx_machine::machine::{Edge, InputKind};
+    use plx_ui::consts::*;
+    if matches!(app.route(), AppArg::Player) || !super::music::has_session() { return; }
+    let mut acts: Vec<u8> = Vec::new();
+    app.inputs.retain(|ev| match ev.kind {
+        InputKind::Key { wcode, edge, .. } => {
+            let act = match wcode {
+                w if w == WCODE_PLAYPAUSE || w == WCODE_PLAY || w == WCODE_PAUSE || w == WCODE_PAUSE_ALT => Some(0u8),
+                w if w == WCODE_STOP || w == WCODE_STOP_KEY || w == WCODE_STOP_CD => Some(1),
+                w if w == WCODE_FASTFORWARD || w == WCODE_CH_UP_KEY => Some(2),
+                w if w == WCODE_REWIND || w == WCODE_CH_DOWN_KEY => Some(3),
+                _ => None,
+            };
+            match act {
+                Some(a) => {
+                    if matches!(edge, Edge::Down) {
+                        acts.push(a);
+                    }
+                    false
+                }
+                None => true,
+            }
+        }
+        _ => true,
+    });
+    for a in acts {
+        match a {
+            0 => super::music::toggle_pause(),
+            1 => super::music::stop(),
+            2 => super::music::next_track(),
+            _ => super::music::previous_track(),
+        }
     }
 }
 

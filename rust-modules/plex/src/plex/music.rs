@@ -199,7 +199,7 @@ pub fn parse_item(m: &Value) -> MusicItem {
         parent_rk: s(m, "parentRatingKey"),
         grandparent_title: s(m, "grandparentTitle"),
         grandparent_rk: s(m, "grandparentRatingKey"),
-        thumb: s(m, "thumb"),
+        thumb: { let th = s(m, "thumb"); if th.is_empty() { s(m, "composite") } else { th } },
         parent_thumb: s(m, "parentThumb"),
         grandparent_thumb: s(m, "grandparentThumb"),
         art: s(m, "art"),
@@ -335,6 +335,12 @@ impl Client {
             format!("/library/metadata/{rk}/children?X-Plex-Container-Start=0&X-Plex-Container-Size=500")
         };
         let body = self.body_2xx_bulk(&path, &[crate::http::ACCEPT_JSON])?;
+        Some(parse_items(&body))
+    }
+
+    /// The audio playlists.
+    pub fn music_playlists(&self) -> Option<MusicPage> {
+        let body = self.body_2xx_bulk("/playlists?playlistType=audio", &[crate::http::ACCEPT_JSON])?;
         Some(parse_items(&body))
     }
 
