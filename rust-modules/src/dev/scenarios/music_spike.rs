@@ -204,7 +204,7 @@ pub(crate) fn tick(app: &mut App, now: u32) {
                     }
                 }
                 let mut guard = 0;
-                while f.next_pts_ns < limit && guard < 200 && loaded != 0 && (f.bind == 0 || f.bound) {
+                while f.next_pts_ns < limit && guard < 200 && loaded != 0 {
                     guard += 1;
                     chunk(&mut f.buf, f.frames_fed);
                     let r = unsafe { sink.feed(mt, f.buf.as_ptr(), f.buf.len() as u32, f.next_pts_ns, ES_AUDIO) } as u8 as char;
