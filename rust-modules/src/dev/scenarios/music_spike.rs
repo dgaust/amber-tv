@@ -1,4 +1,5 @@
-//! `/tmp/plxnative-musicspike`: milestone M0 of `docs/music-design.md`, question S1. Does this television's
+//! `<runtime dir>/plxnative-musicspike` (on the TV `/tmp/com.dgaust.amber/plxnative-musicspike`; read directly, not
+//! through `devtrig`, so it works in a release build, which has no dev triggers): milestone M0 of `docs/music-design.md`, question S1. Does this television's
 //! media pipeline accept an AUDIO-ONLY Load (no video declared, no picture fed), and does it then play PCM
 //! that the app feeds it? The app's player refuses a file with no video, so nothing else answers this.
 //!
@@ -110,7 +111,7 @@ pub(crate) fn tick(app: &mut App, now: u32) {
                 if now < START_AFTER_MS {
                     return;
                 }
-                let Some(text) = plx_base::devtrig::read("musicspike") else {
+                let Some(text) = std::fs::read_to_string(plx_base::paths::in_runtime_dir("plxnative-musicspike")).ok().map(|s| s.trim().to_string()) else {
                     *phase = Phase::Off;
                     return;
                 };
