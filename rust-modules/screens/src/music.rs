@@ -104,13 +104,14 @@ enum View {
     Albums,
     Tracks,
     Playlists,
+    Settings,
     Artist(MusicItem),
     Album(MusicItem),
     NowPlaying,
     Queue,
 }
 
-const TABS: [&str; 5] = ["Recommended", "Artists", "Albums", "Tracks", "Playlists"];
+const TABS: [&str; 6] = ["Recommended", "Artists", "Albums", "Tracks", "Playlists", "Settings"];
 const ELEM: u32 = 1;
 const GROUP: GroupId = GroupId(0);
 const LEFT: f32 = plx_ui::consts::MARGIN_X;
@@ -208,7 +209,7 @@ impl MusicScreen {
             View::Artist(a) => Some(format!("artist:{}", a.rk)),
             View::Album(a) if a.kind == MusicKind::Playlist => Some(format!("playlist:{}", a.rk)),
             View::Album(a) => Some(format!("album:{}", a.rk)),
-            View::NowPlaying | View::Queue => None,
+            View::NowPlaying | View::Queue | View::Settings => None,
         }
     }
 
@@ -225,13 +226,14 @@ impl MusicScreen {
             View::Home => 0,
             View::Artist(_) | View::Album(_) => 2 + self.list().len(),
             View::NowPlaying => 0,
+            View::Settings => 2,
             View::Queue => self.model.queue.len(),
             _ => self.list().len(),
         }
     }
 
     fn top_level(&self) -> bool {
-        matches!(self.view, View::Home | View::Artists | View::Albums | View::Tracks | View::Playlists)
+        matches!(self.view, View::Home | View::Artists | View::Albums | View::Tracks | View::Playlists | View::Settings)
     }
 
     fn tab_index(&self) -> usize {
@@ -240,12 +242,13 @@ impl MusicScreen {
             View::Albums => 2,
             View::Tracks => 3,
             View::Playlists => 4,
+            View::Settings => 5,
             _ => 0,
         }
     }
 
     fn goto_tab(&mut self, t: usize) {
-        self.view = [View::Home, View::Artists, View::Albums, View::Tracks, View::Playlists][t.min(4)].clone();
+        self.view = [View::Home, View::Artists, View::Albums, View::Tracks, View::Playlists, View::Settings][t.min(5)].clone();
         self.cur = 0;
         self.first = 0;
         self.fresh = true;
@@ -333,6 +336,7 @@ impl MusicScreen {
             View::Album(a) => self.album_key(key, &a, fx),
             View::NowPlaying => self.np_key(key, fx),
             View::Queue => self.queue_key(key, fx),
+            View::Settings => self.settings_key(key),
         };
         fx.invalidate(Provenance::Input);
         h
@@ -536,6 +540,46 @@ impl MusicScreen {
         }
         self.keep_in_view(1, Self::list_visible_rows(64.0).saturating_sub(7).max(3));
         Handled::Yes
+    }
+
+    fn settings_key(&mut self, key: Key) -> Handled {
+        match key {
+            Key::Up if self.cur == 0 => self.tabs = true,
+            Key::Up => self.cur -= 1,
+            Key::Down if self.cur + 1 < 2 => self.cur += 1,
+            Key::Down => {}
+            Key::Left if self.cur == 0 && false => {}
+            Key::Left => return Handled::No,
+            Key::Right | Key::Ok => {
+                if self.cur == 0 {
+                    plx_data::layout::step_music_crossfade();
+                } else {
+                    plx_data::layout::toggle_music_levelling();
+                }
+            }
+            _ => return Handled::No,
+        }
+        Handled::Yes
+    }
+
+    fn draw_settings(&self, p: Painter, active: bool) {
+        let xf = plx_data::layout::music_crossfade();
+        let rows = [
+            ("Crossfade", if xf == 0 { "Off (gapless)".to_string() } else { format!("{xf} seconds") }, "Tracks overlap by this long. Off plays them back to back with no gap."),
+            ("Loudness levelling", if plx_data::layout::music_levelling() { "On".to_string() } else { "Off".to_string() }, "Quietens loud tracks to match the library, using the server's loudness analysis."),
+        ];
+        for (i, (name, value, help)) in rows.iter().enumerate() {
+            let y = TOP + i as f32 * 130.0;
+            let f = active && !self.tabs && self.cur == i;
+            if f {
+                p.rrect(Rect::new(LEFT - 12.0, y - 10.0, RIGHT - LEFT + 24.0, 110.0), 12.0, 12.0, theme::ACCENT);
+            }
+            let (ink, sub) = if f { (theme::ACCENT_INK, theme::ACCENT_INK) } else { (theme::TEXT_PRIMARY, theme::TEXT_SECONDARY) };
+            Self::text(p, name, LEFT + 12.0, y + 26.0, theme::size::BODY, ink, 1, 800.0);
+            Self::text(p, help, LEFT + 12.0, y + 66.0, theme::size::MICRO, sub, 0, 1100.0);
+            Self::text(p, &format!("{value} \u{203a}"), RIGHT - 460.0, y + 26.0, theme::size::BODY, if f { theme::ACCENT_INK } else { theme::RAIL_CURRENT }, 1, 440.0);
+        }
+        Self::text(p, "Music is decoded on the TV, so surround mixes play as stereo and hi-res files play at 48 kHz.", LEFT, TOP + 300.0, theme::size::MICRO, theme::TEXT_TERTIARY, 0, 1300.0);
     }
 
     fn queue_key<H: ContentLike>(&mut self, key: Key, fx: &mut Effects<'_, H>) -> Handled {
@@ -1216,6 +1260,7 @@ impl<H: ContentLike> Screen<H> for MusicScreen {
             View::Album(a) => self.draw_album(p, a, holds),
             View::NowPlaying => self.draw_now_playing(p, holds),
             View::Queue => self.draw_queue(p, holds),
+            View::Settings => self.draw_settings(p, holds),
         }
         if !matches!(self.view, View::NowPlaying) {
             self.draw_strip(p);

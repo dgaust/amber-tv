@@ -427,8 +427,6 @@ const PREROLL_NS: i64 = 700_000_000;
 const LEAD_NS: i64 = 2_000_000_000;
 
 struct TrackRun {
-    /// Index into the queue's `items`.
-    item: usize,
     dec: Option<decode::Running>,
     /// Where in the pipeline's timeline this track's audio begins (ns).
     first_pts: i64,
@@ -436,6 +434,17 @@ struct TrackRun {
     /// target, so the timeline is measured from the unit actually decoded, not from the target.
     base_ns: Option<i64>,
     last_end_pts: i64,
+    /// The gain the viewer's loudness levelling gives this track (1.0 = none) and its crossfade, in ms.
+    level: f32,
+    xf_ms: i64,
+}
+
+/// A crossfade in progress: the next track, decoding alongside the end of this one.
+struct Fade {
+    run: TrackRun,
+    pos: usize,
+    total: i64,
+    done: i64,
 }
 
 /// What is on the pipeline's timeline: a track from its first pts.
@@ -471,6 +480,7 @@ struct Engine {
     next_audio_pts: i64,
     next_video_pts: i64,
     cur: Option<TrackRun>,
+    fade: Option<Fade>,
     slots: VecDeque<Slot>,
     playing: Option<Slot>,
     pending_au: Option<decode::Au>,
@@ -508,6 +518,7 @@ impl Default for Engine {
             next_audio_pts: 0,
             next_video_pts: 0,
             cur: None,
+            fade: None,
             slots: VecDeque::new(),
             playing: None,
             pending_au: None,
@@ -531,6 +542,35 @@ impl Default for Engine {
 
 thread_local! {
     static ENGINE: std::cell::RefCell<Engine> = std::cell::RefCell::new(Engine::default());
+}
+
+/// The gain loudness levelling gives a track: the server's track gain (a negative dB figure is a quieter
+/// track), never a boost, 1.0 when levelling is off or the server sent none.
+fn level_for(item: &MusicItem) -> f32 {
+    if !plx_data::layout::music_levelling() {
+        return 1.0;
+    }
+    match item.gain.or(item.album_gain) {
+        Some(db) if db < 0.0 => 10f32.powf(db / 20.0).clamp(0.05, 1.0),
+        _ => 1.0,
+    }
+}
+
+/// `pcm` (16-bit little-endian) scaled by `gain`.
+fn scale(pcm: &mut [u8], gain: f32) {
+    for s in pcm.chunks_exact_mut(2) {
+        let v = i16::from_le_bytes([s[0], s[1]]) as f32 * gain;
+        s.copy_from_slice(&(v.clamp(-32768.0, 32767.0) as i16).to_le_bytes());
+    }
+}
+
+/// `a` faded out and `b` faded in, by how far through the crossfade it is (`r` 0..1), summed into `a`.
+fn crossfade(a: &mut [u8], b: &[u8], r: f32) {
+    let r = r.clamp(0.0, 1.0);
+    for (x, y) in a.chunks_exact_mut(2).zip(b.chunks_exact(2)) {
+        let v = i16::from_le_bytes([x[0], x[1]]) as f32 * (1.0 - r) + i16::from_le_bytes([y[0], y[1]]) as f32 * r;
+        x.copy_from_slice(&(v.clamp(-32768.0, 32767.0) as i16).to_le_bytes());
+    }
 }
 
 /// The viewer's intents, applied on the next [`tick`].
@@ -608,6 +648,11 @@ impl Engine {
     fn drop_tracks(&mut self) {
         if let Some(mut c) = self.cur.take() {
             if let Some(d) = c.dec.take() {
+                d.stop();
+            }
+        }
+        if let Some(mut f) = self.fade.take() {
+            if let Some(d) = f.run.dec.take() {
                 d.stop();
             }
         }
@@ -791,7 +836,7 @@ impl Engine {
 
     /// Begin decoding the track at queue position `pos`, from `offset_ms`. False while its file is coming.
     fn start_track(&mut self, pos: usize, offset_ms: i64) -> bool {
-        let Some((idx, item)) = Self::entry(pos) else { return false };
+        let Some((_, item)) = Self::entry(pos) else { return false };
         let Some(data) = self.file_for(&item) else {
             self.buffering = true;
             return false;
@@ -801,7 +846,7 @@ impl Engine {
         plx_base::eventlog::log(&format!("music: decoding \"{}\" from {} ms", item.title, offset_ms));
         let first = self.next_audio_pts;
         self.slots.push_back(Slot { first_pts: first, offset_ms, item: item.clone(), duration_ms: item.duration_ms, order_pos: pos });
-        self.cur = Some(TrackRun { item: idx, dec: Some(dec), first_pts: first, base_ns: None, last_end_pts: first });
+        self.cur = Some(TrackRun { dec: Some(dec), first_pts: first, base_ns: None, last_end_pts: first, level: level_for(&item), xf_ms: i64::from(plx_data::layout::music_crossfade()) * 1000 });
         with(|s| {
             s.q.pos = pos;
             bump(s);
@@ -991,19 +1036,23 @@ impl Engine {
         let mut guard = 0;
         while self.next_audio_pts < limit && guard < 160 {
             guard += 1;
-            let au = match self.pending_au.take() {
-                Some(a) => a,
+            let (mut au, fresh) = match self.pending_au.take() {
+                Some(a) => (a, false),
                 None => {
                     let Some(cur) = self.cur.as_mut() else { break };
                     let Some(dec) = cur.dec.as_ref() else { break };
                     match dec.rx.try_recv() {
-                        Ok(Msg::Au(a)) => a,
+                        Ok(Msg::Au(a)) => (a, true),
                         Ok(Msg::End) => {
                             self.error_streak = 0;
                             let end = cur.last_end_pts;
                             self.next_audio_pts = self.next_audio_pts.max(end);
-                            let item = cur.item;
-                            let _ = item;
+                            // a crossfade has the next track part-way in already: it carries on from here
+                            if let Some(f) = self.fade.take() {
+                                with(|s| s.q.pos = f.pos);
+                                self.cur = Some(f.run);
+                                continue;
+                            }
                             let shown = with(|s| s.q.pos);
                             self.cur = None;
                             match Self::step_pos(shown, 1, true) {
@@ -1020,6 +1069,7 @@ impl Engine {
                             self.error_streak += 1;
                             let shown = with(|s| s.q.pos);
                             self.cur = None;
+                            self.fade = None;
                             if self.error_streak >= 3 {
                                 with(|s| note(s, "That track could not be played."));
                                 self.drained = true;
@@ -1052,9 +1102,58 @@ impl Engine {
                 }
             };
             let pts = cur.first_pts + (au.pts_ns - base).max(0);
+            let dur = (au.pcm.len() / decode::BYTES_PER_FRAME) as i64 * 1_000_000_000 / decode::RATE;
+            if fresh {
+                if cur.level < 0.999 {
+                    scale(&mut au.pcm, cur.level);
+                }
+                // the end of this track is near: bring the next in under it
+                let remaining_ms = {
+                    let first = cur.first_pts;
+                    let slot_dur = self.slots.iter().rev().find(|s| s.first_pts == first).map_or(0, |s| s.duration_ms);
+                    slot_dur - (au.pts_ns - base) / 1_000_000
+                };
+                if self.fade.is_none() && cur.xf_ms > 0 && remaining_ms > 0 && remaining_ms <= cur.xf_ms && remaining_ms > cur.xf_ms / 2 {
+                    let shown = with(|s| s.q.pos);
+                    if let Some(np) = Self::step_pos(shown, 1, true).filter(|&n| n != shown) {
+                        if let Some((_, item)) = Self::entry(np) {
+                            if matches!(&self.file, File::Ready { rk, .. } if *rk == item.rk) {
+                                if let File::Ready { data, .. } = std::mem::replace(&mut self.file, File::None) {
+                                    let dec = decode::spawn(data, 0);
+                                    plx_base::eventlog::log(&format!("music: crossfading into \"{}\"", item.title));
+                                    self.slots.push_back(Slot { first_pts: pts, offset_ms: 0, item: item.clone(), duration_ms: item.duration_ms, order_pos: np });
+                                    let au_ms = (dur / 1_000_000).max(1);
+                                    self.fade = Some(Fade {
+                                        run: TrackRun { dec: Some(dec), first_pts: pts, base_ns: None, last_end_pts: pts, level: level_for(&item), xf_ms: i64::from(plx_data::layout::music_crossfade()) * 1000 },
+                                        pos: np,
+                                        total: (remaining_ms / au_ms).max(1),
+                                        done: 0,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+                if let Some(f) = self.fade.as_mut() {
+                    let got = f.run.dec.as_ref().and_then(|d| d.rx.try_recv().ok());
+                    match got {
+                        Some(Msg::Au(n)) => {
+                            let mut npcm = n.pcm;
+                            if f.run.level < 0.999 {
+                                scale(&mut npcm, f.run.level);
+                            }
+                            f.run.base_ns.get_or_insert(n.pts_ns);
+                            crossfade(&mut au.pcm, &npcm, (f.done as f32 + 0.5) / f.total as f32);
+                            f.done += 1;
+                            f.run.last_end_pts = pts + dur;
+                        }
+                        Some(_) => self.fade = None,
+                        None => {}
+                    }
+                }
+            }
             let r = unsafe { sink.feed(mt, au.pcm.as_ptr(), au.pcm.len() as u32, pts, ES_AUDIO) } as u8;
             if r == b'O' {
-                let dur = (au.pcm.len() / decode::BYTES_PER_FRAME) as i64 * 1_000_000_000 / decode::RATE;
                 cur.last_end_pts = pts + dur;
                 self.next_audio_pts = self.next_audio_pts.max(pts + dur);
             } else {
@@ -1064,7 +1163,7 @@ impl Engine {
             }
         }
         // the next track's file, while this one plays
-        if self.cur.is_some() && matches!(self.file, File::None) && self.restart_next_pos.is_none() {
+        if self.cur.is_some() && self.fade.is_none() && matches!(self.file, File::None) && self.restart_next_pos.is_none() {
             let pos = with(|s| s.q.pos);
             if let Some(np) = Self::step_pos(pos, 1, true).filter(|&n| n != pos) {
                 if let Some((_, item)) = Self::entry(np) {
@@ -1173,4 +1272,79 @@ pub(crate) fn radio(rk: String) {
             _ => with(|s| note(s, "This server has no sonic radio for that track.")),
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pcm(samples: &[i16]) -> Vec<u8> {
+        samples.iter().flat_map(|s| s.to_le_bytes()).collect()
+    }
+    fn samples(b: &[u8]) -> Vec<i16> {
+        b.chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]])).collect()
+    }
+
+    #[test]
+    fn scaling_halves_the_amplitude_and_never_wraps() {
+        let mut b = pcm(&[1000, -1000, 32767, -32768]);
+        scale(&mut b, 0.5);
+        assert_eq!(samples(&b), vec![500, -500, 16383, -16384]);
+        let mut loud = pcm(&[30000]);
+        scale(&mut loud, 2.0);
+        assert_eq!(samples(&loud), vec![32767], "clamped, not wrapped");
+    }
+
+    #[test]
+    fn a_crossfade_runs_from_the_outgoing_to_the_incoming_track() {
+        let (a, b) = (pcm(&[1000, 1000]), pcm(&[-1000, -1000]));
+        let mut start = a.clone();
+        crossfade(&mut start, &b, 0.0);
+        assert_eq!(samples(&start), vec![1000, 1000]);
+        let mut end = a.clone();
+        crossfade(&mut end, &b, 1.0);
+        assert_eq!(samples(&end), vec![-1000, -1000]);
+        let mut mid = a;
+        crossfade(&mut mid, &b, 0.5);
+        assert_eq!(samples(&mid), vec![0, 0]);
+    }
+
+    #[test]
+    fn a_shuffle_is_a_permutation_that_keeps_the_chosen_track_first() {
+        for n in [1usize, 2, 7, 40] {
+            let v = shuffled(n, Some(n - 1));
+            assert_eq!(v[0], n - 1);
+            let mut s = v.clone();
+            s.sort_unstable();
+            assert_eq!(s, (0..n).collect::<Vec<_>>());
+        }
+    }
+
+    #[test]
+    fn levelling_only_ever_quietens_a_track() {
+        let item = |g: Option<f32>| MusicItem { gain: g, ..Default::default() };
+        // levelling is off in a fresh layout: every track plays at its own level
+        assert_eq!(level_for(&item(Some(-6.0))), 1.0);
+        assert!(10f32.powf(-6.0 / 20.0) < 0.51 && 10f32.powf(-6.0 / 20.0) > 0.49);
+    }
+
+    #[test]
+    fn the_queue_steps_by_the_repeat_mode() {
+        let _g = plx_base::testlock::serial();
+        with(|s| {
+            s.q = Queue::default();
+            s.q.order = vec![0, 1, 2];
+            s.q.repeat = Repeat::Off;
+        });
+        assert_eq!(Engine::step_pos(0, 1, true), Some(1));
+        assert_eq!(Engine::step_pos(2, 1, true), None, "the end of the queue");
+        assert_eq!(Engine::step_pos(0, -1, false), Some(0), "previous at the start stays");
+        with(|s| s.q.repeat = Repeat::All);
+        assert_eq!(Engine::step_pos(2, 1, true), Some(0), "repeat all wraps");
+        assert_eq!(Engine::step_pos(0, -1, false), Some(2));
+        with(|s| s.q.repeat = Repeat::One);
+        assert_eq!(Engine::step_pos(1, 1, true), Some(1), "repeat one stays on a track that ends");
+        assert_eq!(Engine::step_pos(1, 1, false), Some(2), "but a press still skips");
+        with(|s| s.q = Queue::default());
+    }
 }

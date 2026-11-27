@@ -26,6 +26,9 @@ pub struct Layout {
     pub channel_order: Vec<String>,
     /// Minutes idle before the screensaver; 0 is off, absent is [`SCREENSAVER_DEFAULT_MINUTES`].
     pub screensaver_minutes: Option<u32>,
+    /// Amber music: seconds of crossfade between tracks (0 is gapless), and loudness levelling (0 off, 1 on).
+    pub music_crossfade: u8,
+    pub music_levelling: u8,
 }
 
 static CACHE: Mutex<Option<Layout>> = Mutex::new(None);
@@ -66,6 +69,31 @@ pub fn update(f: impl FnOnce(&mut Layout)) {
     f(l);
     save(l);
     GEN.fetch_add(1, Ordering::Relaxed);
+}
+
+/// What the Music crossfade setting steps through, in seconds (0 is none: tracks follow each other gapless).
+pub const MUSIC_CROSSFADE_CHOICES: [u8; 6] = [0, 2, 4, 6, 8, 12];
+
+pub fn music_crossfade() -> u8 {
+    get().music_crossfade
+}
+
+pub fn step_music_crossfade() -> u8 {
+    let now = music_crossfade();
+    let at = MUSIC_CROSSFADE_CHOICES.iter().position(|m| *m == now).unwrap_or(0);
+    let next = MUSIC_CROSSFADE_CHOICES[(at + 1) % MUSIC_CROSSFADE_CHOICES.len()];
+    update(|l| l.music_crossfade = next);
+    next
+}
+
+pub fn music_levelling() -> bool {
+    get().music_levelling != 0
+}
+
+pub fn toggle_music_levelling() -> bool {
+    let on = !music_levelling();
+    update(|l| l.music_levelling = u8::from(on));
+    on
 }
 
 /// Idle minutes before the screensaver, unless the viewer chose another.
