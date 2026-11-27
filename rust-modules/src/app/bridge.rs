@@ -1600,7 +1600,7 @@ impl Bridge {
             return true;
         }
         // The item pages and the Live TV guide do not route the strip's presses themselves.
-        if !matches!(d.top_arg(), Some(AppArg::Content(_) | AppArg::LiveTv | AppArg::Settings(_))) { return false; }
+        if !matches!(d.top_arg(), Some(AppArg::Content(_) | AppArg::LiveTv | AppArg::Music | AppArg::Settings(_))) { return false; }
         // the profile chip: the account menu (Settings, profiles), as the tab pages open it
         if elem == w::TAB_KEY_CHIP {
             crate::app::input::chip_activate(d);
@@ -1613,6 +1613,7 @@ impl Bridge {
             k if k == w::TAB_KEY_MOVIES => HomeTab::Movies,
             k if k == w::TAB_KEY_SHOWS => HomeTab::Shows,
             k if k == w::TAB_KEY_LIVETV => HomeTab::LiveTv,
+            k if k == w::TAB_KEY_MUSIC => HomeTab::Music,
             k => match w::library_of_key(k) { Some(i) => HomeTab::Library(i), None => return false },
         };
         // Home through the door the tab pages use for it: it seats Home's focus. Without that seat
@@ -1624,6 +1625,24 @@ impl Bridge {
             nav_tab(d, self, tab, None, None);
         }
         true
+    }
+
+    /// Amber: the music library's load clock, and the music page's snapshot when it is up.
+    pub(crate) fn music_feed(&mut self, d: &mut Dispatcher<AppHost>) {
+        let top = d.nav.top_page().map(|e| e.id).filter(|_| d.top_arg() == Some(&AppArg::Music));
+        crate::app::music::tick_data(top.is_some());
+        let Some(id) = top else { return };
+        let Some(inst) = d.nav.entry_mut(id).and_then(|e| e.inst.as_mut()) else { return };
+        let Some(screen) = inst.screen.as_any_mut().and_then(|a| a.downcast_mut::<plx_screens::music::MusicScreen>())
+            else { return };
+        thread_local! { static FED: std::cell::Cell<u64> = const { std::cell::Cell::new(u64::MAX) }; }
+        let stamp = crate::app::music::model_stamp();
+        if !screen.wants_model() && FED.with(|f| f.get()) == stamp { return; }
+        FED.with(|f| f.set(stamp));
+        if screen.input(crate::app::music::model()) {
+            d.present.note_in_scope(plx_machine::present::Scope::Page,
+                plx_machine::present::PresentEvent::Damage(plx_machine::present::Provenance::Lifecycle));
+        }
     }
 
     /// Amber: Live TV's load clock, and the guide page's snapshot when it is up.
@@ -1734,6 +1753,7 @@ impl Bridge {
                 AppArg::Search => plx_ui::widgets::TAB_KEY_SEARCH,
                 AppArg::Watchlist => plx_ui::widgets::TAB_KEY_WATCHLIST,
                 AppArg::LiveTv => plx_ui::widgets::TAB_KEY_LIVETV,
+                AppArg::Music => plx_ui::widgets::TAB_KEY_MUSIC,
                 _ => plx_screens::home::STRIP_HOME_ELEM,
             });
             if let Some(io) = &self.home_io {
@@ -3348,6 +3368,10 @@ impl Bridge {
                 if outcome == AppCommandOutcome::Completed { self.completed_screen_commands.push(label); }
                 outcome
             }
+            Ok(AppFx::Music(out)) => {
+                super::music::handle(out);
+                AppCommandOutcome::Completed
+            }
             Ok(AppFx::LiveTv(plx_screens::livetv::LiveTvOut::Tune { channel })) => {
                 super::livetv::tune(channel);
                 AppCommandOutcome::Completed
@@ -3626,7 +3650,7 @@ impl Rig<AppHost> for Bridge {
         self.app_effect(from, fx, out);
     }
     fn external_app_fx(&self, fx: &AppFx) -> bool {
-        matches!(fx, AppFx::Watchlist(_) | AppFx::LiveTv(_) | AppFx::Search(_) | AppFx::Library(_) | AppFx::Home(_) | AppFx::Content(_) | AppFx::ItemMenu(_)
+        matches!(fx, AppFx::Watchlist(_) | AppFx::LiveTv(_) | AppFx::Music(_) | AppFx::Search(_) | AppFx::Library(_) | AppFx::Home(_) | AppFx::Content(_) | AppFx::ItemMenu(_)
                     | AppFx::SessionEffect(_) | AppFx::Preferences(_) | AppFx::Catalog(_) | AppFx::Loop(_) | AppFx::Player(_))
     }
     #[cfg(test)]
@@ -3770,6 +3794,7 @@ impl Bridge {
             // the tab here too. The page flips nothing itself; the store's ledger flips the face.
             AppFx::Catalog(_) => unreachable!("Catalog commands yield to the FIFO runner"),
             AppFx::LiveTv(_) => unreachable!("Live TV commands yield to the FIFO runner"),
+            AppFx::Music(_) => unreachable!("Music commands yield to the FIFO runner"),
         }
     }
 
@@ -5127,6 +5152,7 @@ fn pill_of_arg(arg: &AppArg, directory: plx_data::stores::browse::DirectoryView<
         AppArg::Search => pill_of(directory, Pill::Search),
         AppArg::Watchlist => pill_of(directory, Pill::Watchlist),
         AppArg::LiveTv => pill_of(directory, Pill::LiveTv),
+        AppArg::Music => pill_of(directory, Pill::Music),
         // The grid and the two pages its header pushes (Collections, Recommended) are all the
         // library's: they select its type's pill, the pill they were opened from.
         arg if arg.is_library_family() => {
@@ -5179,6 +5205,7 @@ pub(crate) fn nav_tab(
                     Pill::Home => HomeTab::Home,
                     Pill::Library(i) => HomeTab::Library(i as u16),
                     Pill::LiveTv => HomeTab::LiveTv,
+                    Pill::Music => HomeTab::Music,
                     Pill::Search => HomeTab::Search,
                     Pill::Watchlist => HomeTab::Watchlist,
                     Pill::Section(plx_data::browse::SecKind::Movie) => HomeTab::Movies,
@@ -5235,6 +5262,7 @@ pub(crate) fn nav_tab(
         HomeTab::Search => AppArg::Search,
         HomeTab::Watchlist => AppArg::Watchlist,
         HomeTab::LiveTv => AppArg::LiveTv,
+        HomeTab::Music => AppArg::Music,
     };
     nav_peer(d, arg, ret);
 }

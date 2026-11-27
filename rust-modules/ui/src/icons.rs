@@ -165,6 +165,8 @@ pub enum Icon {
     Film,
     Tv,
     LiveTv,
+    /// Amber: the music library.
+    Music,
     /// Amber: the sidebar's Settings entry (a gear).
     Settings,
     // ---- review-score marks (the detail hero's ratings row) ----
@@ -360,6 +362,7 @@ fn src(id: Icon) -> &'static str {
         Icon::Film => include_str!("../../../assets/icons/film.svg"),
         Icon::Tv => include_str!("../../../assets/icons/tv.svg"),
         Icon::LiveTv => include_str!("../../../assets/icons/live-tv.svg"),
+        Icon::Music => include_str!("../../../assets/icons/music.svg"),
         Icon::Settings => include_str!("../../../assets/icons/settings.svg"),
         Icon::Tomato => include_str!("../../../assets/icons/tomato.svg"),
         Icon::TomatoCalyx => include_str!("../../../assets/icons/tomato-calyx.svg"),

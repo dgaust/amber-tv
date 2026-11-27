@@ -21,6 +21,7 @@ pub mod consent;
 pub mod catalog;
 pub mod screensaver;
 pub mod quit_prompt; // Amber: the idle slideshow
+pub mod music; // Amber: the music library
 pub mod livetv; // Amber: the Live TV guide // the catalog page's view-model (plan W6)
 pub mod collection;
 #[cfg(test)]

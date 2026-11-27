@@ -450,6 +450,8 @@ pub(super) fn start_playback_with<R: PlaybackResources>(
     bridge: &mut super::bridge::Bridge,
     resources: &mut R,
 ) -> bool {
+    // Amber: music holds the audio pipeline for its whole session; a film or channel takes it over
+    super::music::stop_for_video(pa.mt());
     let entering = resources.prepare_start(ps, pa, resume_ns);
     if entering {
         enter_player(pages, bridge, from, ret);

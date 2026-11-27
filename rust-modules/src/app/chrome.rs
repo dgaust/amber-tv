@@ -15,6 +15,8 @@ pub(crate) enum Pill {
     Library(usize),
     /// Amber: the Live TV guide.
     LiveTv,
+    /// Amber: the music library.
+    Music,
     Watchlist,
     Search,
 }
@@ -43,6 +45,9 @@ fn all_entries(directory: DirectoryView<'_>) -> Vec<(u32, String)> {
     all.push((widgets::TAB_KEY_WATCHLIST, "watchlist".to_owned()));
     if crate::app::livetv::available() {
         all.push((widgets::TAB_KEY_LIVETV, "livetv".to_owned()));
+    }
+    if crate::app::music::available() {
+        all.push((widgets::TAB_KEY_MUSIC, "music".to_owned()));
     }
     all
 }
@@ -120,6 +125,7 @@ fn strip_generation(directory: DirectoryView<'_>) -> u32 {
     directory.tabs_gen().wrapping_mul(65_599).wrapping_add(directory.sections_gen())
         .wrapping_mul(31).wrapping_add(plx_data::layout::generation())
         .wrapping_mul(31).wrapping_add(crate::app::livetv::generation())
+        .wrapping_mul(31).wrapping_add(crate::app::music::generation())
         .wrapping_mul(31).wrapping_add(EDIT_GEN.with(|g| g.get()))
 }
 
@@ -133,6 +139,7 @@ fn pill_in(i: usize, keys: &[u32]) -> Pill {
         Some(widgets::TAB_KEY_SHOWS) => Pill::Section(SecKind::Show),
         Some(widgets::TAB_KEY_WATCHLIST) => Pill::Watchlist,
         Some(widgets::TAB_KEY_LIVETV) => Pill::LiveTv,
+        Some(widgets::TAB_KEY_MUSIC) => Pill::Music,
         Some(widgets::TAB_KEY_SEARCH) => Pill::Search,
         _ => Pill::Home,
     }
@@ -151,6 +158,7 @@ fn pill_index(pill: Pill, keys: &[u32]) -> Option<usize> {
     let key = match pill {
         Pill::Library(i) => widgets::TAB_KEY_LIB_BASE + i as u32,
         Pill::LiveTv => widgets::TAB_KEY_LIVETV,
+        Pill::Music => widgets::TAB_KEY_MUSIC,
         Pill::Home => widgets::TAB_KEY_HOME,
         Pill::Section(SecKind::Movie) => widgets::TAB_KEY_MOVIES,
         Pill::Section(SecKind::Show) => widgets::TAB_KEY_SHOWS,
@@ -217,12 +225,14 @@ impl ChromeSnapshot {
                 widgets::TAB_KEY_EDIT => TabFace::Entry(Icon::More, if editing { "Done editing".into() } else { "Edit sidebar".into() }),
                 widgets::TAB_KEY_SETTINGS => TabFace::Entry(Icon::Settings, "Settings".into()),
                 widgets::TAB_KEY_LIVETV if !(editing && hidden("livetv")) => TabFace::Entry(Icon::LiveTv, "Live TV".into()),
+                widgets::TAB_KEY_MUSIC if !(editing && hidden("music")) => TabFace::Entry(Icon::Music, "Music".into()),
                 key if editing && id_of_key(directory, key).is_some_and(|id| hidden(&id)) => {
                     let base = match key {
                         widgets::TAB_KEY_HOME => (Icon::Home, plx_platform::i18n::msg::browse_chrome_home().to_owned()),
                         widgets::TAB_KEY_SEARCH => (Icon::Search, plx_platform::i18n::msg::browse_chrome_search().to_owned()),
                         widgets::TAB_KEY_WATCHLIST => (Icon::Bookmark, "Watchlist".to_owned()),
                         widgets::TAB_KEY_LIVETV => (Icon::LiveTv, "Live TV".to_owned()),
+                        widgets::TAB_KEY_MUSIC => (Icon::Music, "Music".to_owned()),
                         _ => {
                             let section = directory.sections().get(widgets::library_of_key(key).unwrap_or(0) as usize);
                             (match section.map(|s| s.kind) { Some(SecKind::Show) => Icon::Tv, _ => Icon::Film },

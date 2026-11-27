@@ -1160,6 +1160,9 @@ fn home_tab_available(
     if tab == HomeTab::LiveTv {
         return crate::app::livetv::available();
     }
+    if tab == HomeTab::Music {
+        return crate::app::music::available();
+    }
     let kind = match tab {
         HomeTab::Movies => Some(plx_data::stores::browse::SecKind::Movie),
         HomeTab::Shows => Some(plx_data::stores::browse::SecKind::Show),

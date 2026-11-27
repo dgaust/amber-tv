@@ -137,6 +137,7 @@ pub(crate) mod input;
 pub(crate) mod bridge;
 pub(crate) mod chrome;
 pub(crate) mod livetv;
+pub(crate) mod music;
 pub(crate) mod screensaver;
 mod collections_probe;
 pub(crate) mod content;

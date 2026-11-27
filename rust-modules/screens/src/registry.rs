@@ -77,6 +77,7 @@ pub enum AppFx {
     Catalog(crate::catalog::CatalogOut),
     /// Amber: the Live TV guide's requests.
     LiveTv(crate::livetv::LiveTvOut),
+    Music(crate::music::MusicOut),
     /// Player-route commands requiring the MainThread capability, route or navigation stack.
     /// The app runner executes each at its FIFO head, outside the screen's machine step.
     Player(PlayerReq),
@@ -329,6 +330,8 @@ pub enum HomeReq {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum HomeTab {
     Home,
+    /// Amber: the music library.
+    Music,
     /// Amber: the Live TV guide.
     LiveTv,
     /// Amber: one library, by its index in the directory's sections.
@@ -1919,6 +1922,7 @@ pub mod page_id {
     pub const COLLECTION: ScreenId = ScreenId(23);
     pub const WATCHLIST: ScreenId = ScreenId(25);
     pub const LIVETV: ScreenId = ScreenId(40);
+    pub const MUSIC: ScreenId = ScreenId(43);
     pub const SCREENSAVER: ScreenId = ScreenId(41);
     pub const QUIT_PROMPT: ScreenId = ScreenId(42);
     pub const LIBRARY_COLLECTIONS: ScreenId = ScreenId(28);
@@ -2022,6 +2026,8 @@ pub enum AppArg {
     /// from the bookmark mark. It carries nothing — the list is the store's, the order is the
     /// store's sort and filter.
     Watchlist,
+    /// Amber: the music library.
+    Music,
     /// Amber: the Live TV guide.
     LiveTv,
     /// Amber: the screensaver, pushed over the page when the viewer has been idle.
@@ -2098,6 +2104,7 @@ impl LogicalState for AppArg {
             Self::Watchlist => { c.u32(0).u32(11); }
             // Amber: 40, clear of everything upstream may still allocate.
             Self::LiveTv => { c.u32(0).u32(40); }
+            Self::Music => { c.u32(0).u32(43); }
             Self::Screensaver => { c.u32(0).u32(41); }
             Self::QuitPrompt => { c.u32(0).u32(42); }
             Self::Player => { c.u32(0).u32(10); }
@@ -2120,7 +2127,7 @@ impl plx_ui::screen::ScreenArg for AppArg {
     /// them fade the bar with the page.
     fn chrome(&self) -> Chrome {
         match self {
-            AppArg::Home | AppArg::Library | AppArg::Search | AppArg::Watchlist | AppArg::LiveTv => Chrome::TabBar,
+            AppArg::Home | AppArg::Library | AppArg::Search | AppArg::Watchlist | AppArg::LiveTv | AppArg::Music => Chrome::TabBar,
             // The two sub-pages of a library keep the bar, as the Library they are pushed over.
             AppArg::LibraryCollections { .. } | AppArg::LibraryRecommended { .. } => Chrome::TabBar,
             // Amber: the sidebar stands beside every page but the player, the item pages included.
@@ -2174,6 +2181,7 @@ impl plx_ui::screen::ScreenArg for AppArg {
             // 25 and 26, forward of Collection's 24: the Watchlist page and its Sort & Filter menu.
             AppArg::Watchlist => page_id::WATCHLIST.0,
             AppArg::LiveTv => page_id::LIVETV.0,
+            AppArg::Music => page_id::MUSIC.0,
             AppArg::Screensaver => page_id::SCREENSAVER.0,
             AppArg::QuitPrompt => page_id::QUIT_PROMPT.0,
             AppArg::WatchlistMenu(_) => 26,
@@ -2437,6 +2445,7 @@ where
             // the rows, the options and the matched facts (`WatchlistIn`) on its first frames.
             AppArg::Watchlist => Box::new(crate::watchlist::page::WatchlistScreen::loading(entry)),
             AppArg::LiveTv => Box::new(crate::livetv::LiveTvScreen::new(entry)),
+            AppArg::Music => Box::new(crate::music::MusicScreen::new(entry)),
             AppArg::Screensaver => Box::new(crate::screensaver::ScreensaverScreen::new(entry)),
             AppArg::QuitPrompt => Box::new(crate::quit_prompt::QuitPromptScreen::new(entry)),
             // Phase 9: the player is an OWNED screen — the instance that holds the HUD, the scrub
@@ -2574,6 +2583,7 @@ pub fn every_surface_arg() -> Vec<AppArg> {
             | AppArg::Search
             | AppArg::Watchlist
             | AppArg::LiveTv
+            | AppArg::Music
             | AppArg::Screensaver
             | AppArg::QuitPrompt
             | AppArg::Player

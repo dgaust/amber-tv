@@ -2978,6 +2978,8 @@ pub(crate) unsafe fn update(app: &mut App, fr: &mut Frame) {
         super::bridge::execute_endpoint_outcomes(&mut app.pages, endpoints);
         app.bridge.catalog_feed(&mut app.pages);
         app.bridge.livetv_feed(&mut app.pages);
+        app.bridge.music_feed(&mut app.pages);
+        super::music::tick(app, crate::app::clock::now());
         super::screensaver::tick(&mut app.pages, app.last_input);
         if plx_screens::quit_prompt::take_quit() {
             log("quit: asked to at the Home root");
@@ -3477,7 +3479,7 @@ pub(crate) unsafe fn report(app: &mut App, fr: &mut Frame) {
                 AppArg::Search => crate::focusprobe::Screen::Search,
                 AppArg::Watchlist => crate::focusprobe::Screen::Watchlist,
                 // Amber: the guide fingerprints as the Watchlist does - a strip destination page.
-                AppArg::LiveTv => crate::focusprobe::Screen::Watchlist,
+                AppArg::LiveTv | AppArg::Music => crate::focusprobe::Screen::Watchlist,
                 AppArg::Screensaver | AppArg::QuitPrompt => crate::focusprobe::Screen::Home,
                 // The same words the heartbeat's `overlay=` uses, and — since phase 9 — from the
                 // same place: the SURFACE that is up. There is no second table; see

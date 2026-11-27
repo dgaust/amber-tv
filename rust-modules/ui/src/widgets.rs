@@ -6953,6 +6953,8 @@ pub const TAB_KEY_LIB_BASE: u32 = crate::dispatch::STRIP_BASE + 0x100;
 pub const TAB_KEY_EDIT: u32 = crate::dispatch::STRIP_BASE + 6;
 /// Amber: the Live TV guide.
 pub const TAB_KEY_LIVETV: u32 = crate::dispatch::STRIP_BASE + 7;
+/// Amber: the music library.
+pub const TAB_KEY_MUSIC: u32 = crate::dispatch::STRIP_BASE + 10;
 /// Amber: the sidebar's Settings entry, before "Edit sidebar": it opens Settings from any page.
 pub const TAB_KEY_SETTINGS: u32 = crate::dispatch::STRIP_BASE + 8;
 /// How many libraries the sidebar can list.

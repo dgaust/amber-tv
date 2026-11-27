@@ -38,6 +38,7 @@ pub(crate) fn route_word(route: &AppArg) -> &'static str {
         AppArg::Search => "search",
         AppArg::Watchlist => "watchlist",
         AppArg::LiveTv => "livetv",
+        AppArg::Music => "music",
         AppArg::Screensaver => "screensaver",
         AppArg::QuitPrompt => "quitprompt",
         AppArg::Player => "player",

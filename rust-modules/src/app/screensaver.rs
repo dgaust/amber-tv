@@ -92,7 +92,7 @@ fn ensure_loaded() {
 
 /// Is `arg` a page the screensaver may cover? A browsing page, never playback or a sign-in.
 fn coverable(arg: &AppArg) -> bool {
-    matches!(arg, AppArg::Home | AppArg::Library | AppArg::Search | AppArg::Watchlist | AppArg::LiveTv
+    matches!(arg, AppArg::Home | AppArg::Library | AppArg::Search | AppArg::Watchlist | AppArg::LiveTv | AppArg::Music
         | AppArg::LibraryCollections { .. } | AppArg::LibraryRecommended { .. } | AppArg::Content(_)
         | AppArg::Settings(_))
 }
