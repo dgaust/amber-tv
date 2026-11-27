@@ -114,7 +114,7 @@ const TABS: [&str; 5] = ["Recommended", "Artists", "Albums", "Tracks", "Playlist
 const ELEM: u32 = 1;
 const GROUP: GroupId = GroupId(0);
 const LEFT: f32 = plx_ui::consts::MARGIN_X;
-const RIGHT: f32 = plx_ui::consts::SCR_W - plx_ui::consts::MARGIN_X;
+const RIGHT: f32 = plx_ui::consts::SCR_W - plx_ui::consts::MARGIN_X - plx_ui::widgets::PAGE_SHIFT_CLOSED;
 const SCR_H: f32 = plx_ui::consts::SCR_H;
 const TOP: f32 = 150.0;
 const COLS: usize = 6;
@@ -272,20 +272,27 @@ impl MusicScreen {
         }
     }
 
-    /// Ask for the data the current view needs, once.
-    fn want<H: ContentLike>(&mut self, fx: &mut Effects<'_, H>) {
-        let Some(key) = self.key() else { return };
+    /// The list the current view needs and has not asked for yet (asked once, then remembered).
+    pub fn next_load(&mut self) -> Option<String> {
+        let key = self.key()?;
         if self.model.status != MusicStatus::Ready || self.model.lists.contains_key(&key) && key != "hubs" {
-            return;
+            return None;
         }
         if key == "hubs" && !self.model.hubs.is_empty() {
-            return;
+            return None;
         }
         if self.asked.contains(&key) {
-            return;
+            return None;
         }
         self.asked.push(key.clone());
-        fx.push(Fx::App(AppFx::Music(MusicOut::Load { key })));
+        Some(key)
+    }
+
+    /// Ask for the data the current view needs, once.
+    fn want<H: ContentLike>(&mut self, fx: &mut Effects<'_, H>) {
+        if let Some(key) = self.next_load() {
+            fx.push(Fx::App(AppFx::Music(MusicOut::Load { key })));
+        }
     }
 
     fn out<H: ContentLike>(fx: &mut Effects<'_, H>, o: MusicOut) {

@@ -1639,7 +1639,12 @@ impl Bridge {
         let stamp = crate::app::music::model_stamp();
         if !screen.wants_model() && FED.with(|f| f.get()) == stamp { return; }
         FED.with(|f| f.set(stamp));
-        if screen.input(crate::app::music::model()) {
+        let changed = screen.input(crate::app::music::model());
+        // what the page now shows needs asking for: the page cannot, until a key reaches it
+        if let Some(key) = screen.next_load() {
+            crate::app::music::handle(plx_screens::music::MusicOut::Load { key });
+        }
+        if changed {
             d.present.note_in_scope(plx_machine::present::Scope::Page,
                 plx_machine::present::PresentEvent::Damage(plx_machine::present::Provenance::Lifecycle));
         }

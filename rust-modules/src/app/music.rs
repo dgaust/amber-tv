@@ -432,8 +432,9 @@ struct TrackRun {
     dec: Option<decode::Running>,
     /// Where in the pipeline's timeline this track's audio begins (ns).
     first_pts: i64,
-    /// The track position the first access unit stands for (ns): non-zero after a seek.
-    offset_ns: i64,
+    /// The content time of the first access unit that arrived (ns): a seek lands on the frame before its
+    /// target, so the timeline is measured from the unit actually decoded, not from the target.
+    base_ns: Option<i64>,
     last_end_pts: i64,
 }
 
@@ -800,7 +801,7 @@ impl Engine {
         plx_base::eventlog::log(&format!("music: decoding \"{}\" from {} ms", item.title, offset_ms));
         let first = self.next_audio_pts;
         self.slots.push_back(Slot { first_pts: first, offset_ms, item: item.clone(), duration_ms: item.duration_ms, order_pos: pos });
-        self.cur = Some(TrackRun { item: idx, dec: Some(dec), first_pts: first, offset_ns: offset_ms * 1_000_000, last_end_pts: first });
+        self.cur = Some(TrackRun { item: idx, dec: Some(dec), first_pts: first, base_ns: None, last_end_pts: first });
         with(|s| {
             s.q.pos = pos;
             bump(s);
@@ -1038,7 +1039,19 @@ impl Engine {
                 }
             };
             let Some(cur) = self.cur.as_mut() else { break };
-            let pts = cur.first_pts + (au.pts_ns - cur.offset_ns).max(0);
+            let base = match cur.base_ns {
+                Some(b) => b,
+                None => {
+                    cur.base_ns = Some(au.pts_ns);
+                    // the slot for this track stands for where the decode really began
+                    let first = cur.first_pts;
+                    if let Some(slot) = self.slots.iter_mut().rev().find(|s| s.first_pts == first) {
+                        slot.offset_ms = au.pts_ns / 1_000_000;
+                    }
+                    au.pts_ns
+                }
+            };
+            let pts = cur.first_pts + (au.pts_ns - base).max(0);
             let r = unsafe { sink.feed(mt, au.pcm.as_ptr(), au.pcm.len() as u32, pts, ES_AUDIO) } as u8;
             if r == b'O' {
                 let dur = (au.pcm.len() / decode::BYTES_PER_FRAME) as i64 * 1_000_000_000 / decode::RATE;
@@ -1079,6 +1092,8 @@ impl Engine {
                 sink.plane_resume(mt);
             }
             self.played = true;
+            // the output presents about 400 ms after Play (the PCM lead); the on-screen clock follows what is heard
+            self.clock_ns = -400_000_000;
             plx_base::eventlog::log("music: playing");
         }
         if self.played && !self.paused {

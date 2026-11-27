@@ -3418,6 +3418,76 @@ class MockPms:
                                    {"key": "lastViewedAt", "defaultDirection": "desc", "title": "Date Viewed"},
                                    {"key": "random", "defaultDirection": "asc", "title": "Randomly"}]}]}
 
+
+    # ---- Amber: a small music library, behind MOCK_MUSIC=1 (sim runs of the Music page) ------------------
+    _MUSIC_ARTISTS = ["Harbour Lights", "Velvet Static", "Fen and Field", "Mira Calloway", "The Salt Line",
+                      "Juno Park", "Old Mill", "Tessellate", "Bright Valley", "Ember Row", "Quiet Fires", "Marlow"]
+    _MUSIC_TRACKS = ["Glass Harbour", "Paper Moons", "Low Tide Radio", "Salt and Static", "Northbound",
+                     "Lanterns", "After the Flood", "Slow Fire"]
+
+    def _music_matches(self, p):
+        return (p.startswith("/library/sections/90/") or p.startswith("/hubs/sections/90")
+                or p.startswith("/playlists") or p == "/library/sections/90"
+                or (p.startswith("/library/metadata/") and p.split("/")[3:4] and p.split("/")[3].isdigit()
+                    and int(p.split("/")[3]) >= 7000 and int(p.split("/")[3]) < 9000))
+
+    def _music_items(self):
+        artists, albums, tracks = [], [], []
+        for a, name in enumerate(self._MUSIC_ARTISTS):
+            ark = 7000 + a
+            artists.append({"ratingKey": str(ark), "type": "artist", "title": name, "leafCount": 3, "childCount": 3,
+                            "thumb": f"/library/metadata/{ark}/thumb/1", "Genre": [{"tag": "Synth-pop"}],
+                            "summary": "A sample artist for the simulator."})
+            for b in range(3):
+                brk = 7100 + a * 3 + b
+                title = f"{self._MUSIC_TRACKS[(a + b) % 8]} Sessions" if b else f"{self._MUSIC_TRACKS[a % 8]}"
+                albums.append({"ratingKey": str(brk), "type": "album", "title": title, "parentTitle": name,
+                               "parentRatingKey": str(ark), "year": 2018 + b, "leafCount": 8,
+                               "thumb": f"/library/metadata/{brk}/thumb/1", "Genre": [{"tag": "Synth-pop"}]})
+                for t in range(8):
+                    trk = 7500 + (a * 3 + b) * 8 + t
+                    tracks.append({"ratingKey": str(trk), "type": "track", "title": self._MUSIC_TRACKS[t],
+                                   "parentTitle": title, "parentRatingKey": str(brk), "grandparentTitle": name,
+                                   "grandparentRatingKey": str(ark), "parentThumb": f"/library/metadata/{brk}/thumb/1",
+                                   "index": t + 1, "parentIndex": 1, "duration": 180000 + t * 15000,
+                                   "Media": [{"audioCodec": "flac", "container": "flac", "bitrate": 1411, "audioChannels": 2,
+                                              "Part": [{"key": f"/library/parts/{trk}/1/file.flac", "size": 30000000,
+                                                        "Stream": [{"streamType": 2, "samplingRate": 44100, "bitDepth": 16}]}]}]})
+        return artists, albums, tracks
+
+    def _music(self, p, q, lib):
+        artists, albums, tracks = self._music_items()
+        segs = [x for x in p.split("/") if x]
+        start = int(q.get("X-Plex-Container-Start", 0) or 0)
+        size = int(q.get("X-Plex-Container-Size", 50) or 50)
+        def page(rows):
+            return self.container(Metadata=rows[start:start + size], size=len(rows[start:start + size]),
+                                  totalSize=len(rows), offset=start)
+        if len(segs) == 4 and segs[:3] == ["library", "sections", "90"] and segs[3] == "all":
+            rows = {"8": artists, "9": albums}.get(q.get("type"), tracks)
+            return page(sorted(rows, key=lambda r: r["title"]))
+        if segs[:2] == ["hubs", "sections"]:
+            return self.container(Hub=[
+                {"hubIdentifier": "music.recent", "title": "Recently Added", "Metadata": albums[:12]},
+                {"hubIdentifier": "music.played", "title": "Recently Played", "Metadata": albums[12:24]},
+                {"hubIdentifier": "music.artists", "title": "Artists", "Metadata": artists}])
+        if segs[:1] == ["playlists"]:
+            if len(segs) == 3 and segs[2] == "items":
+                return page(tracks[:20])
+            return self.container(Metadata=[{"ratingKey": "9001", "type": "playlist", "title": "Sunday Drive", "leafCount": 20},
+                                            {"ratingKey": "9002", "type": "playlist", "title": "Late Night", "leafCount": 12}])
+        if segs[:2] == ["library", "metadata"] and len(segs) >= 3:
+            rk = int(segs[2])
+            if len(segs) == 4 and segs[3] == "children":
+                if rk < 7100:
+                    return page([a for a in albums if a["parentRatingKey"] == str(rk)])
+                return page([t for t in tracks if t["parentRatingKey"] == str(rk)])
+            if len(segs) == 4 and segs[3] == "grandchildren":
+                return page([t for t in tracks if t["grandparentRatingKey"] == str(rk)])
+            hit = next((r for r in artists + albums + tracks if r["ratingKey"] == str(rk)), None)
+            return self.container(Metadata=[hit] if hit else [])
+        return self.container(Metadata=[])
+
     def handle(self, method, path, body=b"", headers=None):
         """Returns (status, content_type, bytes)."""
         u = urllib.parse.urlsplit(path)
@@ -3730,13 +3800,15 @@ class MockPms:
             return j(self.container(Metadata=[item] if item else []))
         if p == "/livetv/sessions":
             return j(self.container(Metadata=[]))
+        if os.environ.get("MOCK_MUSIC") and self._music_matches(p):
+            return j(self._music(p, q, lib))
         if p == "/library/sections":
             return j(self.container(Directory=[dict(s, agent="tv.plex.agents.movie",
                                                     scanner="Plex Movie", language="en-US",
                                                     art="/:/resources/movie-fanart.jpg",
                                                     composite=f"/library/sections/{s['key']}/composite/1",
                                                     refreshing=False, allowSync=False)
-                                               for s in lib.sections]))
+                                               for s in lib.sections] + ([{"key": "90", "type": "artist", "title": "Music", "agent": "tv.plex.agents.music"}] if os.environ.get("MOCK_MUSIC") else [])))
         if len(segs) == 4 and segs[:2] == ["library", "sections"] and segs[3] == "all":
             if q.get("type") == "18":
                 rows = lib.collection_metadata(segs[2])
