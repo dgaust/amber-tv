@@ -436,7 +436,7 @@ impl Backdrop {
         snap: f32,
     ) {
         let resolve = |h: Option<HeroRef<'_>>| {
-            h.map(|h| plx_ui::widgets::resolve_tex_wh_on(h.item.sid.raw(), billboard_art(h.item), 1280, 720, 0))
+            h.map(|h| plx_ui::widgets::resolve_tex_wh_on(h.item.sid.raw(), billboard_art(h.item), HERO_ART_RES.0, HERO_ART_RES.1, 0))
                 .unwrap_or((0, 0.0, 0.0))
         };
         let changed = match (self.keyed.as_ref(), selected) {
@@ -458,7 +458,7 @@ impl Backdrop {
             self.tex = resolve(hero);
             self.outgoing_tex = match (outgoing, self.held.as_ref()) {
                 (Some(_), _) | (None, None) => resolve(outgoing),
-                (None, Some((sid, art))) => plx_ui::widgets::resolve_tex_wh_on(*sid, art, 1280, 720, 0),
+                (None, Some((sid, art))) => plx_ui::widgets::resolve_tex_wh_on(*sid, art, HERO_ART_RES.0, HERO_ART_RES.1, 0),
             };
         } else {
             self.tex = (0, 0.0, 0.0);
@@ -2129,7 +2129,7 @@ impl HomeScreen {
         );
         let neighbours = || order[..count].iter().filter_map(|&i| view.hero(i as usize));
         for hero in neighbours() {
-            plx_ui::widgets::resolve_tex_wh_on(hero.item.sid.raw(), billboard_art(hero.item), 1280, 720, 0);
+            plx_ui::widgets::resolve_tex_wh_on(hero.item.sid.raw(), billboard_art(hero.item), HERO_ART_RES.0, HERO_ART_RES.1, 0);
         }
         if !(prefetch_armed(self.snap.pos, self.outgoing.is_some())
             && plx_ui::tex::source_idle())
@@ -4284,6 +4284,11 @@ fn hero_line(hero: &PmsMovie) -> Option<HeroLine<'_>> {
 /// metadata block beneath it. The identity band is one line in reading ink. A premise can wrap.
 /// Amber: the billboard follows focus instead of turning over by itself (owner, 2026-11-18).
 const BILLBOARD_TURNS: bool = false;
+
+/// Amber: the box the page's backdrop is requested at - the canvas itself (1920x1080), as the detail page's hero
+/// art is. At the 1280x720 it was, the picture was stretched 1.5x over the canvas and the panel stretched it
+/// again; the server scales once, to what is drawn.
+const HERO_ART_RES: (std::os::raw::c_int, std::os::raw::c_int) = (1920, 1080);
 
 /// Amber: the billboard's picture - the title's fan art (for an episode, its show's), else the
 /// episode's still, else its thumbnail.
