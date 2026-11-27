@@ -726,6 +726,7 @@ impl Engine {
         let keep = (self.pending_pause, self.skip);
         let _ = keep;
         *self = Engine::default();
+        plx_media::player::preview::set_music_holds_output(false);
         with(bump);
     }
 
@@ -771,6 +772,7 @@ impl Engine {
             return;
         }
         *self = Engine { boot: Boot::Loading { rv, at: now }, epoch, last_tick: now, ..Engine::default() };
+        plx_media::player::preview::set_music_holds_output(true);
         plx_base::eventlog::log(&format!("music: starting the pipeline, epoch {epoch}"));
     }
 
@@ -860,6 +862,21 @@ impl Engine {
     /// Begin decoding the track at queue position `pos`, from `offset_ms`. False while its file is coming.
     fn start_track(&mut self, pos: usize, offset_ms: i64) -> bool {
         let Some((_, item)) = Self::entry(pos) else { return false };
+        if item.part_size as usize > MAX_FILE {
+            // too large to hold in memory: skip it
+            plx_base::eventlog::log(&format!("music: \"{}\" is too large to play ({} MB)", item.title, item.part_size / 1_000_000));
+            with(|s| note(s, "A track was skipped: its file is too large."));
+            self.error_streak += 1;
+            self.restart_next_pos = None;
+            match Self::step_pos(pos, 1, false) {
+                Some(np) if np != pos && self.error_streak < 3 => self.restart_at = Some((np, 0)),
+                _ => {
+                    self.restart_at = None;
+                    self.drained = true;
+                }
+            }
+            return false;
+        }
         let Some(data) = self.file_for(&item) else {
             self.buffering = true;
             return false;
@@ -1192,6 +1209,11 @@ impl Engine {
         if self.feed_errors >= 200 {
             with(|s| note(s, "The audio output stopped."));
             self.release(mt, "the pipeline stopped answering");
+            return;
+        }
+        // nothing came of the queue (every track failed or was skipped): give the pipeline back
+        if self.drained && !self.played && self.cur.is_none() && self.next_audio_pts == 0 && self.restart_at.is_none() {
+            self.release(mt, "nothing could be played");
             return;
         }
         // the next track's file, while this one plays

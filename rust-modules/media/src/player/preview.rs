@@ -491,7 +491,15 @@ pub(crate) static TRAILER_AUTOPLAY: crate::route::LiveCell<bool> =
 /// cached; the storage-helper round trip that cache exists to avoid cost ~27 ms/frame on the
 /// television in 2026-09, the detail-page 60->26 fps regression. See `session::IO`/`session::CACHE`.)
 pub fn enabled() -> bool {
-    !nopreview_armed() && TRAILER_AUTOPLAY.get()
+    !nopreview_armed() && TRAILER_AUTOPLAY.get() && !MUSIC_HOLDS_OUTPUT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Amber: music plays through the same native pipeline, so a hero trailer must not start while a listening
+/// session holds it (the music engine sets this for the life of its pipeline).
+static MUSIC_HOLDS_OUTPUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_music_holds_output(on: bool) {
+    MUSIC_HOLDS_OUTPUT.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Put the switch where a restore says without saving it: what `route::restore_profile_rows`
