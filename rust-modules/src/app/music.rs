@@ -20,7 +20,9 @@ use std::sync::{Arc, Mutex};
 
 const PAGE: usize = 120;
 /// Files larger than this are not held in memory.
-const MAX_FILE: usize = 160 * 1024 * 1024;
+const MAX_FILE: usize = 260 * 1024 * 1024;
+/// The next track is fetched ahead only when it is no bigger than this.
+const PREFETCH_MAX: usize = 100 * 1024 * 1024;
 
 #[derive(Default)]
 struct Shared {
@@ -287,8 +289,28 @@ pub(crate) fn model_stamp() -> u64 {
 }
 
 pub(crate) fn model() -> MusicModel {
-    let now = ENGINE.with(|e| e.borrow().now_playing());
-    with(|s| MusicModel {
+    let (heard, starting) = ENGINE.with(|e| {
+        let e = e.borrow();
+        (e.now_playing(), e.starting())
+    });
+    let anim = crate::app::clock::now() / 300;
+    with(|s| {
+        // before the first sound: the track that is about to play, and what it is waiting for
+        let now = heard.or_else(|| {
+            if starting.is_none() && !s.q.want_start {
+                return None;
+            }
+            let (status, progress) = starting.unwrap_or(("Getting ready".to_owned(), -1.0));
+            let item = s.q.items.get(*s.q.order.get(s.q.pos)?)?.clone();
+            Some(NowPlaying { duration_ms: item.duration_ms, item, pos_ms: 0, playing: false, buffering: true, status, progress, anim })
+        });
+        build_model(s, now)
+    })
+}
+
+fn build_model(s: &mut Shared, now: Option<NowPlaying>) -> MusicModel {
+    {
+        MusicModel {
         status: s.status,
         sid: s.sid,
         section_title: s.sections.iter().find(|x| Some(x.key) == s.section).map(|x| x.title.clone()).unwrap_or_default(),
@@ -301,7 +323,8 @@ pub(crate) fn model() -> MusicModel {
         repeat: s.q.repeat,
         note: if now_secs() < s.note_until { s.note.clone() } else { String::new() },
         open_now_playing: OPEN_NP.swap(false, Ordering::AcqRel),
-    })
+        }
+    }
 }
 
 fn note(s: &mut Shared, text: &str) {
@@ -473,8 +496,50 @@ struct Slot {
 
 enum File {
     None,
-    Fetching { rk: String, slot: Arc<Mutex<Option<Option<Vec<u8>>>>> },
-    Ready { rk: String, data: Arc<Vec<u8>> },
+    /// A track's file arriving in chunks (the decoder reads it as it grows).
+    Stream { rk: String, stream: Arc<decode::Stream> },
+}
+
+/// Download `key` into `stream` in ranged chunks, growing from half a megabyte to eight.
+fn download(key: String, total: usize, stream: Arc<decode::Stream>) {
+    let client = plx_plex::plex::client();
+    let mut at = 0usize;
+    let mut chunk = 512 * 1024usize;
+    loop {
+        // nobody is reading it any more (the track was skipped): stop fetching
+        if Arc::strong_count(&stream) == 1 {
+            return;
+        }
+        if total > 0 && at >= total {
+            break;
+        }
+        let mut to = at + chunk - 1;
+        if total > 0 {
+            to = to.min(total - 1);
+        }
+        match client.music_fetch_range(&key, at, to) {
+            Some(bytes) if !bytes.is_empty() => {
+                let asked = to - at + 1;
+                // a server that ignored the range sent the whole file
+                if at == 0 && bytes.len() > asked && (total == 0 || bytes.len() >= total) {
+                    stream.set_all(bytes);
+                    return;
+                }
+                at += bytes.len();
+                let short = bytes.len() < asked;
+                stream.push(&bytes);
+                if total == 0 && short {
+                    break;
+                }
+            }
+            _ => {
+                stream.fail();
+                return;
+            }
+        }
+        chunk = (chunk * 2).min(8 * 1024 * 1024);
+    }
+    stream.finish();
 }
 
 enum Boot {
@@ -495,6 +560,8 @@ struct Engine {
     next_audio_pts: i64,
     next_video_pts: i64,
     cur: Option<TrackRun>,
+    /// The file of the track that is starting: its download shows on screen while the viewer waits.
+    cur_stream: Option<Arc<decode::Stream>>,
     fade: Option<Fade>,
     slots: VecDeque<Slot>,
     playing: Option<Slot>,
@@ -535,6 +602,7 @@ impl Default for Engine {
             next_audio_pts: 0,
             next_video_pts: 0,
             cur: None,
+            cur_stream: None,
             fade: None,
             slots: VecDeque::new(),
             playing: None,
@@ -639,9 +707,31 @@ pub(crate) fn stop_for_video(mt: &plx_base::task::MainThread) {
 }
 
 impl Engine {
+    /// While a track is on its way (no slot is playing yet): what the viewer is waiting for, and how far it is.
+    fn starting(&self) -> Option<(String, f32)> {
+        if self.playing.is_some() || !self.active() {
+            return None;
+        }
+        Some(match &self.boot {
+            Boot::Loading { .. } => ("Starting the audio output".to_owned(), -1.0),
+            _ => match &self.cur_stream {
+                Some(st) if st.is_failed() => ("The download failed".to_owned(), -1.0),
+                Some(st) if !st.is_complete() && st.total > 0 => {
+                    let got = st.downloaded();
+                    (format!("Downloading {} of {} MB", got / 1_000_000, st.total / 1_000_000), got as f32 / st.total as f32)
+                }
+                Some(_) => ("Getting ready to play".to_owned(), -1.0),
+                None => ("Fetching the track".to_owned(), -1.0),
+            },
+        })
+    }
+
     fn stamp(&self) -> u64 {
+        let wait = self.starting().map_or(0u64, |(s, p)| {
+            (crate::app::clock::now() / 250) as u64 ^ ((p.max(0.0) * 1000.0) as u64) << 20 ^ (s.len() as u64) << 50
+        });
         let pos = self.position_ms().unwrap_or(0) / 250;
-        (pos as u64)
+        wait ^ (pos as u64)
             ^ ((self.paused as u64) << 40)
             ^ ((self.playing.is_some() as u64) << 41)
             ^ ((self.buffering as u64) << 42)
@@ -665,6 +755,9 @@ impl Engine {
             duration_ms: p.duration_ms,
             playing: self.played && !self.paused,
             buffering: self.buffering,
+            status: String::new(),
+            progress: -1.0,
+            anim: 0,
         })
     }
 
@@ -813,49 +906,25 @@ impl Engine {
     }
 
     fn start_fetch(&mut self, item: &MusicItem) {
-        if item.part_size as usize > MAX_FILE {
-            with(|s| note(s, "That file is too large to play."));
+        let stream = Arc::new(decode::Stream::new(item.part_size.max(0) as usize));
+        let (s2, key, total) = (stream.clone(), item.part_key.clone(), item.part_size.max(0) as usize);
+        let spawned = std::thread::Builder::new().name("music-fetch".into()).spawn(move || download(key, total, s2));
+        if spawned.is_ok() {
+            self.file = File::Stream { rk: item.rk.clone(), stream };
+        } else {
+            stream.fail();
+            self.file = File::None;
         }
-        let slot = Arc::new(Mutex::new(None));
-        let (slot2, key) = (slot.clone(), item.part_key.clone());
-        let spawned = std::thread::Builder::new().name("music-fetch".into()).spawn(move || {
-            let data = plx_plex::plex::client().music_fetch_part(&key);
-            if let Ok(mut g) = slot2.lock() {
-                *g = Some(data);
-            }
-        });
-        self.file = if spawned.is_ok() { File::Fetching { rk: item.rk.clone(), slot } } else { File::None };
     }
 
-    /// The file for `item`, if it is here; starts the fetch if it is not.
-    fn file_for(&mut self, item: &MusicItem) -> Option<Arc<Vec<u8>>> {
-        if let File::Fetching { rk, slot } = &self.file {
-            let done = slot.lock().ok().and_then(|mut g| g.take());
-            match done {
-                Some(Some(data)) => {
-                    let rk = rk.clone();
-                    self.file = File::Ready { rk, data: Arc::new(data) };
-                }
-                Some(None) => {
-                    plx_base::eventlog::log(&format!("music: could not fetch the file for {}", item.rk));
-                    self.file = File::None;
-                    self.error_streak += 1;
-                    return None;
-                }
-                None => {}
-            }
+    /// The file for `item`, arriving or here; starts the download if none is under way for it.
+    fn file_for(&mut self, item: &MusicItem) -> Option<Arc<decode::Stream>> {
+        if !matches!(&self.file, File::Stream { rk, .. } if *rk == item.rk) {
+            self.start_fetch(item);
         }
-        match &self.file {
-            File::Ready { rk, data } if *rk == item.rk => {
-                let data = data.clone();
-                self.file = File::None;
-                Some(data)
-            }
-            File::Fetching { rk, .. } if *rk == item.rk => None,
-            _ => {
-                self.start_fetch(item);
-                None
-            }
+        match std::mem::replace(&mut self.file, File::None) {
+            File::Stream { stream, .. } => Some(stream),
+            File::None => None,
         }
     }
 
@@ -882,6 +951,7 @@ impl Engine {
             return false;
         };
         self.buffering = false;
+        self.cur_stream = Some(data.clone());
         let dec = decode::spawn(data, offset_ms);
         plx_base::eventlog::log(&format!("music: decoding \"{}\" from {} ms", item.title, offset_ms));
         let first = self.next_audio_pts;
@@ -1157,8 +1227,8 @@ impl Engine {
                     let shown = with(|s| s.q.pos);
                     if let Some(np) = Self::step_pos(shown, 1, true).filter(|&n| n != shown) {
                         if let Some((_, item)) = Self::entry(np) {
-                            if matches!(&self.file, File::Ready { rk, .. } if *rk == item.rk) {
-                                if let File::Ready { data, .. } = std::mem::replace(&mut self.file, File::None) {
+                            if matches!(&self.file, File::Stream { rk, .. } if *rk == item.rk) {
+                                if let File::Stream { stream: data, .. } = std::mem::replace(&mut self.file, File::None) {
                                     let dec = decode::spawn(data, 0);
                                     plx_base::eventlog::log(&format!("music: crossfading into \"{}\"", item.title));
                                     self.slots.push_back(Slot { first_pts: pts, offset_ms: 0, item: item.clone(), duration_ms: item.duration_ms, order_pos: np });
@@ -1221,7 +1291,7 @@ impl Engine {
             let pos = with(|s| s.q.pos);
             if let Some(np) = Self::step_pos(pos, 1, true).filter(|&n| n != pos) {
                 if let Some((_, item)) = Self::entry(np) {
-                    if (item.part_size as usize) <= MAX_FILE {
+                    if (item.part_size as usize) <= PREFETCH_MAX {
                         self.start_fetch(&item);
                     }
                 }

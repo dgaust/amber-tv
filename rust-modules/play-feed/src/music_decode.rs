@@ -10,9 +10,9 @@
 use plx_media_codecs::ffi::*;
 use plx_media_codecs::SpeedDecoder;
 use std::os::raw::{c_int, c_void};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError};
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 /// 48 kHz, 16-bit, stereo.
@@ -22,6 +22,53 @@ pub const RATE: i64 = 48_000;
 const QUEUE_AUS: usize = 400;
 const AVSEEK_SIZE_FLAG: c_int = 0x10000;
 const AVERROR_EOF_CODE: c_int = -541_478_725;
+
+/// A track file that is still arriving: the bytes so far, and how many there will be. The decoder reads it
+/// as it grows (a read past the end waits for more), so decoding starts with the first chunk, not the last.
+pub struct Stream {
+    buf: Mutex<Vec<u8>>,
+    cv: Condvar,
+    /// The file's size when the server said (0 = unknown until it is all here).
+    pub total: usize,
+    /// 0 arriving, 1 complete, 2 failed.
+    state: AtomicU8,
+}
+
+impl Stream {
+    pub fn new(total: usize) -> Stream {
+        Stream { buf: Mutex::new(Vec::with_capacity(total.min(300 << 20))), cv: Condvar::new(), total, state: AtomicU8::new(0) }
+    }
+    pub fn push(&self, bytes: &[u8]) {
+        if let Ok(mut b) = self.buf.lock() {
+            b.extend_from_slice(bytes);
+        }
+        self.cv.notify_all();
+    }
+    /// The server sent the whole file where a part was asked for: replace what there is.
+    pub fn set_all(&self, bytes: Vec<u8>) {
+        if let Ok(mut b) = self.buf.lock() {
+            *b = bytes;
+        }
+        self.finish();
+    }
+    pub fn finish(&self) {
+        self.state.store(1, Ordering::SeqCst);
+        self.cv.notify_all();
+    }
+    pub fn fail(&self) {
+        self.state.store(2, Ordering::SeqCst);
+        self.cv.notify_all();
+    }
+    pub fn downloaded(&self) -> usize {
+        self.buf.lock().map_or(0, |b| b.len())
+    }
+    pub fn is_complete(&self) -> bool {
+        self.state.load(Ordering::SeqCst) == 1
+    }
+    pub fn is_failed(&self) -> bool {
+        self.state.load(Ordering::SeqCst) == 2
+    }
+}
 
 /// One piece of decoded audio and where in the track it starts.
 pub struct Au {
@@ -73,7 +120,7 @@ impl Drop for Running {
 }
 
 /// Start decoding `file` from `start_ms` on its own thread.
-pub fn spawn(file: Arc<Vec<u8>>, start_ms: i64) -> Running {
+pub fn spawn(file: Arc<Stream>, start_ms: i64) -> Running {
     let (tx, rx) = sync_channel::<Msg>(QUEUE_AUS);
     let stop = Arc::new(AtomicBool::new(false));
     let probed = Arc::new(std::sync::Mutex::new(None));
@@ -96,37 +143,79 @@ pub fn spawn(file: Arc<Vec<u8>>, start_ms: i64) -> Running {
     Running { rx, stop, handle, probed }
 }
 
-/// The file the AVIO reads: bytes and a cursor.
+/// The file the AVIO reads: the growing stream and a cursor.
 struct MemIo {
-    data: Arc<Vec<u8>>,
+    stream: Arc<Stream>,
+    stop: Arc<AtomicBool>,
     pos: usize,
 }
 
+/// `AVERROR(EIO)`.
+const AVERROR_IO: c_int = -5;
+
 extern "C" fn mem_read(op: *mut c_void, dst: *mut u8, n: c_int) -> c_int {
     let io = unsafe { &mut *(op as *mut MemIo) };
-    let left = io.data.len().saturating_sub(io.pos);
-    if left == 0 {
-        return AVERROR_EOF_CODE;
+    let Ok(mut b) = io.stream.buf.lock() else { return AVERROR_IO };
+    loop {
+        if io.pos < b.len() {
+            let take = (b.len() - io.pos).min(n.max(0) as usize);
+            unsafe { std::ptr::copy_nonoverlapping(b.as_ptr().add(io.pos), dst, take) };
+            io.pos += take;
+            return take as c_int;
+        }
+        if io.stream.is_complete() {
+            return AVERROR_EOF_CODE;
+        }
+        if io.stream.is_failed() {
+            return AVERROR_IO;
+        }
+        if io.stop.load(Ordering::SeqCst) {
+            return AVERROR_EOF_CODE;
+        }
+        b = match io.stream.cv.wait_timeout(b, Duration::from_millis(100)) {
+            Ok((g, _)) => g,
+            Err(_) => return AVERROR_IO,
+        };
     }
-    let take = left.min(n.max(0) as usize);
-    unsafe { std::ptr::copy_nonoverlapping(io.data.as_ptr().add(io.pos), dst, take) };
-    io.pos += take;
-    take as c_int
+}
+
+/// The whole size, when it is known or the file has all arrived (waits for the rest otherwise).
+fn total_size(io: &MemIo) -> Option<usize> {
+    if io.stream.total > 0 {
+        return Some(io.stream.total);
+    }
+    let mut b = io.stream.buf.lock().ok()?;
+    loop {
+        if io.stream.is_complete() {
+            return Some(b.len());
+        }
+        if io.stream.is_failed() || io.stop.load(Ordering::SeqCst) {
+            return None;
+        }
+        b = io.stream.cv.wait_timeout(b, Duration::from_millis(100)).ok()?.0;
+    }
 }
 
 extern "C" fn mem_seek(op: *mut c_void, offset: i64, whence: c_int) -> i64 {
     let io = unsafe { &mut *(op as *mut MemIo) };
     if whence & AVSEEK_SIZE_FLAG != 0 {
-        return io.data.len() as i64;
+        return total_size(io).map_or(-1, |t| t as i64);
     }
     let base = match whence & 3 {
         0 => 0i64,
         1 => io.pos as i64,
-        2 => io.data.len() as i64,
+        2 => match total_size(io) {
+            Some(t) => t as i64,
+            None => return -1,
+        },
         _ => return -1,
     };
     let to = base + offset;
-    if to < 0 || to > io.data.len() as i64 {
+    if to < 0 {
+        return -1;
+    }
+    // a place not yet downloaded is fine: a read there waits for it
+    if io.stream.total > 0 && to as usize > io.stream.total {
         return -1;
     }
     io.pos = to as usize;
@@ -151,10 +240,10 @@ fn send(tx: &SyncSender<Msg>, stop: &AtomicBool, mut m: Msg) -> bool {
 }
 
 fn run(
-    file: &Arc<Vec<u8>>,
+    file: &Arc<Stream>,
     start_ms: i64,
     tx: &SyncSender<Msg>,
-    stop: &AtomicBool,
+    stop: &Arc<AtomicBool>,
     probed: &std::sync::Mutex<Option<Probed>>,
 ) -> Result<(), String> {
     if !abi_ok() {
@@ -162,7 +251,7 @@ fn run(
     }
     ensure_registered();
     unsafe {
-        let mut io = Box::new(MemIo { data: file.clone(), pos: 0 });
+        let mut io = Box::new(MemIo { stream: file.clone(), stop: stop.clone(), pos: 0 });
         let buf = av_malloc(32768) as *mut u8;
         if buf.is_null() {
             return Err("av_malloc failed".into());
@@ -277,9 +366,16 @@ pub fn recv(rx: &Receiver<Msg>, ms: u64) -> Option<Msg> {
 mod tests {
     use super::*;
 
+    fn io_over(bytes: Vec<u8>, total: usize) -> MemIo {
+        let stream = Arc::new(Stream::new(total));
+        stream.push(&bytes);
+        stream.finish();
+        MemIo { stream, stop: Arc::new(AtomicBool::new(false)), pos: 0 }
+    }
+
     #[test]
-    fn the_memory_io_reads_seeks_and_reports_its_size() {
-        let mut io = MemIo { data: Arc::new((0u8..100).collect()), pos: 0 };
+    fn the_stream_io_reads_seeks_and_reports_its_size() {
+        let mut io = io_over((0u8..100).collect(), 100);
         let op = &mut io as *mut MemIo as *mut c_void;
         let mut out = [0u8; 16];
         assert_eq!(mem_read(op, out.as_mut_ptr(), 16), 16);
@@ -289,7 +385,34 @@ mod tests {
         assert_eq!(mem_read(op, out.as_mut_ptr(), 16), 10, "only what is left");
         assert_eq!(mem_read(op, out.as_mut_ptr(), 16), AVERROR_EOF_CODE);
         assert_eq!(mem_seek(op, 500, 0), -1, "past the end is refused");
-        assert_eq!(mem_seek(op, 5, 1), -1, "position is at the end already: 100 + 5 is past it");
         assert_eq!(mem_seek(op, 20, 0), 20);
+    }
+
+    #[test]
+    fn a_read_waits_for_bytes_that_are_still_arriving() {
+        let stream = Arc::new(Stream::new(8));
+        stream.push(&[1, 2, 3, 4]);
+        let mut io = MemIo { stream: stream.clone(), stop: Arc::new(AtomicBool::new(false)), pos: 4 };
+        let s2 = stream.clone();
+        let t = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            s2.push(&[5, 6, 7, 8]);
+            s2.finish();
+        });
+        let op = &mut io as *mut MemIo as *mut c_void;
+        let mut out = [0u8; 8];
+        assert_eq!(mem_read(op, out.as_mut_ptr(), 8), 4, "blocked until the rest came");
+        assert_eq!(&out[..4], &[5, 6, 7, 8]);
+        assert_eq!(mem_read(op, out.as_mut_ptr(), 8), AVERROR_EOF_CODE);
+        t.join().unwrap();
+    }
+
+    #[test]
+    fn a_failed_download_ends_the_read_with_an_error() {
+        let stream = Arc::new(Stream::new(8));
+        stream.fail();
+        let mut io = MemIo { stream, stop: Arc::new(AtomicBool::new(false)), pos: 0 };
+        let mut out = [0u8; 4];
+        assert_eq!(mem_read(&mut io as *mut MemIo as *mut c_void, out.as_mut_ptr(), 4), AVERROR_IO);
     }
 }

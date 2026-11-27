@@ -54,6 +54,12 @@ pub struct NowPlaying {
     pub duration_ms: i64,
     pub playing: bool,
     pub buffering: bool,
+    /// What the viewer is waiting for, while a track is on its way (empty once it plays).
+    pub status: String,
+    /// How far that is, 0..1, or negative when not known.
+    pub progress: f32,
+    /// Moves a few times a second while waiting, for the moving mark.
+    pub anim: u32,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -722,6 +728,16 @@ impl MusicScreen {
         p.text(c.as_ptr(), x, y, sz, ink, 0, bold);
     }
 
+    /// `s` centred in `r`, measured (not by guessing at the glyphs' width).
+    fn centred(p: Painter, s: &str, r: Rect, sz: i32, ink: [f32; 4], bold: i32) {
+        let Ok(c) = CString::new(s) else { return };
+        let w = plx_gfx::text::text_width(c.as_ptr(), sz, bold).min(r.w - 12.0);
+        let y = plx_gfx::text::text_vcenter_y(sz, bold, r.y + r.h * 0.5);
+        let shown = plx_gfx::text::elide(s, (r.w - 12.0).max(10.0), sz, bold, false);
+        let Ok(cs) = CString::new(shown) else { return };
+        p.text(cs.as_ptr(), r.x + (r.w - w) * 0.5, y, sz, ink, 0, bold);
+    }
+
     /// A cover, cropped to fill `r`, with rounded corners (a circle for an artist).
     fn art(&self, p: Painter, path: &str, r: Rect, rad: f32) {
         p.rrect(r, rad, rad, theme::SURFACE_PANEL);
@@ -851,7 +867,7 @@ impl MusicScreen {
             p.rrect(Rect::new(x, y, w, 60.0), 8.0, 8.0, theme::ACCENT);
         }
         let (ink, sub) = if focused { (theme::ACCENT_INK, theme::ACCENT_INK) } else { (theme::TEXT_PRIMARY, theme::TEXT_SECONDARY) };
-        let mark = if playing { "\u{25b6}".to_string() } else if t.index > 0 { t.index.to_string() } else { (i + 1).to_string() };
+        let mark = if playing { ">".to_string() } else if t.index > 0 { t.index.to_string() } else { (i + 1).to_string() };
         let mark_ink = if playing && !focused { theme::RAIL_CURRENT } else { sub };
         Self::text(p, &mark, x + 16.0, y + 30.0, theme::size::CAPTION, mark_ink, 0, 50.0);
         let title_w = w - 330.0;
@@ -863,8 +879,8 @@ impl MusicScreen {
             Self::text(p, &t.title, x + 80.0, y + 30.0, theme::size::CAPTION, ink, 1, title_w);
         }
         if t.user_rating > 0.0 {
-            let stars = format!("{:.1}\u{2605}", t.user_rating / 2.0);
-            Self::text(p, &stars, x + w - 230.0, y + 30.0, theme::size::MICRO, if focused { theme::ACCENT_INK } else { theme::RAIL_CURRENT }, 0, 90.0);
+            let stars = format!("{:.1} stars", t.user_rating / 2.0);
+            Self::text(p, &stars, x + w - 300.0, y + 30.0, theme::size::MICRO, if focused { theme::ACCENT_INK } else { theme::RAIL_CURRENT }, 0, 150.0);
         }
         Self::text(p, &Self::fmt_time(t.duration_ms), x + w - 120.0, y + 30.0, theme::size::MICRO, sub, 0, 100.0);
     }
@@ -885,7 +901,7 @@ impl MusicScreen {
     fn button(p: Painter, x: f32, y: f32, w: f32, label: &str, focused: bool) {
         let r = Rect::new(x, y, w, 56.0);
         p.rrect(r, 28.0, 28.0, if focused { theme::ACCENT } else { theme::with_a(theme::TEXT_PRIMARY, 0.14) });
-        Self::text(p, label, x + 28.0, y + 28.0, theme::size::CAPTION, if focused { theme::ACCENT_INK } else { theme::TEXT_PRIMARY }, 1, w - 40.0);
+        Self::centred(p, label, r, theme::size::CAPTION, if focused { theme::ACCENT_INK } else { theme::TEXT_PRIMARY }, 1);
     }
 
     fn draw_album(&self, p: Painter, album: &MusicItem, active: bool) {
@@ -912,8 +928,8 @@ impl MusicScreen {
             }
         }
         Self::text(p, &meta.join("  \u{b7}  "), x, TOP + 120.0, theme::size::CAPTION, theme::TEXT_SECONDARY, 0, RIGHT - x);
-        Self::button(p, x, TOP + 160.0, 180.0, "\u{25b6} Play", active && self.cur == 0);
-        Self::button(p, x + 196.0, TOP + 160.0, 200.0, "\u{2933} Shuffle", active && self.cur == 1);
+        Self::button(p, x, TOP + 160.0, 180.0, "Play", active && self.cur == 0);
+        Self::button(p, x + 196.0, TOP + 160.0, 200.0, "Shuffle", active && self.cur == 1);
         if tracks.is_empty() {
             Self::text(p, if self.model.lists.contains_key(&format!("album:{}", album.rk)) { "No tracks." } else { "Loading\u{2026}" }, x, TOP + 280.0, theme::size::BODY, theme::TEXT_SECONDARY, 0, 600.0);
             return;
@@ -941,8 +957,8 @@ impl MusicScreen {
             meta.push(format!("{} albums", albums.len()));
         }
         Self::text(p, &meta.join("  \u{b7}  "), x, TOP + 100.0, theme::size::CAPTION, theme::TEXT_SECONDARY, 0, RIGHT - x);
-        Self::button(p, x, TOP + 150.0, 180.0, "\u{25b6} Play", active && self.cur == 0);
-        Self::button(p, x + 196.0, TOP + 150.0, 200.0, "\u{2933} Shuffle", active && self.cur == 1);
+        Self::button(p, x, TOP + 150.0, 180.0, "Play", active && self.cur == 0);
+        Self::button(p, x + 196.0, TOP + 150.0, 200.0, "Shuffle", active && self.cur == 1);
         if albums.is_empty() {
             Self::text(p, if self.model.lists.contains_key(&format!("artist:{}", artist.rk)) { "No albums." } else { "Loading\u{2026}" }, x, TOP + 260.0, theme::size::BODY, theme::TEXT_SECONDARY, 0, 600.0);
             return;
@@ -992,61 +1008,79 @@ impl MusicScreen {
         if !it.codec.is_empty() {
             Self::text(p, &it.quality_label(), x, 378.0, theme::size::MICRO, theme::TEXT_TERTIARY, 0, w);
         }
-        // the progress bar
+        // the progress bar, or what is being waited for
         let by = 440.0;
         let focused = active && self.np_row == 0;
         p.rrect(Rect::new(x, by, w, 8.0), 4.0, 4.0, theme::with_a(theme::TEXT_PRIMARY, 0.22));
-        let frac = if now.duration_ms > 0 { (now.pos_ms as f32 / now.duration_ms as f32).clamp(0.0, 1.0) } else { 0.0 };
-        p.rrect(Rect::new(x, by, (w * frac).max(8.0), 8.0), 4.0, 4.0, theme::RAIL_CURRENT);
-        if focused {
-            p.rrect(Rect::new(x + w * frac - 12.0, by - 8.0, 24.0, 24.0), 12.0, 12.0, theme::ACCENT);
+        if !now.status.is_empty() {
+            if now.progress >= 0.0 {
+                p.rrect(Rect::new(x, by, (w * now.progress.clamp(0.0, 1.0)).max(8.0), 8.0), 4.0, 4.0, theme::RAIL_CURRENT);
+            } else {
+                // not known how long: a mark that travels along the bar
+                let travel = (now.anim % 16) as f32 / 16.0;
+                let seg = 180.0;
+                p.rrect(Rect::new(x + (w - seg) * travel, by, seg, 8.0), 4.0, 4.0, theme::RAIL_CURRENT);
+            }
+            let dots = ".".repeat((now.anim % 4) as usize);
+            Self::text(p, &format!("{}{}", now.status, dots), x, by + 40.0, theme::size::CAPTION, theme::RAIL_CURRENT, 1, w);
+        } else {
+            let frac = if now.duration_ms > 0 { (now.pos_ms as f32 / now.duration_ms as f32).clamp(0.0, 1.0) } else { 0.0 };
+            p.rrect(Rect::new(x, by, (w * frac).max(8.0), 8.0), 4.0, 4.0, theme::RAIL_CURRENT);
+            if focused {
+                p.rrect(Rect::new(x + w * frac - 12.0, by - 8.0, 24.0, 24.0), 12.0, 12.0, theme::ACCENT);
+            }
+            Self::text(p, &Self::fmt_time(now.pos_ms), x, by + 38.0, theme::size::MICRO, theme::TEXT_SECONDARY, 0, 200.0);
+            let left = format!("-{}", Self::fmt_time((now.duration_ms - now.pos_ms).max(0)));
+            Self::text(p, &left, x + w - 200.0, by + 38.0, theme::size::MICRO, theme::TEXT_SECONDARY, 0, 200.0);
         }
-        Self::text(p, &Self::fmt_time(now.pos_ms), x, by + 38.0, theme::size::MICRO, theme::TEXT_SECONDARY, 0, 200.0);
-        let left = format!("-{}", Self::fmt_time((now.duration_ms - now.pos_ms).max(0)));
-        Self::text(p, &left, x + w - 200.0, by + 38.0, theme::size::MICRO, theme::TEXT_SECONDARY, 0, 200.0);
-        if now.buffering {
-            Self::text(p, "Buffering\u{2026}", x + w * 0.5 - 60.0, by + 38.0, theme::size::MICRO, theme::TEXT_TERTIARY, 0, 200.0);
-        }
-        // the transport: shuffle, previous, play/pause, next, repeat
+        // the transport: shuffle, previous, play/pause, next, repeat (words, and the play/pause icon)
         let repeat = match self.model.repeat {
             crate::music::Repeat::Off => "Repeat",
-            crate::music::Repeat::All => "Repeat: all",
-            crate::music::Repeat::One => "Repeat: one",
+            crate::music::Repeat::All => "Repeat all",
+            crate::music::Repeat::One => "Repeat one",
         };
         let labels: [(&str, bool); 5] = [
             ("Shuffle", self.model.shuffle),
-            ("\u{23ee}", false),
-            (if now.playing { "\u{23f8}" } else { "\u{25b6}" }, false),
-            ("\u{23ed}", false),
+            ("Previous", false),
+            ("", false),
+            ("Next", false),
             (repeat, self.model.repeat != crate::music::Repeat::Off),
         ];
         let ty = 520.0;
         let mut cx = x;
         for (i, (label, on)) in labels.iter().enumerate() {
             let big = i == 2;
-            let (cw, ch) = if big { (120.0, 96.0) } else if i == 0 || i == 4 { (170.0, 72.0) } else { (96.0, 72.0) };
+            let (cw, ch) = if big { (120.0, 96.0) } else { (190.0, 72.0) };
             let r = Rect::new(cx, ty + if big { 0.0 } else { 12.0 }, cw, ch);
             let f = active && self.np_row == 1 && self.np_col == i;
             p.rrect(r, ch * 0.5, ch * 0.5, if f { theme::ACCENT } else if *on { theme::with_a(theme::RAIL_CURRENT, 0.45) } else { theme::with_a(theme::TEXT_PRIMARY, 0.14) });
-            Self::text(p, label, r.x + cw * 0.5 - (label.chars().count() as f32 * 7.5).min(cw * 0.4), r.y + ch * 0.5, if big { 40 } else { theme::size::CAPTION }, if f { theme::ACCENT_INK } else { theme::TEXT_PRIMARY }, 1, cw - 16.0);
-            cx += cw + 22.0;
+            let ink = if f { theme::ACCENT_INK } else { theme::TEXT_PRIMARY };
+            if big {
+                let icon = if now.playing { plx_ui::icons::Icon::Pause } else { plx_ui::icons::Icon::Play };
+                let d = 44.0;
+                plx_ui::icons::draw(p, icon, Rect::new(r.x + (cw - d) * 0.5, r.y + (ch - d) * 0.5, d, d), ink);
+            } else {
+                Self::centred(p, label, r, theme::size::CAPTION, ink, 1);
+            }
+            cx += cw + 20.0;
         }
-        // the rating: five stars in half steps
+        // the rating: five stars in half steps, drawn (a font may lack the glyph)
         let ry = 680.0;
         let rf = active && self.np_row == 2;
         let shown = if rf { self.stars } else if it.user_rating > 0.0 { it.user_rating as i32 } else { 0 };
-        let full = shown / 2;
-        let half = shown % 2 == 1;
-        let mut s = String::new();
-        for k in 0..5 {
-            s.push(if k < full { '\u{2605}' } else if k == full && half { '\u{2bea}' } else { '\u{2606}' });
-            s.push(' ');
-        }
         if rf {
-            p.rrect(Rect::new(x - 10.0, ry - 8.0, 420.0, 64.0), 14.0, 14.0, theme::with_a(theme::TEXT_PRIMARY, 0.14));
+            p.rrect(Rect::new(x - 12.0, ry - 12.0, 400.0, 60.0), 14.0, 14.0, theme::with_a(theme::TEXT_PRIMARY, 0.14));
         }
-        Self::text(p, &s, x, ry + 24.0, 44, theme::RAIL_CURRENT, 0, 400.0);
-        Self::text(p, if rf { "Left / Right to rate, OK to save" } else { "Rating" }, x + 430.0, ry + 24.0, theme::size::MICRO, theme::TEXT_TERTIARY, 0, 360.0);
+        for k in 0..5i32 {
+            let sx = x + 8.0 + k as f32 * 70.0;
+            p.rrect(Rect::new(sx, ry, 36.0, 36.0), 18.0, 18.0, theme::with_a(theme::TEXT_PRIMARY, 0.25));
+            if shown >= 2 * (k + 1) {
+                p.rrect(Rect::new(sx, ry, 36.0, 36.0), 18.0, 18.0, theme::RAIL_CURRENT);
+            } else if shown == 2 * k + 1 {
+                p.rrect(Rect::new(sx, ry, 18.0, 36.0), 9.0, 9.0, theme::RAIL_CURRENT);
+            }
+        }
+        Self::text(p, if rf { "Left / Right to rate, OK to save" } else { "Your rating" }, x + 420.0, ry + 18.0, theme::size::MICRO, theme::TEXT_TERTIARY, 0, 360.0);
         // queue and stop
         for (i, label) in ["Queue", "Radio", "Screen off", "Stop"].iter().enumerate() {
             let f = active && self.np_row == 3 && self.np_col == i;
@@ -1070,7 +1104,7 @@ impl MusicScreen {
         let frac = if now.duration_ms > 0 { (now.pos_ms as f32 / now.duration_ms as f32).clamp(0.0, 1.0) } else { 0.0 };
         p.rrect(Rect::new(r.x + 840.0, r.y + 40.0, 640.0, 4.0), 2.0, 2.0, theme::with_a(theme::TEXT_PRIMARY, 0.22));
         p.rrect(Rect::new(r.x + 840.0, r.y + 40.0, (640.0 * frac).max(4.0), 4.0), 2.0, 2.0, theme::RAIL_CURRENT);
-        Self::text(p, if now.playing { "Playing" } else { "Paused" }, r.x + 1500.0, r.y + 42.0, theme::size::MICRO, theme::TEXT_SECONDARY, 0, 120.0);
+        Self::text(p, if !now.status.is_empty() { "Starting" } else if now.playing { "Playing" } else { "Paused" }, r.x + 1500.0, r.y + 42.0, theme::size::MICRO, theme::TEXT_SECONDARY, 0, 120.0);
     }
 
     fn draw_status(&self, p: Painter) {
