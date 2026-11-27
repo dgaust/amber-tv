@@ -1385,10 +1385,14 @@ fn veil_tex() -> std::os::raw::c_uint {
 fn episode_count_chip(p: Painter, card: Rect, rad: f32, n: u32) {
     let Ok(c) = std::ffi::CString::new(n.to_string()) else { return };
     let v = card.w * VEIL_RATIO;
-    p.tex(veil_tex(), Rect::new(card.x + card.w - v, card.y, v, v), rad, theme::TILE_MARK_VEIL);
+    // the veil twice: a number is thinner than the tick and needs the darker ground to hold on a bright poster
+    for _ in 0..2 {
+        p.tex(veil_tex(), Rect::new(card.x + card.w - v, card.y, v, v), rad, theme::TILE_MARK_VEIL);
+    }
     let d = ((card.w * TICK_RATIO) / 4.0).round() * 4.0;
     let ins = card.w * TICK_INSET;
     let slot = Rect::new(card.x + card.w - ins - d, card.y + ins, d, d);
+    p.shadow(slot, d * 0.5, d * TICK_SHADOW_BLUR, d * TICK_SHADOW_DY, theme::TILE_MARK_SHADOW);
     let sz = theme::size::CAPTION;
     let tw = plx_gfx::text::text_width(c.as_ptr(), sz, 1);
     let ty = plx_gfx::text::text_vcenter_y(sz, 1, slot.y + d * 0.5);
