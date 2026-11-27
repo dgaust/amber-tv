@@ -334,7 +334,7 @@ fn logical_hash_names_the_full_restore_target() {
         ep_text: true,
         saved_col: [0, 1, 2, 3, 4, 5, 0, 0],
         season: Some(2),
-    };
+     first_unwatched: false,};
     let right = left.clone();
     left.col = 0;
     a.restore_episode(&left, Some("e1"), test_store().view());

@@ -5275,6 +5275,20 @@ pub(crate) fn open_detail(
     sid: plx_plex::plex::ServerId, rk: &str, season: Option<std::os::raw::c_int>,
     ret: Option<ReturnState<u32, PageMemory>>,
 ) {
+    let spot = plx_data::metadata::Spot {
+        season: season.map(|s| s as i64),
+        ..Default::default()
+    };
+    open_detail_at(d, rig, sid, rk, spot, ret);
+}
+
+/// Amber: [`open_detail`] with the whole mount spot given: a season opened from its poster lands on
+/// the episode strip's first unwatched episode.
+pub(crate) fn open_detail_at(
+    d: &mut Dispatcher<AppHost>, rig: &mut Bridge,
+    sid: plx_plex::plex::ServerId, rk: &str, spot: plx_data::metadata::Spot,
+    ret: Option<ReturnState<u32, PageMemory>>,
+) {
     use plx_ui::screen::ScreenArg;
     let arg = AppArg::Content(ContentArg::Detail { sid, rk: rk.to_string() });
     // The page is already on its way (a second press inside the push's dip-out): the pending push
@@ -5284,10 +5298,6 @@ pub(crate) fn open_detail(
     if d.nav.tabs.stack.pending_dest().is_some_and(|pending| pending.same_instance(&arg)) {
         return;
     }
-    let spot = plx_data::metadata::Spot {
-        season: season.map(|s| s as i64),
-        ..Default::default()
-    };
     rig.seed_detail(sid, rk, spot);
     match ret {
         Some(ret) => nav_push_with_return(d, arg, ret),

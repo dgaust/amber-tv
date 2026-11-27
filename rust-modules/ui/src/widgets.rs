@@ -1090,6 +1090,13 @@ fn card_named_led_body(p: Painter, frame: Rect, art: Art, fan_name: Option<&str>
                 if poster_mark(&m) == PosterMark::Watched {
                     watched_mark(p, r, rad);
                 }
+                // Amber: a season's poster says how many episodes it holds (Recently Added shows a
+                // season, not the episode that arrived, and the count is what tells them apart)
+                if m.kind == TileKind::Season {
+                    if let Some(n) = m.leaf_count.filter(|n| *n > 0) {
+                        episode_count_chip(p, r, n);
+                    }
+                }
             }
         }
         Art::Thumb { key, .. } => {
@@ -1368,6 +1375,25 @@ fn veil_tex() -> std::os::raw::c_uint {
     let tex = plx_gfx::gfx::upload_rgba(0, n as std::os::raw::c_int, n as std::os::raw::c_int, px.as_ptr());
     VEIL_TEX.store(tex, Relaxed);
     tex
+}
+
+/// Amber: the episode count of a season, as a small pill over the poster's bottom-left corner
+/// ("8 episodes"). `card` is the rect actually drawn, so it rides the focus pop. Skipped when the
+/// words would not fit the card.
+fn episode_count_chip(p: Painter, card: Rect, n: u32) {
+    let text = plx_platform::i18n::msg::browse_detail_episodes(i64::from(n)).to_string();
+    let Ok(c) = std::ffi::CString::new(text) else { return };
+    let sz = theme::size::CAPTION;
+    let h = (card.w * 0.13).round().max(24.0);
+    let pad = (h * 0.4).round();
+    let inset = (card.w * 0.05).round();
+    let tw = plx_gfx::text::text_width(c.as_ptr(), sz, 1);
+    let w = tw + 2.0 * pad;
+    if w > card.w - 2.0 * inset { return; }
+    let r = Rect::new(card.x + inset, card.y + card.h - inset - h, w, h);
+    p.rrect(r, h * 0.5, h * 0.5, theme::CONTROL_IDLE_FILL);
+    let ty = plx_gfx::text::text_vcenter_y(sz, 1, r.y + h * 0.5);
+    p.text(c.as_ptr(), r.x + pad, ty, sz, theme::CONTROL_IDLE_INK, 0, 1);
 }
 
 /// The **watched** mark on a poster: a corner veil, then a bare tick over it. `card` is the rect

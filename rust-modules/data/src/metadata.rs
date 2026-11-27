@@ -272,6 +272,9 @@ pub struct Spot {
     pub saved_col: [c_int; SPOT_SECTION_SLOTS],
     /// the selected season's NUMBER, or `None` for an item with no seasons
     pub season: Option<i64>,
+    /// Amber: a season was opened from its poster (Recently Added): the episode strip takes focus on the
+    /// first episode not yet watched, once the season's episodes have landed.
+    pub first_unwatched: bool,
 }
 
 impl Spot {

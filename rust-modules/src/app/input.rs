@@ -464,8 +464,15 @@ pub(crate) unsafe fn activate_card(
             }
         }
     } else if mm.kind == 2 {
-        // season: open the SHOW page with that season selected
-        super::bridge::open_detail(pages, bridge, mm.sid, &mm.show_rk, Some(mm.season_index), ret.take());
+        // season: open the SHOW page with that season selected; a season of several episodes opens on the
+        // first one not yet watched (Recently Added shows a season for a batch of new episodes)
+        let spot = plx_data::metadata::Spot {
+            season: Some(i64::from(mm.season_index)),
+            section: if mm.leaf_count.unwrap_or(0) > 1 { 2 } else { 0 },
+            first_unwatched: mm.leaf_count.unwrap_or(0) > 1,
+            ..Default::default()
+        };
+        super::bridge::open_detail_at(pages, bridge, mm.sid, &mm.show_rk, spot, ret.take());
     } else if mm.kind == 3 {
         // **An episode opens its OWN page**, which is the same page the card menu's "Go to Episode"
         // opens (`Action::GoToItem`) — `detail.rs` serves leaves. It used to open the SHOW's page

@@ -1246,6 +1246,7 @@ mod library_publication_tests {
             ep_text: true,
             saved_col: [0, 1, 3, 0, 0, 0, 0, 0],
             season: Some(2),
+            first_unwatched: false,
         };
         let focus = plx_machine::machine::FocusKey { entry, elem: 3003 };
         let retained = pages.nav.entry_mut(entry).expect("Detail A remains on the stack");

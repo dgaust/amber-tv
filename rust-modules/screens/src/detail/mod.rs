@@ -846,6 +846,7 @@ impl DetailScreen {
             // for legacy focusprobe/trail serialization only and are not a second authority.
             saved_col: [0; plx_data::metadata::SPOT_SECTION_SLOTS],
             season: facts.season,
+            first_unwatched: false,
         }
     }
 
@@ -1344,6 +1345,12 @@ impl DetailScreen {
     /// and the restore waits for the page that holds it rather than seating somewhere else.
     fn episode_to_seat(d: &Detail, intent: &RestoreIntent) -> Option<usize> {
         let hint = (intent.spot.col.max(0) as usize).min(d.episodes.len().saturating_sub(1));
+        // Amber: opened from a season's poster, the first episode not yet watched (one begun counts)
+        if intent.spot.first_unwatched && intent.episode.is_none() {
+            if let Some(i) = (0..d.episodes.len()).find(|&i| d.episodes.get(i).is_some_and(|e| !e.watched)) {
+                return Some(i);
+            }
+        }
         match &intent.episode {
             Some(rk) => d.episodes.position(rk).or_else(|| {
                 if d.episodes.is_complete() {
