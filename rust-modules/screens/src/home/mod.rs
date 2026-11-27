@@ -4285,10 +4285,10 @@ fn hero_line(hero: &PmsMovie) -> Option<HeroLine<'_>> {
 /// Amber: the billboard follows focus instead of turning over by itself (owner, 2026-11-18).
 const BILLBOARD_TURNS: bool = false;
 
-/// Amber: the box the page's backdrop is requested at - the canvas itself (1920x1080), as the detail page's hero
-/// art is. At the 1280x720 it was, the picture was stretched 1.5x over the canvas and the panel stretched it
-/// again; the server scales once, to what is drawn.
-const HERO_ART_RES: (std::os::raw::c_int, std::os::raw::c_int) = (1920, 1080);
+/// Amber: the box the page's backdrop is requested at. 1280x720 was stretched 1.5x over the canvas and the panel
+/// stretched it again; the canvas itself (1920x1080) was sharp but slow to load on the television, so this sits
+/// between the two.
+const HERO_ART_RES: (std::os::raw::c_int, std::os::raw::c_int) = (1600, 900);
 
 /// Amber: the billboard's picture - the title's fan art (for an episode, its show's), else the
 /// episode's still, else its thumbnail.
