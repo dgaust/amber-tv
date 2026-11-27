@@ -764,16 +764,15 @@ impl MusicScreen {
         }
     }
 
-    /// A square card with its caption. `focused` draws the plate behind it.
+    /// A square card with its caption. `focused` frames the cover only: the text stays as it is.
     fn card(&self, p: Painter, x: f32, y: f32, w: f32, item: &MusicItem, focused: bool) {
         let circle = item.kind == MusicKind::Artist;
         let rad = if circle { w * 0.5 } else { 10.0 };
         if focused {
             let pad = 7.0;
-            p.rrect(Rect::new(x - pad, y - pad, w + 2.0 * pad, w + 2.0 * pad + 70.0), rad + pad, rad + pad, theme::ACCENT);
+            p.rrect(Rect::new(x - pad, y - pad, w + 2.0 * pad, w + 2.0 * pad), rad + pad, rad + pad, theme::ACCENT);
         }
         self.art(p, item.cover(), Rect::new(x, y, w, w), rad);
-        let (ink, sub) = if focused { (theme::ACCENT_INK, theme::ACCENT_INK) } else { (theme::TEXT_PRIMARY, theme::TEXT_SECONDARY) };
         let line2 = match item.kind {
             MusicKind::Artist => {
                 if item.leaf_count > 0 { format!("{} albums", item.leaf_count) } else { String::new() }
@@ -786,8 +785,9 @@ impl MusicScreen {
             }
             _ => item.grandparent_title.clone(),
         };
-        Self::text(p, &item.title, x + 4.0, y + w + 24.0, theme::size::CAPTION, ink, 1, w - 8.0);
-        Self::text(p, &line2, x + 4.0, y + w + 52.0, theme::size::MICRO, sub, 0, w - 8.0);
+        let top = y + w + 14.0;
+        Self::text(p, &item.title, x + 4.0, top + 20.0, theme::size::CAPTION, theme::TEXT_PRIMARY, 1, w - 8.0);
+        Self::text(p, &line2, x + 4.0, top + 48.0, theme::size::MICRO, theme::TEXT_SECONDARY, 0, w - 8.0);
     }
 
     fn draw_home(&self, p: Painter, active: bool) {
