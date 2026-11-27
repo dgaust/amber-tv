@@ -55,6 +55,7 @@ mod transcoder;
 // why subscription state must never become a routing input.
 pub mod serverinfo;
 pub mod livetv; // Amber: the DVR's channels, guide grid and tuning
+pub mod music; // Amber: music libraries, artists, albums, tracks
 
 // The plex.tv ACCOUNT surface (login/discovery/home-users) — a separate service from the PMS
 // `Client` above (own host + HTTPS transport), so it's its own `AccountClient`, not an `impl`.
