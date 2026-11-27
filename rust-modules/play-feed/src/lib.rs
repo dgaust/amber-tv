@@ -86,6 +86,7 @@ pub mod readout;
 pub mod pcm_lead;
 pub mod side_reader;
 pub mod shared;
+pub mod music_decode; // Amber music: a downloaded track decoded to 48 kHz stereo PCM
 pub mod vp9_hdr;
 mod send_ptr;
 pub use send_ptr::SendPtr;
