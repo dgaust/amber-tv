@@ -15,6 +15,7 @@
 
 use crate::app::App;
 use plx_platform::tv::sink::{self, UnloadTicket};
+use plx_play_feed::shared::FEED_SHARED;
 use std::cell::RefCell;
 use std::ffi::CString;
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -28,8 +29,6 @@ const PREROLL_NS: i64 = 600_000_000;
 const LEAD_NS: i64 = 1_500_000_000;
 const RUN_MS: u32 = 20_000;
 const START_AFTER_MS: u32 = 8_000;
-/// The Load's epoch (any non-zero value: it only names this Load to the callback trampoline).
-const EPOCH: u32 = 0x4d55_5349;
 const ES_AUDIO: i32 = 2;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -42,7 +41,7 @@ enum Phase {
     Unchecked,
     Off,
     /// The Load is running on its own thread; `rv` is `i32::MIN` until it returns.
-    Loading { rv: Arc<AtomicI32>, at: u32 },
+    Loading { rv: Arc<AtomicI32>, at: u32, epoch: u32, bind: u8 },
     /// Loaded; feeding. `play_at` is `None` until the pre-roll is in and Play has been asked for.
     Feeding(Feed),
     /// Finished; quit once `quit_at` passes.
@@ -52,6 +51,10 @@ enum Phase {
 
 struct Feed {
     variant: Variant,
+    /// 0 = no output binding, 1 = bind (setSinkType MAIN + setMediaId + LOADED), 2 = bind and start (PLAYING).
+    bind: u8,
+    bound: bool,
+    epoch: u32,
     next_pts_ns: i64,
     frames_fed: u64,
     play_at: Option<u32>,
@@ -116,7 +119,13 @@ pub(crate) fn tick(app: &mut App, now: u32) {
                     return;
                 };
                 let variant = if text.contains("withvideo") { Variant::WithVideo } else { Variant::AudioOnly };
-                log(&format!("armed, variant={}", if variant == Variant::AudioOnly { "audio" } else { "withvideo" }));
+                let bind = if text.contains("start") { 2 } else if text.contains("bind") { 1 } else { 0 };
+                let Some(epoch) = FEED_SHARED.begin_native_session() else {
+                    log("could not begin a native session (another Load owns the pipeline)");
+                    *phase = Phase::Done;
+                    return;
+                };
+                log(&format!("armed, variant={} bind={bind} epoch={epoch}", if variant == Variant::AudioOnly { "audio" } else { "withvideo" }));
                 let json = payload(variant);
                 let rv = Arc::new(AtomicI32::new(i32::MIN));
                 let rv2 = rv.clone();
@@ -128,7 +137,8 @@ pub(crate) fn tick(app: &mut App, now: u32) {
                             return;
                         }
                     };
-                    let ok = unsafe { sink::installed().load(c.as_ptr(), EPOCH) };
+                    let ok = unsafe { sink::installed().load(c.as_ptr(), epoch) };
+                    FEED_SHARED.mark_native_load_returned(epoch, None);
                     rv2.store(ok, Ordering::SeqCst);
                 });
                 if spawned.is_err() {
@@ -137,9 +147,9 @@ pub(crate) fn tick(app: &mut App, now: u32) {
                     return;
                 }
                 VARIANT.with(|v| v.set(Some(variant)));
-                *phase = Phase::Loading { rv, at: now };
+                *phase = Phase::Loading { rv, at: now, epoch, bind };
             }
-            Phase::Loading { rv, at } => {
+            Phase::Loading { rv, at, epoch, bind } => {
                 let got = rv.load(Ordering::SeqCst);
                 if got == i32::MIN {
                     if now.wrapping_sub(*at) > 20_000 {
@@ -158,6 +168,9 @@ pub(crate) fn tick(app: &mut App, now: u32) {
                 let variant = VARIANT.with(|v| v.get()).unwrap_or(Variant::AudioOnly);
                 *phase = Phase::Feeding(Feed {
                     variant,
+                    bind: *bind,
+                    bound: false,
+                    epoch: *epoch,
                     next_pts_ns: 0,
                     frames_fed: 0,
                     play_at: None,
@@ -177,8 +190,21 @@ pub(crate) fn tick(app: &mut App, now: u32) {
                 // fed ahead of where the clock stands (before Play, ahead of the start)
                 let clock_ns = f.play_at.map_or(0, |at| i64::from(now.wrapping_sub(at)) * 1_000_000);
                 let limit = if f.play_at.is_some() { clock_ns + LEAD_NS } else { PREROLL_NS };
+                // the output binding the video path does: once the pipeline has named its media id
+                if f.bind > 0 && !f.bound {
+                    let id = FEED_SHARED.media_id.lock().unwrap().clone();
+                    if let Some(id) = id {
+                        unsafe { sink.plane_bind(mt, id.as_ptr()) };
+                        log(&format!("plane bound, media id {}", id.to_string_lossy()));
+                        if f.bind > 1 {
+                            unsafe { sink.plane_start(mt, 0, 0, 1920, 1080) };
+                            log("plane started (PLAYING)");
+                        }
+                        f.bound = true;
+                    }
+                }
                 let mut guard = 0;
-                while f.next_pts_ns < limit && guard < 200 && loaded != 0 {
+                while f.next_pts_ns < limit && guard < 200 && loaded != 0 && (f.bind == 0 || f.bound) {
                     guard += 1;
                     chunk(&mut f.buf, f.frames_fed);
                     let r = unsafe { sink.feed(mt, f.buf.as_ptr(), f.buf.len() as u32, f.next_pts_ns, ES_AUDIO) } as u8 as char;
@@ -208,6 +234,7 @@ pub(crate) fn tick(app: &mut App, now: u32) {
                 }
                 if now.wrapping_sub(f.last_log) >= 2000 {
                     f.last_log = now;
+                    let _ = f.epoch;
                     let t = f.play_at.map_or(0, |at| now.wrapping_sub(at));
                     log(&format!(
                         "t={t}ms ready={ready} loaded={loaded} fed={}ms ahead={}ms accepted={} full={} errors={}",
