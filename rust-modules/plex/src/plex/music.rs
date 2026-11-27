@@ -210,7 +210,8 @@ pub fn parse_item(m: &Value) -> MusicItem {
         duration_ms: n(m, "duration"),
         user_rating: f(m, "userRating").unwrap_or(-1.0),
         view_count: n(m, "viewCount") as i32,
-        leaf_count: n(m, "leafCount").max(n(m, "childCount")) as i32,
+        // an artist's count is its albums (`childCount`); an album's or playlist's is its tracks (`leafCount`)
+        leaf_count: (if s(m, "type") == "artist" { n(m, "childCount") } else { n(m, "leafCount") }) as i32,
         added_at: n(m, "addedAt"),
         genres: m.get("Genre").and_then(|g| g.as_array()).map_or_else(Vec::new, |a| {
             a.iter().map(|g| s(g, "tag")).filter(|t| !t.is_empty()).collect()
@@ -441,6 +442,15 @@ mod tests {
         // a sparse row, with numbers sent as strings
         assert_eq!((page.items[1].index, page.items[1].duration_ms), (2, 245_000));
         assert_eq!(page.items[1].user_rating, -1.0);
+    }
+
+    #[test]
+    fn an_artist_counts_albums_and_an_album_counts_tracks() {
+        let page = parse_items(br#"{"MediaContainer":{"Metadata":[
+          {"ratingKey":"1","type":"artist","title":"A","leafCount":96,"childCount":8},
+          {"ratingKey":"2","type":"album","title":"B","leafCount":11,"childCount":0}]}}"#);
+        assert_eq!(page.items[0].leaf_count, 8);
+        assert_eq!(page.items[1].leaf_count, 11);
     }
 
     #[test]

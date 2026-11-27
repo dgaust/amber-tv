@@ -86,11 +86,23 @@ fn now_secs() -> i64 {
 /// Load the library's sections when due (once, then every ten minutes while the page is open).
 pub(crate) fn tick_data(active: bool) {
     let now = now_secs();
+    let cur_sid = plx_plex::plex::current_server().raw();
     let due = with(|s| {
         if s.loading {
             return false;
         }
-        let every = if active { 600 } else { 3600 };
+        // another server (or a profile that reaches another): what was loaded belongs to the last one
+        if s.loaded_at != 0 && s.sid != cur_sid {
+            s.loaded_at = 0;
+            s.status = MusicStatus::Loading;
+            s.sections.clear();
+            s.section = None;
+            s.lists.clear();
+            s.hubs.clear();
+            bump(s);
+        }
+        // a failed load is tried again soon (the server may simply not have been reachable yet)
+        let every = if s.status == MusicStatus::Failed { 60 } else if active { 600 } else { 3600 };
         if s.loaded_at == 0 || now - s.loaded_at >= every {
             s.loading = true;
             true
