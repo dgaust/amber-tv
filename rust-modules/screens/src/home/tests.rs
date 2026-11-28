@@ -7080,3 +7080,40 @@ fn the_arrival_animation_follows_the_setting() {
     }
     plx_data::layout::update(|l| l.home_arrival = Some(was));
 }
+
+
+/// A rise or fade comes in and lands: the backdrop is drawn live while it moves (named every frame it would refill its
+/// texture every frame) and may be cached again once it rests, with the first card back where it would be with no
+/// animation at all.
+#[test]
+fn an_arrival_lands_and_the_backdrop_can_be_cached_again() {
+    let _guard = plx_base::testlock::serial();
+    let mut state = plx_data::pms::PmsState::default();
+    let adapter = std::sync::Arc::new(plx_data::pms::PmsAdapter::default());
+    plx_data::pms::seed_for_test(&mut state, &adapter, 2, plx_data::pms::HubState::Ready);
+    let snapshot = plx_data::pms::hubs_snapshot(&state);
+    let was = plx_data::layout::get().home_arrival;
+    let mut settled = Vec::new();
+    for mode in [3u8, 1, 2] {
+        plx_data::layout::update(|l| l.home_arrival = Some(mode));
+        let mut s = screen(snapshot.view());
+        s.snap.jump(1.0);
+        s.snap_target = 1.0;
+        let to = first_card(&s);
+        let from = Some(FocusKey { entry: s.entry, elem: 9_999_999 });
+        step(&mut s, snapshot.view(), Some(to), &ScreenEvent::FocusMoved { from, to, by: By::Dir });
+        if mode != 3 {
+            assert!(!s.dive_rests(), "mode {mode}: moving at the start");
+        }
+        for frame in 0..180u32 {
+            step(&mut s, snapshot.view(), Some(to), &ScreenEvent::Tick(Tick { ms: frame * 16, dt_us: 16_667 }));
+        }
+        assert_eq!(s.arrive.pos, 1.0, "mode {mode}: the art is all in");
+        assert!(!s.arrive_rise, "mode {mode}: no longer rising");
+        assert!(s.dive_rests(), "mode {mode}: the backdrop may be cached again");
+        settled.push(drawn_rect(&s, snapshot.view(), Some(to), 0, 0));
+    }
+    plx_data::layout::update(|l| l.home_arrival = was);
+    assert_eq!(settled[1], settled[0], "fade: the first card is where it is with no animation");
+    assert_eq!(settled[2], settled[0], "rise: the first card is where it is with no animation");
+}
