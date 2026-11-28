@@ -34,6 +34,16 @@ pub struct Layout {
 static CACHE: Mutex<Option<Layout>> = Mutex::new(None);
 static GEN: AtomicU32 = AtomicU32::new(1);
 static HOME_ROWS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// The Home row the viewer has picked up to move (Up / Down move it, OK or Back puts it down).
+static HOME_MOVING: Mutex<Option<String>> = Mutex::new(None);
+
+pub fn home_moving() -> Option<String> {
+    HOME_MOVING.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+pub fn set_home_moving(id: Option<String>) {
+    *HOME_MOVING.lock().unwrap_or_else(|e| e.into_inner()) = id;
+}
 
 fn path() -> PathBuf {
     let dev = std::path::Path::new("/media/developer");

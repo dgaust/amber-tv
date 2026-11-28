@@ -1036,6 +1036,7 @@ pub(super) unsafe fn apply_item_action<R: super::playback::PlaybackResources>(
             });
             super::bridge::execute_endpoint_outcomes(pages, outcome.endpoints);
         }
+        Action::HomeRow { op: 4, id } => plx_data::layout::set_home_moving(Some(id.clone())),
         Action::HomeRow { op, id } => {
             plx_data::layout::update(|l| match op {
                 0 | 1 => {

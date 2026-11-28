@@ -752,8 +752,7 @@ impl ItemMenuScreen {
                 let section = FormSection::new("");
                 let section = if live { section } else { section.separator() };
                 form.section(section
-                    .item(ItemRow::MoveRowUp, RowKind::Button, act(0), Row::new("Move row up").licon(Icon::ChevronUp))
-                    .item(ItemRow::MoveRowDown, RowKind::Button, act(1), Row::new("Move row down").licon(Icon::ChevronDown))
+                    .item(ItemRow::MoveRowUp, RowKind::Button, act(4), Row::new("Move row").licon(Icon::ChevronUp))
                     .item(ItemRow::HideRow, RowKind::Button, act(2), Row::new("Hide row").licon(Icon::Minus))
                     .item_if(hidden > 0, ItemRow::ShowHiddenRows, RowKind::Button, act(3),
                         Row::new(format!("Show hidden rows ({hidden})")).licon(Icon::Restart)))

@@ -3592,6 +3592,20 @@ impl Rig<AppHost> for Bridge {
                 }
             }
         }
+        // Amber: a Home row is picked up: say how to move it and put it down
+        if plx_data::layout::home_moving().is_some() {
+            let q = plx_ui::Painter::root();
+            let line = "Moving this row   \u{2191} \u{2193} to move   OK to put it down";
+            if let Ok(c) = std::ffi::CString::new(line) {
+                let sz = plx_ui::theme::size::CAPTION;
+                let w = plx_gfx::text::text_width(c.as_ptr(), sz, 1) + 64.0;
+                let h = 56.0;
+                let r = plx_ui::Rect::new((plx_ui::consts::SCR_W - w) * 0.5, plx_ui::consts::SCR_H - plx_ui::consts::MARGIN_Y - h, w, h);
+                q.rrect(r, h * 0.5, h * 0.5, plx_ui::theme::scrim(0.88));
+                let y = plx_gfx::text::text_vcenter_y(sz, 1, r.y + h * 0.5);
+                q.text(c.as_ptr(), r.x + w * 0.5, y, sz, plx_ui::theme::TEXT_PRIMARY, 1, 1);
+            }
+        }
         // Amber: a tune answers at once - the server takes a few seconds to find the channel, and
         // the screen says so over whatever page asked, until the player takes over.
         if let Some((channel, programme)) = crate::app::livetv::tuning_label() {

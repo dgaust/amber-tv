@@ -2280,6 +2280,7 @@ pub(crate) unsafe fn playback_tick(app: &mut App, fr: &mut Frame) {
         super::playback::return_hold_inputs(app, fr.now);
         live_channel_keys(app);
         music_keys(app);
+        home_move_keys(app);
         // post-playback home refresh (armed by every exit_player): refetch the hubs so
         // Continue Watching shows the new resume point / next episode. It waits for the stop
         // report to have reached the server (`timeline_stop_landed`), not for a clock: a read that
@@ -10002,6 +10003,43 @@ mod lifecycle_regression_tests {
         let stops = stop_reports(&rig, "2");
         assert_eq!(stops.len(), 1, "{:?}", rig.requests.lock().unwrap());
         assert!(stops[0].contains("time=30000&"), "{}", stops[0]);
+    }
+}
+
+/// Amber: a Home row picked up from its menu moves with Up / Down (as many rows as wanted, like the sidebar's edit
+/// mode); OK or Back puts it down. The focus stays on the row's own card, so the page follows it.
+fn home_move_keys(app: &mut super::App) {
+    use plx_machine::machine::{Edge, InputKind};
+    use plx_machine::machine::Key;
+    let Some(id) = plx_data::layout::home_moving() else { return };
+    if !matches!(app.route(), AppArg::Home) {
+        plx_data::layout::set_home_moving(None);
+        return;
+    }
+    let mut steps: Vec<i32> = Vec::new();
+    let mut done = false;
+    app.inputs.retain(|ev| match ev.kind {
+        InputKind::Key { key, edge, .. } if matches!(key, Key::Up | Key::Down | Key::Ok | Key::Back) => {
+            match (key, edge) {
+                (Key::Up, Edge::Down | Edge::Repeat) => steps.push(-1),
+                (Key::Down, Edge::Down | Edge::Repeat) => steps.push(1),
+                (Key::Ok | Key::Back, Edge::Down) => done = true,
+                _ => {}
+            }
+            false
+        }
+        _ => true,
+    });
+    if !steps.is_empty() {
+        plx_data::layout::update(|l| {
+            for dir in steps {
+                let visible = plx_data::layout::home_rows();
+                plx_data::layout::Layout::step(&mut l.home_order, &visible, &id, dir);
+            }
+        });
+    }
+    if done {
+        plx_data::layout::set_home_moving(None);
     }
 }
 
