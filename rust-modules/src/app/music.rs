@@ -61,6 +61,8 @@ static SHARED: Mutex<Option<Shared>> = Mutex::new(None);
 /// Moves when the sidebar's question (is there music?) may have a new answer.
 static GEN: AtomicU32 = AtomicU32::new(0);
 /// Set by the blue key on another page: the music page opens on Now Playing when it next gets its snapshot.
+/// An album another page asked to open (by key), until the music page takes it.
+static OPEN_ALBUM: Mutex<Option<String>> = Mutex::new(None);
 static OPEN_NP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn with<R>(f: impl FnOnce(&mut Shared) -> R) -> R {
@@ -323,6 +325,9 @@ fn build_model(s: &mut Shared, now: Option<NowPlaying>) -> MusicModel {
         repeat: s.q.repeat,
         note: if now_secs() < s.note_until { s.note.clone() } else { String::new() },
         open_now_playing: OPEN_NP.swap(false, Ordering::AcqRel),
+        open_album: OPEN_ALBUM.lock().ok().and_then(|mut o| o.take()).and_then(|rk| {
+            s.lists.values().flat_map(|l| l.items.iter()).find(|i| i.kind == MusicKind::Album && i.rk == rk).cloned()
+        }),
         }
     }
 }
@@ -684,6 +689,51 @@ pub(crate) fn seek_to(ms: i64) {
 
 pub(crate) fn stop() {
     ENGINE.with(|e| e.borrow_mut().stop_asked = true);
+}
+
+/// Open album `rk` on the Music page (a card on Home asks).
+pub(crate) fn request_album(rk: &str) {
+    if let Ok(mut o) = OPEN_ALBUM.lock() {
+        *o = Some(rk.to_owned());
+    }
+    with(bump);
+}
+
+/// Home's "Recently Added Albums" row: the library's newest albums, once they are here. Called every frame.
+pub(crate) fn publish_home_row() {
+    let (ready, cards) = with(|s| {
+        if s.status != MusicStatus::Ready || s.section.is_none() {
+            return (false, Vec::new());
+        }
+        let sid = plx_plex::plex::current_server();
+        let cards = s.lists.get("recent").map(|l| {
+            l.items.iter().take(16).filter(|a| !a.cover().is_empty()).map(|a| plx_data::pms::PmsMovie {
+                sid,
+                rk: format!("{}{}", plx_data::pms::MUSIC_KEY_PREFIX, a.rk),
+                title: a.title.clone(),
+                summary: a.parent_title.clone(),
+                year: a.year,
+                thumb: a.cover().to_owned(),
+                ..Default::default()
+            }).collect::<Vec<_>>()
+        });
+        (true, cards.unwrap_or_default())
+    });
+    if ready {
+        request("recent");
+    }
+    plx_data::pms::set_music_row(cards);
+}
+
+/// What the pill beside the clock says while music plays, and whether it is playing (not paused).
+pub(crate) fn now_label() -> Option<(String, bool)> {
+    ENGINE.with(|e| {
+        let e = e.borrow();
+        let p = e.playing.as_ref()?;
+        let artist = p.item.artist();
+        let line = if artist.is_empty() { p.item.title.clone() } else { format!("{} \u{b7} {}", p.item.title, artist) };
+        Some((line, e.played && !e.paused))
+    })
 }
 
 pub(crate) fn request_now_playing() {

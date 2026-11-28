@@ -762,12 +762,19 @@ fn home_command(app: &mut ScreenCommandApp<'_>, source: MachineId, request: Home
             crate::app::livetv::tune(rk[plx_data::pms::LIVE_KEY_PREFIX.len()..].to_string());
             return AppCommandOutcome::Completed;
         }
+        // Amber: a card of Recently Added Albums opens that album on the Music page
+        HomeReq::Play { rk, .. } | HomeReq::Detail { rk, .. } if rk.starts_with(plx_data::pms::MUSIC_KEY_PREFIX) => {
+            crate::app::music::request_album(&rk[plx_data::pms::MUSIC_KEY_PREFIX.len()..]);
+            bridge::nav_tab(app.pages, app.bridge, HomeTab::Music, None, Some(ret));
+            return AppCommandOutcome::Completed;
+        }
         HomeReq::Play { sid, rk, resume_ns } =>
             return activate_home_item(app, source, entry, sid, &rk, Some(resume_ns), ret, now),
         HomeReq::Detail { sid, rk } =>
             return activate_home_item(app, source, entry, sid, &rk, None, ret, now),
         HomeReq::ItemMenu { sid, rk } => {
             let snapshot = app.bridge.hubs_snapshot();
+            if rk.starts_with(plx_data::pms::MUSIC_KEY_PREFIX) { return AppCommandOutcome::Refused; }
             let live = rk.starts_with(plx_data::pms::LIVE_KEY_PREFIX);
             let Some(item) = home_item(snapshot.view(), sid, &rk)
                 .filter(|item| live || plx_screens::item_menu::has_actions(item)) else { return AppCommandOutcome::Refused };

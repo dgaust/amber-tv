@@ -1631,6 +1631,7 @@ impl Bridge {
     pub(crate) fn music_feed(&mut self, d: &mut Dispatcher<AppHost>) {
         let top = d.nav.top_page().map(|e| e.id).filter(|_| d.top_arg() == Some(&AppArg::Music));
         crate::app::music::tick_data(top.is_some());
+        crate::app::music::publish_home_row();
         let Some(id) = top else { return };
         let Some(inst) = d.nav.entry_mut(id).and_then(|e| e.inst.as_mut()) else { return };
         let Some(screen) = inst.screen.as_any_mut().and_then(|a| a.downcast_mut::<plx_screens::music::MusicScreen>())
@@ -3552,6 +3553,7 @@ impl Rig<AppHost> for Bridge {
         // under it: gone over the first 120 px of scroll, back at the page's top.
         let shown = 1.0 - (plx_ui::widgets::page_scroll() / 120.0).clamp(0.0, 1.0);
         let p = p.alpha(shown);
+        let mut pill_right = plx_ui::consts::SCR_W - plx_ui::consts::MARGIN_X + plx_ui::theme::space::SM;
         if let Some(clock) = clock.filter(|_| shown > 0.01).and_then(|c| std::ffi::CString::new(c).ok()) {
             let sz = plx_ui::theme::size::LABEL;
             // On its own dark capsule: a page scrolls its content up under the top right, and a
@@ -3565,6 +3567,30 @@ impl Rig<AppHost> for Bridge {
             p.rrect(cap, h * 0.5, h * 0.5, plx_ui::theme::scrim(0.72));
             let y = plx_gfx::text::text_vcenter_y(sz, 0, cy);
             p.text(clock.as_ptr(), cap.x + cap.w * 0.5, y, sz, plx_ui::theme::CLOCK_INK, 1, 0);
+            pill_right = cap.x - 14.0;
+        }
+        // Amber: music is playing and its page is not up: what is playing, beside the clock. Blue opens it.
+        if shown > 0.01 && !matches!(arg, AppArg::Music) {
+            if let Some((line, playing)) = crate::app::music::now_label() {
+                let sz = plx_ui::theme::size::LABEL;
+                let cy = plx_ui::widgets::CHIP_FRAME.y + plx_ui::widgets::CHIP_FRAME.h * 0.5;
+                let h = 48.0;
+                let icon_d = 26.0;
+                let text = plx_gfx::text::elide(&line, 520.0, sz, 0, false);
+                if let Ok(c) = std::ffi::CString::new(text) {
+                    let tw = plx_gfx::text::text_width(c.as_ptr(), sz, 0);
+                    let w = tw + icon_d + 3.0 * plx_ui::theme::space::MD + 14.0;
+                    let cap = plx_ui::Rect::new(pill_right - w, cy - h * 0.5, w, h);
+                    p.rrect(cap, h * 0.5, h * 0.5, plx_ui::theme::scrim(0.72));
+                    let ix = cap.x + plx_ui::theme::space::MD;
+                    let icon = if playing { plx_ui::icons::Icon::Music } else { plx_ui::icons::Icon::Pause };
+                    plx_ui::icons::draw(p, icon, plx_ui::Rect::new(ix, cy - icon_d * 0.5, icon_d, icon_d), plx_ui::theme::RAIL_CURRENT);
+                    let y = plx_gfx::text::text_vcenter_y(sz, 0, cy);
+                    p.text(c.as_ptr(), ix + icon_d + plx_ui::theme::space::SM, y, sz, plx_ui::theme::CLOCK_INK, 0, 0);
+                    // the blue key's mark
+                    p.rrect(plx_ui::Rect::new(cap.x + cap.w - plx_ui::theme::space::MD - 12.0, cy - 6.0, 12.0, 12.0), 6.0, 6.0, [0.25, 0.55, 1.0, 1.0]);
+                }
+            }
         }
         // Amber: a tune answers at once - the server takes a few seconds to find the channel, and
         // the screen says so over whatever page asked, until the player takes over.
@@ -4815,6 +4841,7 @@ pub(crate) fn open_item_menu(d: &mut Dispatcher<AppHost>, arg: plx_screens::regi
     // Amber: PLAY on a card plays it - the menu's own Play row, without the menu
     if plx_ui::dispatch::take_play_hold() {
         if let ItemMenuKind::Card { row, .. } = &arg.kind {
+            if row.rk.starts_with(plx_data::pms::MUSIC_KEY_PREFIX) { return; }
             if let Some(channel) = row.rk.strip_prefix(plx_data::pms::LIVE_KEY_PREFIX) {
                 crate::app::livetv::tune(channel.to_string());
                 return;

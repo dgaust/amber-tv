@@ -4016,7 +4016,7 @@ fn col_at(x: f32, scroll: f32, count: usize) -> Option<usize> {
 fn style_of(identity: &HomeHubIdentity) -> &'static RowStyle {
     match identity {
         // Amber: Recent Channels is a shelf of square logos
-        HomeHubIdentity::Identifier { id, .. } if &**id == plx_data::pms::LIVE_RECENT_ID => &SQUARE_ROWS,
+        HomeHubIdentity::Identifier { id, .. } if &**id == plx_data::pms::LIVE_RECENT_ID || &**id == plx_data::pms::MUSIC_ROW_ID => &SQUARE_ROWS,
         _ => deck_style(*identity == HomeHubIdentity::ContinueWatching),
     }
 }

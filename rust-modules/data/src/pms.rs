@@ -766,6 +766,19 @@ pub const LIVE_MOVIES_ID: &str = "amber.livetv.movies";
 pub const LIVE_RECENT_ID: &str = "amber.livetv.recent";
 pub const LIVE_SHOWS_ID: &str = "amber.livetv.shows";
 pub const LIVE_KEY_PREFIX: &str = "livetv:";
+/// Amber: Home's "Recently Added Albums" row (`set_music_row`); its cards' keys start with [`MUSIC_KEY_PREFIX`].
+static MUSIC_ROW: std::sync::Mutex<Vec<PmsMovie>> = std::sync::Mutex::new(Vec::new());
+pub const MUSIC_ROW_ID: &str = "amber.music.recent";
+pub const MUSIC_KEY_PREFIX: &str = "music:";
+
+/// Replace the music row's cards (an empty list removes the row). A list equal to the one held changes nothing.
+pub fn set_music_row(items: Vec<PmsMovie>) {
+    let mut held = MUSIC_ROW.lock().unwrap_or_else(|e| e.into_inner());
+    let same = held.len() == items.len() && held.iter().zip(&items).all(|(a, b)| a.rk == b.rk && a.title == b.title && a.thumb == b.thumb);
+    if same { return; }
+    *held = items;
+    LIVE_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
 
 /// Replace the On Now row's cards (an empty list removes the row). A list equal to the one held
 /// (same channels, titles and art) changes nothing, so a per-minute call costs no Home rebuild.
@@ -800,9 +813,16 @@ fn add_live_row(build: &mut HubBuild) {
     let on_now = LIVE_ROW.lock().unwrap_or_else(|e| e.into_inner()).clone();
     // not on its own: before the server's rows land it would stand alone at the top and then be
     // shoved down the page as they arrive around it
-    if on_now.is_empty() || build.1.is_empty() { return; }
-    let mut rows: Vec<(String, String, Vec<PmsMovie>)> = vec![(LIVE_ROW_ID.into(), "On Now \u{b7} Live TV".into(), on_now)];
-    rows.extend(LIVE_EXTRA.lock().unwrap_or_else(|e| e.into_inner()).iter().filter(|r| !r.2.is_empty()).cloned());
+    if build.1.is_empty() { return; }
+    let mut rows: Vec<(String, String, Vec<PmsMovie>)> = Vec::new();
+    if !on_now.is_empty() {
+        rows.push((LIVE_ROW_ID.into(), "On Now \u{b7} Live TV".into(), on_now));
+        rows.extend(LIVE_EXTRA.lock().unwrap_or_else(|e| e.into_inner()).iter().filter(|r| !r.2.is_empty()).cloned());
+    }
+    let music = MUSIC_ROW.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if !music.is_empty() {
+        rows.push((MUSIC_ROW_ID.into(), "Recently Added Albums".into(), music));
+    }
     for (id, title, items) in rows {
         if build.1.iter().any(|h| h.hub_id == id) { continue; }
         let start = build.0.len();
@@ -844,7 +864,11 @@ fn apply_home_layout(build: &mut HubBuild) {
         if build.1[i].hub_id == "home.continue" { return (0, 0); }
         // a row the viewer has not placed yet goes last - except On Now, which opens under
         // Continue Watching until it is moved
-        let unplaced = if build.1[i].hub_id == LIVE_ROW_ID { 0 } else { usize::MAX };
+        let unplaced = match build.1[i].hub_id.as_str() {
+            LIVE_ROW_ID => 0,
+            MUSIC_ROW_ID => 2,
+            _ => usize::MAX,
+        };
         (1, l.home_order.iter().position(|o| *o == ids[i]).map_or(unplaced, |p| p + 1))
     });
     let kept: Vec<usize> = idx.into_iter().filter(|&i| !l.home_hidden.contains(&ids[i])).collect();

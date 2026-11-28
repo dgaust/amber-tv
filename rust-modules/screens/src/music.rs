@@ -79,6 +79,8 @@ pub struct MusicModel {
     pub note: String,
     /// The viewer pressed blue on another page: open on Now Playing.
     pub open_now_playing: bool,
+    /// Another page asked for this album (a card on Home).
+    pub open_album: Option<MusicItem>,
 }
 
 /// What the page asks of the application.
@@ -143,6 +145,8 @@ pub struct MusicScreen {
     stack: Vec<(View, usize, usize)>,
     /// The cursor in the current list or grid (flat index) and the first row shown.
     cur: usize,
+    /// Which of Play / Shuffle the cursor last stood on (Up from the list goes back to it).
+    btn: usize,
     first: usize,
     /// Home: shelf and card.
     hub_row: usize,
@@ -174,6 +178,7 @@ impl MusicScreen {
             view: View::Home,
             stack: Vec::new(),
             cur: 0,
+            btn: 0,
             first: 0,
             hub_row: 0,
             hub_col: 0,
@@ -200,11 +205,16 @@ impl MusicScreen {
             return false;
         }
         let open = model.open_now_playing && model.now.is_some() && self.view != View::NowPlaying;
+        let album = model.open_album.clone();
         self.model = model;
         if open {
             self.stack.clear();
             self.view = View::Home;
             self.push(View::NowPlaying);
+        } else if let Some(a) = album {
+            self.stack.clear();
+            self.view = View::Home;
+            self.push(View::Album(a));
         }
         let n = self.len();
         self.cur = self.cur.min(n.saturating_sub(1));
@@ -502,6 +512,9 @@ impl MusicScreen {
     }
 
     fn artist_key<H: ContentLike>(&mut self, key: Key, artist: &MusicItem, fx: &mut Effects<'_, H>) -> Handled {
+        if self.buttons_key(key) {
+            return Handled::Yes;
+        }
         let n = self.len();
         match key {
             Key::Up if self.cur == 0 => return Handled::Yes,
@@ -531,6 +544,9 @@ impl MusicScreen {
     }
 
     fn album_key<H: ContentLike>(&mut self, key: Key, album: &MusicItem, fx: &mut Effects<'_, H>) -> Handled {
+        if self.buttons_key(key) {
+            return Handled::Yes;
+        }
         let n = self.len();
         match key {
             Key::Up if self.cur == 0 => return Handled::Yes,
@@ -904,6 +920,44 @@ impl MusicScreen {
         Self::centred(p, label, r, theme::size::CAPTION, if focused { theme::ACCENT_INK } else { theme::TEXT_PRIMARY }, 1);
     }
 
+    /// A round button wearing an icon: Play and Shuffle on an artist or album page.
+    fn icon_button(p: Painter, x: f32, y: f32, icon: plx_ui::icons::Icon, focused: bool) {
+        let r = Rect::new(x, y, 72.0, 72.0);
+        p.rrect(r, 36.0, 36.0, if focused { theme::ACCENT } else { theme::with_a(theme::TEXT_PRIMARY, 0.14) });
+        let d = 34.0;
+        plx_ui::icons::draw(p, icon, Rect::new(r.x + (r.w - d) * 0.5, r.y + (r.h - d) * 0.5, d, d), if focused { theme::ACCENT_INK } else { theme::TEXT_PRIMARY });
+    }
+
+    /// Play and Shuffle side by side (Left / Right moves between them).
+    fn play_shuffle(p: Painter, x: f32, y: f32, cur: usize, active: bool) {
+        Self::icon_button(p, x, y, plx_ui::icons::Icon::Play, active && cur == 0);
+        Self::icon_button(p, x + 92.0, y, plx_ui::icons::Icon::Shuffle, active && cur == 1);
+    }
+
+    /// The keys of that pair of buttons, and the way down to the list and back up. True when it took the key.
+    fn buttons_key(&mut self, key: Key) -> bool {
+        if self.cur < 2 {
+            match key {
+                Key::Right => self.cur = 1,
+                Key::Left if self.cur == 1 => self.cur = 0,
+                Key::Down => {
+                    if self.len() > 2 {
+                        self.btn = self.cur;
+                        self.cur = 2;
+                    }
+                }
+                Key::Up | Key::Left => return key == Key::Up,
+                _ => return false,
+            }
+            true
+        } else if key == Key::Up && self.cur == 2 {
+            self.cur = self.btn.min(1);
+            true
+        } else {
+            false
+        }
+    }
+
     fn draw_album(&self, p: Painter, album: &MusicItem, active: bool) {
         let cover = Rect::new(LEFT, TOP - 20.0, 460.0, 460.0);
         self.art(p, album.cover(), cover, 14.0);
@@ -928,8 +982,7 @@ impl MusicScreen {
             }
         }
         Self::text(p, &meta.join("  \u{b7}  "), x, TOP + 120.0, theme::size::CAPTION, theme::TEXT_SECONDARY, 0, RIGHT - x);
-        Self::button(p, x, TOP + 160.0, 180.0, "Play", active && self.cur == 0);
-        Self::button(p, x + 196.0, TOP + 160.0, 200.0, "Shuffle", active && self.cur == 1);
+        Self::play_shuffle(p, x, TOP + 152.0, self.cur, active);
         if tracks.is_empty() {
             Self::text(p, if self.model.lists.contains_key(&format!("album:{}", album.rk)) { "No tracks." } else { "Loading\u{2026}" }, x, TOP + 280.0, theme::size::BODY, theme::TEXT_SECONDARY, 0, 600.0);
             return;
@@ -957,8 +1010,7 @@ impl MusicScreen {
             meta.push(format!("{} albums", albums.len()));
         }
         Self::text(p, &meta.join("  \u{b7}  "), x, TOP + 100.0, theme::size::CAPTION, theme::TEXT_SECONDARY, 0, RIGHT - x);
-        Self::button(p, x, TOP + 150.0, 180.0, "Play", active && self.cur == 0);
-        Self::button(p, x + 196.0, TOP + 150.0, 200.0, "Shuffle", active && self.cur == 1);
+        Self::play_shuffle(p, x, TOP + 140.0, self.cur, active);
         if albums.is_empty() {
             Self::text(p, if self.model.lists.contains_key(&format!("artist:{}", artist.rk)) { "No albums." } else { "Loading\u{2026}" }, x, TOP + 260.0, theme::size::BODY, theme::TEXT_SECONDARY, 0, 600.0);
             return;
@@ -1399,6 +1451,27 @@ mod tests {
         assert_eq!(s.len(), 5);
         assert!(s.pop());
         assert!(!s.pop(), "nothing left to go back to");
+    }
+
+    #[test]
+    fn play_and_shuffle_are_side_by_side_and_down_reaches_the_list() {
+        let mut s = MusicScreen::new(EntryId(1));
+        let artist = MusicItem { rk: "7".into(), kind: MusicKind::Artist, ..Default::default() };
+        let mut m = MusicModel { status: MusicStatus::Ready, ..Default::default() };
+        m.lists.insert("artist:7".into(), MusicList { items: vec![album("1"), album("2")], total: 2, loaded: true, ..Default::default() });
+        s.input(m);
+        s.push(View::Artist(artist));
+        assert!(s.buttons_key(Key::Right));
+        assert_eq!(s.cur, 1, "Right goes from Play to Shuffle");
+        assert!(s.buttons_key(Key::Left));
+        assert_eq!(s.cur, 0);
+        assert!(s.buttons_key(Key::Right));
+        assert!(s.buttons_key(Key::Down));
+        assert_eq!(s.cur, 2, "Down from Shuffle lands on the first album");
+        assert!(s.buttons_key(Key::Up));
+        assert_eq!(s.cur, 1, "and Up returns to the button it left");
+        assert!(s.buttons_key(Key::Left));
+        assert!(!s.buttons_key(Key::Left), "Left on Play is the page's (the sidebar)");
     }
 
     #[test]
