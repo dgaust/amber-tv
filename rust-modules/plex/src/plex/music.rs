@@ -399,9 +399,13 @@ impl Client {
 
     /// `from..=to` of the audio file (a `Range` read). A server that ignores the range sends the whole file, which
     /// the caller sees by the length.
-    pub fn music_fetch_range(&self, part_key: &str, from: usize, to: usize) -> Option<Vec<u8>> {
+    pub fn music_fetch_range(&self, part_key: &str, from: usize, to: usize) -> Result<Vec<u8>, i32> {
         let range = format!("Range: bytes={from}-{to}");
-        self.body_2xx_bulk(part_key, &[range.as_str()])
+        match self.send_bulk(part_key, &[range.as_str()]) {
+            Some(r) if r.ok() => Ok(r.body),
+            Some(r) => Err(r.status),
+            None => Err(0),
+        }
     }
 
     /// The whole audio file of a track, as the server stores it.

@@ -1713,7 +1713,12 @@ impl HomeScreen {
 
     /// The shelf column's geometry over this page's rows ([`ShelfColumn`]).
     fn column(&self) -> ShelfColumn<impl Fn(usize) -> bool + '_> {
-        ShelfColumn { rows: self.rows.len(), policy: self.caption_policy, is_deck: move |i| self.rows.get(i).is_some_and(|r| r.identity == HomeHubIdentity::ContinueWatching) }
+        ShelfColumn {
+            rows: self.rows.len(),
+            policy: self.caption_policy,
+            is_deck: move |i| self.rows.get(i).is_some_and(|r| r.identity == HomeHubIdentity::ContinueWatching),
+            square: self.rows.iter().map(|r| std::ptr::eq(style_of(&r.identity), &SQUARE_ROWS)).collect(),
+        }
     }
 
     /// **The SETTLED top of shelf `row`** ([`ShelfColumn::top`]). A scroll target and a settled rect
@@ -4065,11 +4070,18 @@ struct ShelfColumn<D: Fn(usize) -> bool> {
     rows: usize,
     policy: plx_ui::caption_policy::CaptionPolicy,
     is_deck: D,
+    /// Amber: which rows are shelves of square tiles (Recent Channels, Recently Added Albums), shorter than a
+    /// poster shelf. The rest rule must count each at the pitch it is drawn at ([`style_of`]), or the rows
+    /// below one come to rest partly off the screen.
+    square: Vec<bool>,
 }
 
 impl<D: Fn(usize) -> bool> ShelfColumn<D> {
     /// The row style row `row`'s shelf is drawn in ([`style_of`]).
     fn style(&self, row: usize) -> &'static RowStyle {
+        if self.square.get(row).copied().unwrap_or(false) && !(self.is_deck)(row) {
+            return &SQUARE_ROWS;
+        }
         deck_style((self.is_deck)(row))
     }
 

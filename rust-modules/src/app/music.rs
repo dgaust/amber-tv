@@ -522,8 +522,22 @@ fn download(key: String, total: usize, stream: Arc<decode::Stream>) {
         if total > 0 {
             to = to.min(total - 1);
         }
-        match client.music_fetch_range(&key, at, to) {
-            Some(bytes) if !bytes.is_empty() => {
+        // a chunk that fails is asked for again a couple of times before the file is given up on
+        let mut got = Err(0);
+        for attempt in 0..3 {
+            got = client.music_fetch_range(&key, at, to);
+            match &got {
+                Ok(b) if !b.is_empty() => break,
+                Ok(_) => plx_base::eventlog::log(&format!("music: download of bytes {at}-{to} was empty (try {})", attempt + 1)),
+                Err(status) => plx_base::eventlog::log(&format!("music: download of bytes {at}-{to} failed, status {status} (try {})", attempt + 1)),
+            }
+            if Arc::strong_count(&stream) == 1 {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500 * (attempt + 1)));
+        }
+        match got {
+            Ok(bytes) if !bytes.is_empty() => {
                 let asked = to - at + 1;
                 // a server that ignored the range sent the whole file
                 if at == 0 && bytes.len() > asked && (total == 0 || bytes.len() >= total) {
@@ -567,6 +581,8 @@ struct Engine {
     cur: Option<TrackRun>,
     /// The file of the track that is starting: its download shows on screen while the viewer waits.
     cur_stream: Option<Arc<decode::Stream>>,
+    /// Since when the output has not taken a unit of audio (ms clock), while it should be playing.
+    busy_since: Option<u32>,
     fade: Option<Fade>,
     slots: VecDeque<Slot>,
     playing: Option<Slot>,
@@ -608,6 +624,7 @@ impl Default for Engine {
             next_video_pts: 0,
             cur: None,
             cur_stream: None,
+            busy_since: None,
             fade: None,
             slots: VecDeque::new(),
             playing: None,
@@ -1159,9 +1176,11 @@ impl Engine {
         }
         // skip and seek
         if let Some(pos) = self.jump.take() {
+            plx_base::eventlog::log(&format!("music: jump to queue position {pos}"));
             self.restart(mt, pos, 0);
         }
         if let Some(dir) = self.skip.take() {
+            plx_base::eventlog::log(&format!("music: skip {dir}"));
             let pos = with(|s| s.q.pos);
             let shown = self.playing.as_ref().map_or(pos, |p| p.order_pos);
             if dir < 0 && self.position_ms().unwrap_or(0) > 3000 {
@@ -1315,6 +1334,7 @@ impl Engine {
             let r = unsafe { sink.feed(mt, au.pcm.as_ptr(), au.pcm.len() as u32, pts, ES_AUDIO) } as u8;
             if r == b'O' {
                 self.feed_errors = 0;
+                self.busy_since = None;
                 cur.last_end_pts = pts + dur;
                 self.next_audio_pts = self.next_audio_pts.max(pts + dur);
             } else {
@@ -1323,6 +1343,18 @@ impl Engine {
                 }
                 // the pipeline's queue is full: this unit goes first next tick
                 self.pending_au = Some(au);
+                if self.played && !self.paused {
+                    let since = *self.busy_since.get_or_insert(now);
+                    if now.wrapping_sub(since) > 6000 {
+                        // the output has taken nothing for six seconds while it should be playing: start the track again here
+                        plx_base::eventlog::log("music: the output stopped taking audio, restarting from here");
+                        self.busy_since = None;
+                        let shown = self.playing.as_ref().map_or_else(|| with(|s| s.q.pos), |p| p.order_pos);
+                        let at = self.position_ms().unwrap_or(0).max(0);
+                        self.restart(mt, shown, at);
+                        return;
+                    }
+                }
                 break;
             }
         }

@@ -545,7 +545,7 @@ impl Client {
     /// HTTPS it keeps the connect deadline but has no 25 s whole-transfer cutoff; on plaintext it
     /// is the same socket policy `stream.rs` has always used.
     #[track_caller]
-    fn send_bulk(&self, path_no_token: &str, headers: &[&str]) -> Option<http::Reply> {
+    pub(super) fn send_bulk(&self, path_no_token: &str, headers: &[&str]) -> Option<http::Reply> {
         if !self.may_send() { return None; }
         let owned = pms_headers(headers);
         let headers: Vec<&str> = owned.iter().map(String::as_str).collect();

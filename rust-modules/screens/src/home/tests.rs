@@ -1144,7 +1144,17 @@ fn top_band_bottom() -> f32 {
 /// with the Continue Watching deck of stills on top, which has a pitch of its own. PRODUCTION's
 /// own geometry (`ShelfColumn`), never a copy of it.
 fn column(rows: usize, deck_first: bool) -> ShelfColumn<impl Fn(usize) -> bool> {
-    ShelfColumn { rows, policy: crate::registry::captions::policy(), is_deck: move |i| deck_first && i == 0 }
+    ShelfColumn { rows, policy: crate::registry::captions::policy(), is_deck: move |i| deck_first && i == 0, square: Vec::new() }
+}
+/// Amber: a row of square tiles is shorter than a poster row, and the rest rule counts it so: the shelf
+/// under one starts higher than it would under a poster row.
+#[test]
+fn a_square_row_is_counted_at_its_own_pitch() {
+    let poster = column(3, false);
+    let square = ShelfColumn { rows: 3, policy: crate::registry::captions::policy(), is_deck: |_| false, square: vec![true, false, false] };
+    assert!(square.top(1, None, 0.0) < poster.top(1, None, 0.0));
+    assert!(square.top(2, None, 0.0) < poster.top(2, None, 0.0));
+    assert_eq!(square.top(0, None, 0.0), poster.top(0, None, 0.0));
 }
 fn band_open_of(deck: bool) -> f32 { super::band_open_of(deck, crate::registry::captions::policy()) }
 fn band_h_of(deck: bool) -> f32 { super::band_h_of(deck, crate::registry::captions::policy()) }
