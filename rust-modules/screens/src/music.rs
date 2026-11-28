@@ -69,7 +69,7 @@ pub struct Speaker {
     pub name: String,
     /// 0..100, or -1 while not known.
     pub volume: i32,
-    /// The music plays on this one.
+    /// The music plays on this one (it is in the playing group).
     pub current: bool,
 }
 
@@ -91,6 +91,8 @@ pub struct MusicModel {
     pub output: String,
     pub speakers: Vec<Speaker>,
     pub scanning: bool,
+    /// The playing group's volume when it holds more than one speaker (-1 otherwise).
+    pub group_volume: i32,
     pub note: String,
     /// The viewer pressed blue on another page: open on Now Playing.
     pub open_now_playing: bool,
@@ -124,6 +126,9 @@ pub enum MusicOut {
     Speakers,
     /// Play on this speaker (empty: on this TV).
     UseSpeaker { id: String },
+    /// Tick or clear a speaker's box: the first starts the music there, later ones join or leave its group.
+    ToggleSpeaker { id: String },
+    GroupVolume { delta: i32 },
     SpeakerVolume { id: String, delta: i32 },
 }
 
@@ -140,6 +145,14 @@ enum View {
     NowPlaying,
     Queue,
     Speakers,
+}
+
+/// A row of the speaker list.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum SRow {
+    Tv,
+    Room(usize),
+    Group,
 }
 
 const TABS: [&str; 6] = ["Recommended", "Artists", "Albums", "Tracks", "Playlists", "Settings"];
@@ -273,7 +286,7 @@ impl MusicScreen {
             View::NowPlaying => 0,
             View::Settings => 2,
             View::Queue => self.model.queue.len(),
-            View::Speakers => 1 + self.model.speakers.len(),
+            View::Speakers => self.speaker_rows().len(),
             _ => self.list().len(),
         }
     }
@@ -635,23 +648,48 @@ impl MusicScreen {
         Self::text(p, "Music is decoded on the TV, so surround mixes play as stereo and hi-res files play at 48 kHz.", LEFT, TOP + 300.0, theme::size::MICRO, theme::TEXT_TERTIARY, 0, 1300.0);
     }
 
+    /// This TV, each speaker (with its box), and, when two or more play together, the group's volume.
+    fn speaker_rows(&self) -> Vec<SRow> {
+        let mut v = vec![SRow::Tv];
+        v.extend((0..self.model.speakers.len()).map(SRow::Room));
+        if self.model.speakers.iter().filter(|s| s.current).count() >= 2 {
+            v.push(SRow::Group);
+        }
+        v
+    }
+
     fn speakers_key<H: ContentLike>(&mut self, key: Key, fx: &mut Effects<'_, H>) -> Handled {
-        let n = 1 + self.model.speakers.len();
+        let rows = self.speaker_rows();
+        let n = rows.len();
         match key {
             Key::Up if self.cur > 0 => self.cur -= 1,
             Key::Down if self.cur + 1 < n => self.cur += 1,
             Key::Up | Key::Down => {}
-            Key::Left | Key::Right if self.cur > 0 => {
-                if let Some(s) = self.model.speakers.get(self.cur - 1) {
-                    Self::out(fx, MusicOut::SpeakerVolume { id: s.id.clone(), delta: if key == Key::Left { -4 } else { 4 } });
+            Key::Left | Key::Right => {
+                let delta = if key == Key::Left { -4 } else { 4 };
+                match rows.get(self.cur) {
+                    Some(SRow::Room(i)) => {
+                        if let Some(s) = self.model.speakers.get(*i) {
+                            Self::out(fx, MusicOut::SpeakerVolume { id: s.id.clone(), delta });
+                        }
+                    }
+                    Some(SRow::Group) => Self::out(fx, MusicOut::GroupVolume { delta }),
+                    _ => return Handled::No,
                 }
             }
-            Key::Ok => {
-                let id = if self.cur == 0 { String::new() } else { self.model.speakers.get(self.cur - 1).map(|s| s.id.clone()).unwrap_or_default() };
-                Self::out(fx, MusicOut::UseSpeaker { id });
-                self.pop();
-                return Handled::Yes;
-            }
+            Key::Ok => match rows.get(self.cur) {
+                Some(SRow::Tv) => {
+                    Self::out(fx, MusicOut::UseSpeaker { id: String::new() });
+                    self.pop();
+                    return Handled::Yes;
+                }
+                Some(SRow::Room(i)) => {
+                    if let Some(s) = self.model.speakers.get(*i) {
+                        Self::out(fx, MusicOut::ToggleSpeaker { id: s.id.clone() });
+                    }
+                }
+                _ => {}
+            },
             _ => return Handled::No,
         }
         Handled::Yes
@@ -1083,36 +1121,51 @@ impl MusicScreen {
 
     fn draw_speakers(&self, p: Painter, active: bool) {
         Self::text(p, "Play on", LEFT, TOP - 20.0, 48, theme::TEXT_PRIMARY, 1, 800.0);
-        let rows = 1 + self.model.speakers.len();
-        for k in 0..rows {
+        let rows = self.speaker_rows();
+        for (k, row) in rows.iter().enumerate() {
             let y = TOP + 50.0 + k as f32 * 76.0;
             let f = active && k == self.cur;
-            let (name, here, vol) = if k == 0 {
-                ("This TV".to_owned(), self.model.output.is_empty(), -1)
-            } else {
-                let s = &self.model.speakers[k - 1];
-                (s.name.clone(), s.current, s.volume)
-            };
             if f {
-                p.rrect(Rect::new(LEFT - 12.0, y - 12.0, 1000.0, 68.0), 14.0, 14.0, theme::ACCENT);
+                p.rrect(Rect::new(LEFT - 12.0, y - 12.0, 1100.0, 68.0), 14.0, 14.0, theme::ACCENT);
             }
             let ink = if f { theme::ACCENT_INK } else { theme::TEXT_PRIMARY };
-            Self::text(p, &name, LEFT + 12.0, y + 22.0, theme::size::BODY, ink, 1, 560.0);
-            if here {
-                Self::text(p, "Playing here", LEFT + 600.0, y + 22.0, theme::size::CAPTION, if f { theme::ACCENT_INK } else { theme::RAIL_CURRENT }, 1, 200.0);
-            }
-            if vol >= 0 {
-                let t = if f { format!("\u{2039}  Volume {vol}  \u{203a}") } else { format!("Volume {vol}") };
-                Self::text(p, &t, LEFT + 800.0, y + 22.0, theme::size::CAPTION, if f { theme::ACCENT_INK } else { theme::TEXT_SECONDARY }, 0, 190.0);
+            let sub = if f { theme::ACCENT_INK } else { theme::TEXT_SECONDARY };
+            match row {
+                SRow::Tv => {
+                    Self::text(p, "This TV", LEFT + 64.0, y + 22.0, theme::size::BODY, ink, 1, 560.0);
+                    if self.model.output.is_empty() {
+                        Self::text(p, "Playing here", LEFT + 660.0, y + 22.0, theme::size::CAPTION, if f { theme::ACCENT_INK } else { theme::RAIL_CURRENT }, 1, 200.0);
+                    }
+                }
+                SRow::Room(i) => {
+                    let s = &self.model.speakers[*i];
+                    // the box
+                    let b = Rect::new(LEFT + 8.0, y + 4.0, 36.0, 36.0);
+                    p.rrect(b, 9.0, 9.0, theme::with_a(ink, if s.current { 1.0 } else { 0.45 }));
+                    p.rrect(Rect::new(b.x + 3.0, b.y + 3.0, 30.0, 30.0), 7.0, 7.0, if f { theme::ACCENT } else { [0.06, 0.06, 0.07, 1.0] });
+                    if s.current {
+                        plx_ui::icons::draw(p, plx_ui::icons::Icon::Check, Rect::new(b.x + 4.0, b.y + 4.0, 28.0, 28.0), ink);
+                    }
+                    Self::text(p, &s.name, LEFT + 64.0, y + 22.0, theme::size::BODY, ink, 1, 560.0);
+                    if s.volume >= 0 {
+                        let t = if f { format!("\u{2039}  Volume {}  \u{203a}", s.volume) } else { format!("Volume {}", s.volume) };
+                        Self::text(p, &t, LEFT + 800.0, y + 22.0, theme::size::CAPTION, sub, 0, 290.0);
+                    }
+                }
+                SRow::Group => {
+                    Self::text(p, "All speakers together", LEFT + 64.0, y + 22.0, theme::size::BODY, ink, 1, 700.0);
+                    let t = if f { format!("\u{2039}  Volume {}  \u{203a}", self.model.group_volume.max(0)) } else { format!("Volume {}", self.model.group_volume.max(0)) };
+                    Self::text(p, &t, LEFT + 800.0, y + 22.0, theme::size::CAPTION, sub, 0, 290.0);
+                }
             }
         }
-        let y = TOP + 50.0 + rows as f32 * 76.0 + 20.0;
+        let y = TOP + 50.0 + rows.len() as f32 * 76.0 + 20.0;
         if self.model.scanning {
             Self::text(p, "Looking for speakers\u{2026}", LEFT, y + 10.0, theme::size::CAPTION, theme::TEXT_TERTIARY, 0, 800.0);
         } else if self.model.speakers.is_empty() {
             Self::text(p, "No Sonos speakers were found on this network.", LEFT, y + 10.0, theme::size::CAPTION, theme::TEXT_TERTIARY, 0, 1000.0);
         } else {
-            Self::text(p, "The speaker plays the music itself, straight from Plex: the TV is the remote.", LEFT, y + 10.0, theme::size::MICRO, theme::TEXT_TERTIARY, 0, 1300.0);
+            Self::text(p, "OK ticks a speaker: the first starts the music there, more join it as a group. Left and Right change the volume.", LEFT, y + 10.0, theme::size::MICRO, theme::TEXT_TERTIARY, 0, 1500.0);
         }
     }
 

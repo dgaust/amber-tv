@@ -14,7 +14,7 @@ use plx_screens::music::{Repeat, Speaker};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, UdpSocket};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -37,6 +37,10 @@ static ROOMS: Mutex<Vec<Room>> = Mutex::new(Vec::new());
 static VOLUMES: Mutex<Option<HashMap<String, i32>>> = Mutex::new(None);
 static TARGET: Mutex<Option<Room>> = Mutex::new(None);
 static SCANNING: AtomicBool = AtomicBool::new(false);
+/// The volume of the playing group when it has more than one room (-1 otherwise).
+static GROUP_VOL: AtomicI32 = AtomicI32::new(-1);
+/// Rooms this app put into the group (they leave it when the music goes back to the TV).
+static JOINED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 /// Moves when what the page shows may have changed.
 static GEN: AtomicU32 = AtomicU32::new(0);
 static SNAP: Mutex<Snap> = Mutex::new(Snap::new());
@@ -120,13 +124,13 @@ pub(crate) fn scanning() -> bool {
 }
 
 pub(crate) fn speakers() -> Vec<Speaker> {
-    let cur = TARGET.lock().ok().and_then(|t| t.as_ref().map(|r| r.uuid.clone()));
+    let cur = TARGET.lock().ok().and_then(|t| t.as_ref().map(|r| r.coord_uuid.clone()));
     let vols = VOLUMES.lock().ok().and_then(|v| v.clone()).unwrap_or_default();
     ROOMS
         .lock()
         .map(|r| {
             r.iter()
-                .map(|r| Speaker { id: r.uuid.clone(), name: r.name.clone(), volume: vols.get(&r.uuid).copied().unwrap_or(-1), current: cur.as_deref() == Some(r.uuid.as_str()) })
+                .map(|r| Speaker { id: r.uuid.clone(), name: r.name.clone(), volume: vols.get(&r.uuid).copied().unwrap_or(-1), current: cur.as_deref() == Some(r.coord_uuid.as_str()) })
                 .collect()
         })
         .unwrap_or_default()
@@ -153,9 +157,133 @@ pub(crate) fn rescan() {
         if let Ok(mut r) = ROOMS.lock() {
             *r = rooms;
         }
-        // a room that left the list cannot stay the target while idle
+        refresh_target();
+        refresh_group_volume();
         SCANNING.store(false, Ordering::Release);
         bump();
+    });
+}
+
+/// The target room as the latest topology names it.
+fn refresh_target() {
+    let rooms = ROOMS.lock().map(|r| r.clone()).unwrap_or_default();
+    if let Ok(mut t) = TARGET.lock() {
+        if let Some(cur) = t.as_ref() {
+            if let Some(n) = rooms.iter().find(|r| r.uuid == cur.uuid) {
+                *t = Some(n.clone());
+            }
+        }
+    }
+}
+
+fn get_group_volume(ip: &str) -> Option<i32> {
+    let b = soap(ip, "GroupRenderingControl", "GetGroupVolume", "<InstanceID>0</InstanceID>").ok()?;
+    tag(&b, "CurrentVolume")?.trim().parse().ok()
+}
+
+/// The playing group's volume, and each of its rooms' own.
+fn refresh_group_volume() {
+    let Some(t) = TARGET.lock().ok().and_then(|t| t.clone()) else {
+        GROUP_VOL.store(-1, Ordering::Relaxed);
+        return;
+    };
+    let members: Vec<Room> = ROOMS.lock().map(|r| r.iter().filter(|r| r.coord_uuid == t.coord_uuid).cloned().collect()).unwrap_or_default();
+    let vols: Vec<(String, Option<i32>)> = std::thread::scope(|sc| {
+        let hs: Vec<_> = members.iter().map(|r| sc.spawn(move || (r.uuid.clone(), get_volume(&r.ip)))).collect();
+        hs.into_iter().filter_map(|h| h.join().ok()).collect()
+    });
+    if let Ok(mut v) = VOLUMES.lock() {
+        let m = v.get_or_insert_with(HashMap::new);
+        for (u, x) in vols {
+            if let Some(x) = x {
+                m.insert(u, x);
+            }
+        }
+    }
+    GROUP_VOL.store(if members.len() >= 2 { get_group_volume(&t.coord_ip).unwrap_or(-1) } else { -1 }, Ordering::Relaxed);
+    bump();
+}
+
+/// Read the topology again from the speaker that leads the group (after a room joined or left).
+fn refresh_zones(ip: &str) {
+    if let Ok(body) = soap(ip, "ZoneGroupTopology", "GetZoneGroupState", "") {
+        let rooms = parse_zones(&body);
+        if !rooms.is_empty() {
+            if let Ok(mut r) = ROOMS.lock() {
+                *r = rooms;
+            }
+            refresh_target();
+        }
+    }
+    refresh_group_volume();
+}
+
+pub(crate) fn group_volume_now() -> i32 {
+    GROUP_VOL.load(Ordering::Relaxed)
+}
+
+/// (the room is in the playing group, how many rooms are, the room leads it).
+pub(crate) fn member_state(id: &str) -> (bool, usize, bool) {
+    let Some(t) = TARGET.lock().ok().and_then(|t| t.clone()) else { return (false, 0, false) };
+    let rooms = ROOMS.lock().map(|r| r.clone()).unwrap_or_default();
+    let n = rooms.iter().filter(|r| r.coord_uuid == t.coord_uuid).count();
+    let inside = rooms.iter().find(|r| r.uuid == id).map_or(false, |r| r.coord_uuid == t.coord_uuid);
+    (inside, n, id == t.coord_uuid)
+}
+
+/// Put the room into the playing group, or take it out (in the background).
+pub(crate) fn toggle_member(id: &str) {
+    let Some(t) = TARGET.lock().ok().and_then(|t| t.clone()) else { return };
+    let Some(room) = ROOMS.lock().ok().and_then(|r| r.iter().find(|r| r.uuid == id).cloned()) else { return };
+    let (inside, _, _) = member_state(id);
+    let _ = std::thread::Builder::new().name("sonos-group".into()).spawn(move || {
+        if inside {
+            let r = soap(&room.ip, "AVTransport", "BecomeCoordinatorOfStandaloneGroup", "<InstanceID>0</InstanceID>");
+            plx_base::eventlog::log(&format!("sonos: {} leaves the group ({})", room.name, match &r { Ok(_) => "ok".to_owned(), Err(e) => e.clone() }));
+            if let Ok(mut j) = JOINED.lock() {
+                j.retain(|u| *u != room.uuid);
+            }
+        } else {
+            let r = soap(&room.ip, "AVTransport", "SetAVTransportURI", &format!("<InstanceID>0</InstanceID><CurrentURI>x-rincon:{}</CurrentURI><CurrentURIMetaData></CurrentURIMetaData>", t.coord_uuid));
+            plx_base::eventlog::log(&format!("sonos: {} joins the group ({})", room.name, match &r { Ok(_) => "ok".to_owned(), Err(e) => e.clone() }));
+            if r.is_ok() {
+                if let Ok(mut j) = JOINED.lock() {
+                    j.push(room.uuid.clone());
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_millis(400));
+        refresh_zones(&t.coord_ip);
+    });
+}
+
+/// Move the whole playing group's volume by `delta`, the rooms keeping their balance.
+pub(crate) fn group_volume(delta: i32) {
+    let Some(t) = TARGET.lock().ok().and_then(|t| t.clone()) else { return };
+    let _ = std::thread::Builder::new().name("sonos-volume".into()).spawn(move || {
+        let _ = soap(&t.coord_ip, "GroupRenderingControl", "SnapshotGroupVolume", "<InstanceID>0</InstanceID>");
+        if let Ok(b) = soap(&t.coord_ip, "GroupRenderingControl", "SetRelativeGroupVolume", &format!("<InstanceID>0</InstanceID><Adjustment>{delta}</Adjustment>")) {
+            if let Some(v) = tag(&b, "NewVolume").and_then(|v| v.trim().parse::<i32>().ok()) {
+                GROUP_VOL.store(v, Ordering::Relaxed);
+            }
+        }
+        refresh_group_volume();
+    });
+}
+
+/// Rooms this app joined to the group leave it (the music is going back to the TV).
+fn unjoin_all() {
+    let joined = JOINED.lock().map(|mut j| std::mem::take(&mut *j)).unwrap_or_default();
+    if joined.is_empty() {
+        return;
+    }
+    let rooms = ROOMS.lock().map(|r| r.clone()).unwrap_or_default();
+    let _ = std::thread::Builder::new().name("sonos-ungroup".into()).spawn(move || {
+        for u in joined {
+            if let Some(r) = rooms.iter().find(|r| r.uuid == u) {
+                let _ = soap(&r.ip, "AVTransport", "BecomeCoordinatorOfStandaloneGroup", "<InstanceID>0</InstanceID>");
+            }
+        }
     });
 }
 
@@ -288,6 +416,7 @@ fn control_path(service: &str) -> &'static str {
     match service {
         "RenderingControl" => "/MediaRenderer/RenderingControl/Control",
         "ZoneGroupTopology" => "/ZoneGroupTopology/Control",
+        "GroupRenderingControl" => "/MediaRenderer/GroupRenderingControl/Control",
         _ => "/MediaRenderer/AVTransport/Control",
     }
 }
@@ -459,6 +588,7 @@ fn send(c: Cmd) {
 pub(crate) fn choose(id: &str) {
     let stop = active();
     if id.is_empty() {
+        unjoin_all();
         send(Cmd::Quit { stop });
         snap_with(|s| *s = Snap::new());
         if let Ok(mut t) = TARGET.lock() {
@@ -536,12 +666,16 @@ struct Ctl {
     stopped: u32,
     /// Hold off adding tracks until then (a failed add).
     append_after: Instant,
+    /// When play was last asked for, whether it was asked again, and the state last seen (for the log).
+    started: Instant,
+    replayed: bool,
+    last_state: String,
 }
 
 impl Ctl {
     fn new(room: Room) -> Ctl {
         let now = Instant::now();
-        Ctl { room, base: 0, enq: 0, last_qpos: usize::MAX, last_poll: now, last_report: now, silent: 0, stopped: 0, append_after: now }
+        Ctl { room, base: 0, enq: 0, last_qpos: usize::MAX, last_poll: now, last_report: now, silent: 0, stopped: 0, append_after: now, started: now, replayed: false, last_state: String::new() }
     }
 
     fn av(&self, action: &str, inner: &str) -> Result<String, String> {
@@ -739,6 +873,8 @@ impl Ctl {
             let _ = self.av("Seek", &format!("<InstanceID>0</InstanceID><Unit>REL_TIME</Unit><Target>{}</Target>", fmt_hms(offset_ms)));
         }
         self.av("Play", "<InstanceID>0</InstanceID><Speed>1</Speed>")?;
+        self.started = Instant::now();
+        self.replayed = false;
         snap_with(|s| {
             s.loading = false;
             s.playing = true;
@@ -767,10 +903,24 @@ impl Ctl {
         let uri = tag(&pos, "TrackURI").unwrap_or_default();
         let dur = hms(&tag(&pos, "TrackDuration").unwrap_or_default());
         let rel = hms(&tag(&pos, "RelTime").unwrap_or_default());
+        if state != self.last_state {
+            plx_base::eventlog::log(&format!("sonos: the speaker is {state} (track {track}, {} ms in)", rel));
+            self.last_state = state.clone();
+        }
         if state == "STOPPED" || track == 0 {
-            // a moment of stopped is normal while a track changes; two polls of it is the end
+            // the speaker takes a while to start a track it is fetching: stopped is normal at first (a nudge after a
+            // few seconds), and only a long stop means it is over
+            let since = self.started.elapsed();
+            if since < Duration::from_secs(20) {
+                if !self.replayed && since > Duration::from_secs(4) {
+                    self.replayed = true;
+                    plx_base::eventlog::log("sonos: still stopped, asking it to play again");
+                    let _ = self.av("Play", "<InstanceID>0</InstanceID><Speed>1</Speed>");
+                }
+                return;
+            }
             self.stopped += 1;
-            if self.stopped >= 2 {
+            if self.stopped >= 3 {
                 plx_base::eventlog::log("sonos: the speaker stopped, the session ends");
                 self.end_session(false);
             }

@@ -331,6 +331,7 @@ pub(crate) fn model() -> MusicModel {
     m.output = sonos::target_name();
     m.speakers = sonos::speakers();
     m.scanning = sonos::scanning();
+    m.group_volume = sonos::group_volume_now();
     m
 }
 
@@ -350,6 +351,7 @@ fn build_model(s: &mut Shared, now: Option<NowPlaying>) -> MusicModel {
         output: String::new(),
         speakers: Vec::new(),
         scanning: false,
+        group_volume: -1,
         note: if now_secs() < s.note_until { s.note.clone() } else { String::new() },
         open_now_playing: OPEN_NP.swap(false, Ordering::AcqRel),
         open_album: OPEN_ALBUM.lock().ok().and_then(|mut o| o.take()).and_then(|rk| {
@@ -414,6 +416,19 @@ pub(crate) fn use_speaker(id: &str) {
         sonos::load(sn.qpos, sn.pos_ms);
     }
     with(bump);
+}
+
+/// A speaker's box was ticked or cleared: the first one starts the music there; later ones join or leave its group.
+pub(crate) fn toggle_speaker(id: &str) {
+    if !sonos::selected() {
+        return use_speaker(id);
+    }
+    match sonos::member_state(id) {
+        // the only speaker: back to this TV
+        (true, 1, _) => use_speaker(""),
+        (true, n, true) if n > 1 => with(|s| note(s, "Take the other speakers out first.")),
+        _ => sonos::toggle_member(id),
+    }
 }
 
 /// What the viewer hears now, wherever it plays: the track and whether it is playing (not paused).
@@ -640,7 +655,7 @@ fn download(key: String, total: usize, stream: Arc<decode::Stream>) {
         }
         // a chunk that fails is asked for again a couple of times before the file is given up on
         let mut got = Err(0);
-        for attempt in 0..3 {
+        for attempt in 0..5 {
             got = client.music_fetch_range(&key, at, to);
             match &got {
                 Ok(b) if !b.is_empty() => break,
@@ -650,7 +665,7 @@ fn download(key: String, total: usize, stream: Arc<decode::Stream>) {
             if Arc::strong_count(&stream) == 1 {
                 return;
             }
-            std::thread::sleep(std::time::Duration::from_millis(500 * (attempt + 1)));
+            std::thread::sleep(std::time::Duration::from_millis(300 * (attempt + 1)));
         }
         match got {
             Ok(bytes) if !bytes.is_empty() => {
@@ -672,7 +687,7 @@ fn download(key: String, total: usize, stream: Arc<decode::Stream>) {
                 return;
             }
         }
-        chunk = (chunk * 2).min(8 * 1024 * 1024);
+        chunk = (chunk * 2).min(2 * 1024 * 1024);
     }
     stream.finish();
 }
@@ -1664,6 +1679,8 @@ pub(crate) fn handle(o: plx_screens::music::MusicOut) {
         O::Rate { rk, half_stars } => rate(rk, half_stars),
         O::Speakers => sonos::rescan(),
         O::UseSpeaker { id } => use_speaker(&id),
+        O::ToggleSpeaker { id } => toggle_speaker(&id),
+        O::GroupVolume { delta } => sonos::group_volume(delta),
         O::SpeakerVolume { id, delta } => sonos::volume(&id, delta),
     }
 }
