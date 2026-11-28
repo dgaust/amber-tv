@@ -110,6 +110,10 @@ const MAX_ITEMS: usize = plx_data::pms::MAX_SHELF_ITEMS;
 const POINTER_REACH: f32 = 0.5;
 
 const HERO_FLIP_CD: f32 = 0.35;
+/// How stiffly the billboard's fade (and rise) comes in on an arrival; about half a second.
+const K_ARRIVE: f32 = 60.0;
+/// How far below its place the first row starts when the arrival rises.
+const ARRIVE_RISE_PX: f32 = 70.0;
 /// Seconds the billboard rests before it advances. It counts only while the page stands at the hero
 /// and focus is on the hero or nothing: [`HomeScreen::row_holds_focus`] says when a shelf holds it still.
 const HERO_AUTO_S: f32 = 8.0;
@@ -760,6 +764,10 @@ pub struct HomeScreen {
     ghost_cards: HashMap<u64, (u32, Arc<PmsMovie>, tile_facts::DeckKeys)>,
     restored_scroll: Vec<(u32, f32)>,
     restore_reveal: bool,
+    /// Amber: 0..1, how far the billboard has come in after an arrival that fades or rises (1 at rest, and always
+    /// 1 when the arrival glides on the dive instead). Only drawn: nothing reads it for input.
+    arrive: Spring,
+    arrive_rise: bool,
     /// The rows held in the store (`HubsCmd::Hold`): the command goes out only when the rows in
     /// view outgrow the band last sent (`ui_cards::HoldBand`). Derived from what is on screen; not
     /// canon.
@@ -854,6 +862,8 @@ impl HomeScreen {
             ghost_cards: HashMap::new(),
             restored_scroll: Vec::new(),
             restore_reveal: false,
+            arrive: Spring::at(1.0),
+            arrive_rise: false,
             hold: ui_cards::HoldBand::default(),
             since_prune: 0,
             #[cfg(test)]
@@ -1808,8 +1818,34 @@ impl HomeScreen {
         let mut env = Env::inert();
         env.dt = dt;
         env.sp = self.snap.pos;
-        env.hero_a = hero_alpha(self.snap.pos, 0.55);
+        env.hero_a = hero_alpha(self.snap.pos, 0.55) * self.arrive.pos.clamp(0.0, 1.0);
         env
+    }
+
+    /// The page was arrived at from elsewhere with the first row focused, the billboard to come in: glide (the page
+    /// starts as the grid and dives to the billboard, as it does coming up from the next row), fade, rise, or just be there.
+    fn begin_arrival(&mut self) {
+        match plx_data::layout::home_arrival() {
+            0 => {
+                self.snap.jump(1.0);
+                self.snap_target = 0.0;
+                self.arrive = Spring::at(1.0);
+                self.arrive_rise = false;
+            }
+            mode @ (1 | 2) => {
+                self.snap.jump(0.0);
+                self.snap_target = 0.0;
+                self.arrive = Spring::at(0.0);
+                self.arrive_rise = mode == 2;
+            }
+            _ => {
+                self.snap.jump(0.0);
+                self.snap_target = 0.0;
+                self.arrive = Spring::at(1.0);
+                self.arrive_rise = false;
+            }
+        }
+        self.layout_grid();
     }
 
     fn layout_grid(&mut self) {
@@ -1824,7 +1860,8 @@ impl HomeScreen {
         for (shelf, hub) in self.grid.shelves.iter_mut().zip(rows) {
             shelf.set_caption_policy(Some(shelf_policy(hub.identity == HomeHubIdentity::ContinueWatching, self.caption_policy)));
         }
-        let top = PEEK_Y + (GRID_TOP_Y - PEEK_Y) * self.snap.pos;
+        let rise = if self.arrive_rise { (1.0 - self.arrive.pos.clamp(0.0, 1.0)) * ARRIVE_RISE_PX } else { 0.0 };
+        let top = PEEK_Y + (GRID_TOP_Y - PEEK_Y) * self.snap.pos + rise;
         let mut flow = 0.0;
         for (shelf, hub) in self.grid.shelves.iter_mut().zip(rows) {
             shelf.set_base_y(top + flow - self.grid.scroll_y.pos * self.snap.pos);
@@ -2029,6 +2066,11 @@ impl HomeScreen {
         // are: `step` parks it one ulp off with a velocity of ~1e-44 and keeps it there, and the
         // backdrop is named (`Backdrop::ground_key`) only while the dive's velocity is exactly 0.
         self.snap.land(snap_to, dt);
+        self.arrive.step(1.0, K_ARRIVE, dt);
+        self.arrive.land(1.0, dt);
+        if self.arrive.pos >= 1.0 {
+            self.arrive_rise = false;
+        }
         // ONE answer for "is the dive still running", read by the present gate below. See
         // `SNAP_REST_POS`/`SNAP_REST_VEL` for why both terms are needed.
         let snap_moving = (self.snap.pos - self.snap_target).abs() > SNAP_REST_POS
@@ -2886,7 +2928,7 @@ impl LogicalState for HomeScreen {
         let Self { deck_press: _, caption_policy: _, entry: _, instance: _, groups: _, items: _, next_group: _, next_elem: _,
             // `elem_at` is derived from `rows`, which the census already covers via its elems.
             // `item_index` / `group_index` are caches of `items` / `groups`, which are covered.
-            rows: _, elem_at: _, item_index: _, group_index: _, projected_generation: _, cw_cards: _, cw_offset: _, carousel_anchor: _, rebound: _, ghost_cards: _, restored_scroll: _, restore_reveal: _, hold: _, since_prune: _, #[cfg(test)] cost: _, carousel: _,
+            rows: _, elem_at: _, item_index: _, group_index: _, projected_generation: _, cw_cards: _, cw_offset: _, carousel_anchor: _, rebound: _, ghost_cards: _, restored_scroll: _, restore_reveal: _, arrive: _, arrive_rise: _, hold: _, since_prune: _, #[cfg(test)] cost: _, carousel: _,
             outgoing: _, hero_flip_cd: _, hero_slide: _, hero_dir: _, hero_auto: _, hero_pinned: _, covered: _,
             snap_target: _,
             // Whether the tick pulls the scroll to the focused shelf. What it decides is
@@ -3557,6 +3599,12 @@ impl<H: HomeLike> Machine<H> for HomeScreen {
                         None => {}
                     }
                 }
+                // coming to the first row from off the page: bring the billboard in the way the viewer chose
+                let arriving_first_row = from_loc.is_none()
+                    && (from.is_some() || matches!(by, By::Restore))
+                    && *by != By::Pointer
+                    && matches!(to_loc, Some(Located::Item(0, _) | Located::Heading(0)));
+                let was_grid = self.snap.pos > 0.5;
                 if matches!(by, By::Restore) && self.restore_reveal {
                     // A restored page opens at its saved region, rather than replaying the
                     // hero-to-grid door with an invisible engine cursor during the transition.
@@ -3578,6 +3626,9 @@ impl<H: HomeLike> Machine<H> for HomeScreen {
                         self.grid.scroll_y.jump(self.grid.scroll_target);
                     }
                     self.layout_grid();
+                }
+                if arriving_first_row && (was_grid || matches!(by, By::Restore)) {
+                    self.begin_arrival();
                 }
                 if to.elem >= plx_ui::dispatch::STRIP_BASE && matches!(by, By::Dir | By::Pointer)
                 {

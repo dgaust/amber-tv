@@ -1079,6 +1079,8 @@ enum RootId {
     UnderPosters,
     /// Amber: minutes idle before the screensaver; a press steps through the choices.
     Screensaver,
+    /// Amber: how Home's billboard comes in when the page is arrived at; a press steps through the choices.
+    HomeArrival,
     Playback,
     AudioSubtitles,
     Language,
@@ -1115,6 +1117,7 @@ impl FormId for RootId {
             RootId::UnderPosters => 11,
             RootId::Diagnostics => 12,
             RootId::Screensaver => 13,
+            RootId::HomeArrival => 14,
             // the base; `root_form` adds the position (`item_keyed`)
             RootId::Plaintext(_) => PLAINTEXT_KEY_BASE,
         })
@@ -1131,6 +1134,8 @@ enum Action {
     TrailerAutoplay,
     /// Amber: step the screensaver's idle time.
     Screensaver,
+    /// Amber: step Home's arrival animation.
+    HomeArrival,
     /// A server's "connect without encryption" switch.
     Plaintext(ServerMachineId),
 }
@@ -1291,6 +1296,7 @@ fn sentence_for(id: Option<&RootId>) -> Cow<'static, str> {
         Some(RootId::Diagnostics) => Cow::Borrowed(msg::settings_diagnostics_detail()),
         Some(RootId::Legal) => Cow::Borrowed(msg::settings_legal_detail()),
         Some(RootId::About) => Cow::Borrowed(msg::settings_about_detail()),
+        Some(RootId::HomeArrival) => Cow::Borrowed("How the billboard comes in when you arrive on Home from another page. Press OK to change it."),
         Some(RootId::Screensaver) => Cow::Borrowed("Shows fanart from films and shows rated M and under after this long without a button press. Press OK to change it."),
         Some(RootId::Plaintext(_)) | None => Cow::Borrowed(msg::settings_root_copy()),
     }
@@ -1367,6 +1373,13 @@ fn root_form(inputs: &RootInputs) -> Form<RootId, Action, SettingsPage> {
             RowKind::Button,
             Action::Screensaver,
             Row::new("Screensaver").value(plx_data::layout::screensaver_label(inputs.screensaver)),
+        )
+        .item_if(
+            signed_in,
+            RootId::HomeArrival,
+            RowKind::Button,
+            Action::HomeArrival,
+            Row::new("Home animation").value(plx_data::layout::home_arrival_label(plx_data::layout::home_arrival())),
         )
         // Signed in AND on webOS 1-3 only (`resolution_offered`), like the switches above for the
         // first: the signed-out root is the sign-in path's own short list. On webOS 4+ the root is
@@ -1614,6 +1627,10 @@ impl RootPage {
             }
             Action::Screensaver => {
                 plx_data::layout::step_screensaver_minutes();
+                self.rebuild(directory);
+            }
+            Action::HomeArrival => {
+                plx_data::layout::step_home_arrival();
                 self.rebuild(directory);
             }
             Action::Plaintext(ServerMachineId(machine)) => {

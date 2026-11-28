@@ -7054,3 +7054,29 @@ fn arriving_in_the_first_row_from_off_the_page_shows_the_billboard() {
         assert_eq!(s.snap_target, 0.0, "{by:?}: the billboard shows");
     }
 }
+
+/// The setting picks how the billboard comes in on an arrival: a glide starts the page as the grid and lets the dive
+/// bring it down, fade and rise show it at once and bring the art in, none just shows it.
+#[test]
+fn the_arrival_animation_follows_the_setting() {
+    let _guard = plx_base::testlock::serial();
+    let mut state = plx_data::pms::PmsState::default();
+    let adapter = std::sync::Arc::new(plx_data::pms::PmsAdapter::default());
+    plx_data::pms::seed_for_test(&mut state, &adapter, 2, plx_data::pms::HubState::Ready);
+    let snapshot = plx_data::pms::hubs_snapshot(&state);
+    let was = plx_data::layout::home_arrival();
+    for (mode, snap, arrive, rise) in [(0u8, 1.0, 1.0, false), (1, 0.0, 0.0, false), (2, 0.0, 0.0, true), (3, 0.0, 1.0, false)] {
+        plx_data::layout::update(|l| l.home_arrival = mode);
+        let mut s = screen(snapshot.view());
+        s.snap.jump(1.0);
+        s.snap_target = 1.0;
+        let to = first_card(&s);
+        let from = Some(FocusKey { entry: s.entry, elem: 9_999_999 });
+        step(&mut s, snapshot.view(), Some(to), &ScreenEvent::FocusMoved { from, to, by: By::Dir });
+        assert_eq!(s.snap_target, 0.0, "mode {mode}: the billboard is where it ends");
+        assert_eq!(s.snap.pos, snap, "mode {mode}: where the page starts");
+        assert_eq!(s.arrive.pos, arrive, "mode {mode}: how much of the art is in");
+        assert_eq!(s.arrive_rise, rise, "mode {mode}: rising");
+    }
+    plx_data::layout::update(|l| l.home_arrival = was);
+}
