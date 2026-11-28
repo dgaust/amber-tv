@@ -334,9 +334,10 @@ pub(crate) fn model() -> MusicModel {
     });
     m.output = sonos::target_name();
     m.speakers = sonos::speakers();
-    let together = m.speakers.iter().filter(|s| s.current).count();
-    if together >= 2 {
-        m.output = format!("{} + {}", m.output, together - 1);
+    // every room the music plays in, by name
+    let rooms: Vec<&str> = m.speakers.iter().filter(|s| s.current).map(|s| s.name.as_str()).collect();
+    if !m.output.is_empty() && !rooms.is_empty() {
+        m.output = rooms.join(", ");
     }
     m.scanning = sonos::scanning();
     m.group_volume = sonos::group_volume_now();
@@ -1291,6 +1292,13 @@ impl Engine {
             if with(|s| std::mem::take(&mut s.q.want_start)) {
                 let pos = with(|s| s.q.pos);
                 sonos::load(pos, 0);
+            } else if self.active() && !sonos::active() {
+                // the TV's pipeline was still starting when the speaker was picked, so nothing was playing to hand over:
+                // the track it was starting goes to the speaker, from where it was to start
+                let pos = with(|s| s.q.pos);
+                let off = self.restart_at.as_ref().map_or(0, |r| r.1).max(RESUME_MS.swap(0, Ordering::AcqRel));
+                self.release(mt, "the music moved to a speaker");
+                sonos::load(pos, off);
             }
             return;
         }

@@ -1232,8 +1232,11 @@ impl MusicScreen {
         Self::text(p, it.artist(), x, 290.0, 34, theme::RAIL_CURRENT, 0, w);
         Self::text(p, &it.parent_title, x, 336.0, theme::size::BODY, theme::TEXT_SECONDARY, 0, w);
         if !it.codec.is_empty() {
-            let q = if self.model.output.is_empty() { it.quality_label() } else { format!("{}   \u{b7}   on {}", it.quality_label(), self.model.output) };
-            Self::text(p, &q, x, 378.0, theme::size::MICRO, theme::TEXT_TERTIARY, 0, w);
+            Self::text(p, &it.quality_label(), x, 378.0, theme::size::MICRO, theme::TEXT_TERTIARY, 0, w);
+        }
+        // where it plays: every speaker by name (nothing is said for this TV)
+        if !self.model.output.is_empty() {
+            Self::text(p, &format!("Playing on {}", self.model.output), x, 410.0, theme::size::MICRO, theme::RAIL_CURRENT, 1, w);
         }
         // the progress bar, or what is being waited for
         let by = 440.0;

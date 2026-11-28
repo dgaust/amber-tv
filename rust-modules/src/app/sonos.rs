@@ -274,7 +274,7 @@ pub(crate) fn toggle_member(id: &str) {
             if let Ok(mut j) = JOINED.lock() {
                 j.retain(|u| *u != room.uuid);
             }
-            restore_tv_input(vec![room.clone()], 600);
+            restore_tv_input(vec![room.clone()], 600, true);
         } else {
             let r = soap(&room.ip, "AVTransport", "SetAVTransportURI", &format!("<InstanceID>0</InstanceID><CurrentURI>x-rincon:{}</CurrentURI><CurrentURIMetaData></CurrentURIMetaData>", esc(&t.coord_uuid)));
             plx_base::eventlog::log(&format!("sonos: {} joins the group ({})", room.name, match &r { Ok(_) => "ok".to_owned(), Err(e) => e.clone() }));
@@ -378,22 +378,28 @@ fn in_use(r: &Room) -> bool {
     active() && TARGET.lock().ok().and_then(|t| t.clone()).is_some_and(|t| t.uuid == r.uuid || t.coord_uuid == r.coord_uuid)
 }
 
+/// The room is the one the session was started on (a room that only left its group is not).
+fn is_target(r: &Room) -> bool {
+    active() && TARGET.lock().ok().and_then(|t| t.clone()).is_some_and(|t| t.uuid == r.uuid)
+}
+
 /// Switch these rooms back to their TV input (a soundbar left on a Sonos queue is silent for the TV). Rooms with no TV
 /// input refuse, which is fine. A room that has music again by then is left alone.
-fn restore_tv_input(rooms: Vec<Room>, after_ms: u64) {
+fn restore_tv_input(rooms: Vec<Room>, after_ms: u64, leaving: bool) {
     if rooms.is_empty() {
         return;
     }
     let _ = std::thread::Builder::new().name("sonos-tv".into()).spawn(move || {
         std::thread::sleep(Duration::from_millis(after_ms));
         for r in rooms {
-            put_back_on_tv(&r);
+            put_back_on_tv(&r, leaving);
         }
     });
 }
 
-fn put_back_on_tv(r: &Room) {
-    if in_use(r) {
+/// `leaving`: the room has just left the group that plays (it is its own group now, whatever its old record says).
+fn put_back_on_tv(r: &Room, leaving: bool) {
+    if if leaving { is_target(r) } else { in_use(r) } {
         return;
     }
     let uri = format!("x-sonos-htastream:{}:spdif", esc(&r.uuid));
@@ -420,7 +426,7 @@ fn wind_down(playing: Vec<Room>) {
     }
     std::thread::sleep(Duration::from_millis(500));
     for r in &playing {
-        put_back_on_tv(r);
+        put_back_on_tv(r, false);
     }
     refresh_zones(&lead.coord_ip);
 }
