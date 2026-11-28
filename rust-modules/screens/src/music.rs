@@ -1083,17 +1083,22 @@ impl MusicScreen {
             }
             Self::text(p, &Self::fmt_time(now.pos_ms), x, by + 38.0, theme::size::MICRO, theme::TEXT_SECONDARY, 0, 200.0);
             let left = format!("-{}", Self::fmt_time((now.duration_ms - now.pos_ms).max(0)));
-            Self::text(p, &left, x + w - 200.0, by + 38.0, theme::size::MICRO, theme::TEXT_SECONDARY, 0, 200.0);
+            // right-aligned to the end of the bar
+            let lw = CString::new(left.as_str()).map_or(0.0, |c| plx_gfx::text::text_width(c.as_ptr(), theme::size::MICRO, 0));
+            Self::text(p, &left, x + w - lw, by + 38.0, theme::size::MICRO, theme::TEXT_SECONDARY, 0, 200.0);
         }
         // the transport: shuffle, previous, play/pause, next, repeat, all as icons
         use plx_ui::icons::Icon;
         let repeat = self.model.repeat;
         let ons = [self.model.shuffle, false, false, false, repeat != crate::music::Repeat::Off];
         let ty = 508.0;
+        // spread across the width of the bar: the first under its start, the last under its end
+        let sizes = [80.0f32, 80.0, 104.0, 80.0, 80.0];
+        let gap = ((w - sizes.iter().sum::<f32>()) / 4.0).max(16.0);
         let mut cx = x;
         for (i, on) in ons.iter().enumerate() {
             let big = i == 2;
-            let d = if big { 104.0 } else { 80.0 };
+            let d = sizes[i];
             let r = Rect::new(cx, ty + if big { 0.0 } else { 12.0 }, d, d);
             let f = active && self.np_row == 1 && self.np_col == i;
             p.rrect(r, d * 0.5, d * 0.5, if f { theme::ACCENT } else if *on { theme::with_a(theme::RAIL_CURRENT, 0.45) } else { theme::with_a(theme::TEXT_PRIMARY, 0.14) });
@@ -1113,7 +1118,7 @@ impl MusicScreen {
                 p.rrect(badge, 12.0, 12.0, theme::RAIL_CURRENT);
                 Self::centred(p, "1", badge, theme::size::MICRO, theme::ACCENT_INK, 1);
             }
-            cx += d + 28.0;
+            cx += d + gap;
         }
         // the rating: five stars in half steps, drawn (a font may lack the glyph)
         let ry = 680.0;
@@ -1133,9 +1138,10 @@ impl MusicScreen {
         }
         Self::text(p, if rf { "Left / Right to rate, OK to save" } else { "Your rating" }, x + 420.0, ry + 18.0, theme::size::MICRO, theme::TEXT_TERTIARY, 0, 360.0);
         // queue and stop
+        let (bw, bgap) = (200.0, ((w - 4.0 * 200.0) / 3.0).max(16.0));
         for (i, label) in ["Queue", "Radio", "Screen off", "Stop"].iter().enumerate() {
             let f = active && self.np_row == 3 && self.np_col == i;
-            Self::button(p, x + i as f32 * 216.0, 770.0, 200.0, label, f);
+            Self::button(p, x + i as f32 * (bw + bgap), 770.0, bw, label, f);
         }
         // what comes next
         if let Some(next) = self.model.queue.get(self.model.qpos + 1) {
