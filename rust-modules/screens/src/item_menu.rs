@@ -725,7 +725,7 @@ impl ItemMenuScreen {
         self.built = true;
         // Amber: a Live TV card (Home's On Now row) is a channel, not a title: no title actions,
         // only its row's
-        let live = self.arg.rk.starts_with(plx_data::pms::LIVE_KEY_PREFIX);
+        let live = self.arg.rk.starts_with(plx_data::pms::LIVE_KEY_PREFIX) || self.arg.rk.starts_with(plx_data::pms::MUSIC_KEY_PREFIX);
         let form = match &self.arg.kind {
             _ if live => Form::new(),
             ItemMenuKind::Card { row, from_deck } => {

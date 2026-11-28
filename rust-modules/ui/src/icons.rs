@@ -169,6 +169,8 @@ pub enum Icon {
     Music,
     /// Two crossing arrows: the music pages' Shuffle button.
     Shuffle,
+    /// Two arrows chasing round a loop: Now Playing's Repeat button.
+    Repeat,
     /// Amber: the sidebar's Settings entry (a gear).
     Settings,
     // ---- review-score marks (the detail hero's ratings row) ----
@@ -366,6 +368,7 @@ fn src(id: Icon) -> &'static str {
         Icon::LiveTv => include_str!("../../../assets/icons/live-tv.svg"),
         Icon::Music => include_str!("../../../assets/icons/music.svg"),
         Icon::Shuffle => include_str!("../../../assets/icons/shuffle.svg"),
+        Icon::Repeat => include_str!("../../../assets/icons/repeat.svg"),
         Icon::Settings => include_str!("../../../assets/icons/settings.svg"),
         Icon::Tomato => include_str!("../../../assets/icons/tomato.svg"),
         Icon::TomatoCalyx => include_str!("../../../assets/icons/tomato-calyx.svg"),

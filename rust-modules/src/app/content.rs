@@ -774,8 +774,7 @@ fn home_command(app: &mut ScreenCommandApp<'_>, source: MachineId, request: Home
             return activate_home_item(app, source, entry, sid, &rk, None, ret, now),
         HomeReq::ItemMenu { sid, rk } => {
             let snapshot = app.bridge.hubs_snapshot();
-            if rk.starts_with(plx_data::pms::MUSIC_KEY_PREFIX) { return AppCommandOutcome::Refused; }
-            let live = rk.starts_with(plx_data::pms::LIVE_KEY_PREFIX);
+            let live = rk.starts_with(plx_data::pms::LIVE_KEY_PREFIX) || rk.starts_with(plx_data::pms::MUSIC_KEY_PREFIX);
             let Some(item) = home_item(snapshot.view(), sid, &rk)
                 .filter(|item| live || plx_screens::item_menu::has_actions(item)) else { return AppCommandOutcome::Refused };
             let from_deck = home_menu_from_deck(&ret);

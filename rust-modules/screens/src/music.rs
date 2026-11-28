@@ -1085,36 +1085,35 @@ impl MusicScreen {
             let left = format!("-{}", Self::fmt_time((now.duration_ms - now.pos_ms).max(0)));
             Self::text(p, &left, x + w - 200.0, by + 38.0, theme::size::MICRO, theme::TEXT_SECONDARY, 0, 200.0);
         }
-        // the transport: shuffle, previous, play/pause, next, repeat (words, and the play/pause icon)
-        let repeat = match self.model.repeat {
-            crate::music::Repeat::Off => "Repeat",
-            crate::music::Repeat::All => "Repeat all",
-            crate::music::Repeat::One => "Repeat one",
-        };
-        let labels: [(&str, bool); 5] = [
-            ("Shuffle", self.model.shuffle),
-            ("Previous", false),
-            ("", false),
-            ("Next", false),
-            (repeat, self.model.repeat != crate::music::Repeat::Off),
-        ];
-        let ty = 520.0;
+        // the transport: shuffle, previous, play/pause, next, repeat, all as icons
+        use plx_ui::icons::Icon;
+        let repeat = self.model.repeat;
+        let ons = [self.model.shuffle, false, false, false, repeat != crate::music::Repeat::Off];
+        let ty = 508.0;
         let mut cx = x;
-        for (i, (label, on)) in labels.iter().enumerate() {
+        for (i, on) in ons.iter().enumerate() {
             let big = i == 2;
-            let (cw, ch) = if big { (120.0, 96.0) } else { (190.0, 72.0) };
-            let r = Rect::new(cx, ty + if big { 0.0 } else { 12.0 }, cw, ch);
+            let d = if big { 104.0 } else { 80.0 };
+            let r = Rect::new(cx, ty + if big { 0.0 } else { 12.0 }, d, d);
             let f = active && self.np_row == 1 && self.np_col == i;
-            p.rrect(r, ch * 0.5, ch * 0.5, if f { theme::ACCENT } else if *on { theme::with_a(theme::RAIL_CURRENT, 0.45) } else { theme::with_a(theme::TEXT_PRIMARY, 0.14) });
+            p.rrect(r, d * 0.5, d * 0.5, if f { theme::ACCENT } else if *on { theme::with_a(theme::RAIL_CURRENT, 0.45) } else { theme::with_a(theme::TEXT_PRIMARY, 0.14) });
             let ink = if f { theme::ACCENT_INK } else { theme::TEXT_PRIMARY };
-            if big {
-                let icon = if now.playing { plx_ui::icons::Icon::Pause } else { plx_ui::icons::Icon::Play };
-                let d = 44.0;
-                plx_ui::icons::draw(p, icon, Rect::new(r.x + (cw - d) * 0.5, r.y + (ch - d) * 0.5, d, d), ink);
-            } else {
-                Self::centred(p, label, r, theme::size::CAPTION, ink, 1);
+            let icon = match i {
+                0 => Icon::Shuffle,
+                1 => Icon::Previous,
+                2 => if now.playing { Icon::Pause } else { Icon::Play },
+                3 => Icon::Next,
+                _ => Icon::Repeat,
+            };
+            let g = if big { 46.0 } else { 36.0 };
+            plx_ui::icons::draw(p, icon, Rect::new(r.x + (d - g) * 0.5, r.y + (d - g) * 0.5, g, g), ink);
+            // repeat one track: a small 1 on the icon
+            if i == 4 && repeat == crate::music::Repeat::One {
+                let badge = Rect::new(r.x + d - 30.0, r.y + d - 30.0, 24.0, 24.0);
+                p.rrect(badge, 12.0, 12.0, theme::RAIL_CURRENT);
+                Self::centred(p, "1", badge, theme::size::MICRO, theme::ACCENT_INK, 1);
             }
-            cx += cw + 20.0;
+            cx += d + 28.0;
         }
         // the rating: five stars in half steps, drawn (a font may lack the glyph)
         let ry = 680.0;
