@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 
 const PORT: u16 = 1400;
 /// The server is not at an address a speaker on the home network can use.
-const NO_LAN: &str = "the server is not on the home network";
+const NO_LAN: &str = "the server's address is not on the home network";
 /// A Sonos queue holds 1000 tracks.
 const MAX_QUEUE: usize = 1000;
 

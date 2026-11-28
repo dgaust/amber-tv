@@ -417,16 +417,17 @@ impl Client {
             let first = host.split('.').next().unwrap_or("");
             if first.split('-').count() == 4 && first.split('-').all(|p| p.parse::<u8>().is_ok()) {
                 host = first.replace('-', ".");
-            } else {
-                return None;
             }
         }
         // a plain-http link carries the server's token: it goes only where a speaker on the home network can reach it
-        if !is_home_host(&host) {
-            return None;
-        }
+        let port = self.origin.port();
+        let host = match lan_host(&host, port) {
+            Lan::Address(a) => a,
+            Lan::Name => host,
+            Lan::No => return None,
+        };
         let host = if host.contains(':') { format!("[{host}]") } else { host };
-        Some(format!("http://{host}:{}{}", self.origin.port(), self.with_token(path)))
+        Some(format!("http://{host}:{port}{}", self.with_token(path)))
     }
 
     /// The whole audio file of a track, as the server stores it.
@@ -444,31 +445,94 @@ impl Client {
     }
 }
 
-/// A private, loopback or link-local address, or a `.local` name: somewhere a home network reaches and the internet
-/// does not.
-fn is_home_host(host: &str) -> bool {
-    if let Ok(v4) = host.parse::<std::net::Ipv4Addr>() {
-        return v4.is_private() || v4.is_loopback() || v4.is_link_local();
+/// A private, loopback or link-local address: somewhere a home network reaches and the internet does not.
+fn is_home_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => v4.is_private() || v4.is_loopback() || v4.is_link_local(),
+        std::net::IpAddr::V6(v6) => {
+            let s = v6.segments()[0];
+            v6.is_loopback() || (s & 0xfe00) == 0xfc00 || (s & 0xffc0) == 0xfe80
+        }
     }
-    if let Ok(v6) = host.parse::<std::net::Ipv6Addr>() {
-        let s = v6.segments()[0];
-        return v6.is_loopback() || (s & 0xfe00) == 0xfc00 || (s & 0xffc0) == 0xfe80;
+}
+
+/// Where a speaker is to fetch from.
+#[derive(Clone, Debug, PartialEq)]
+enum Lan {
+    /// This address (the name stands for a home address).
+    Address(String),
+    /// The name as it is (it may be reached on the home network, or its address is not known from here).
+    Name,
+    /// Not the home network: the token would go out over the internet in the clear.
+    No,
+}
+
+/// Decide from what a name resolves to: a home IPv4 address is used as the address; a name with only IPv6 addresses
+/// (a server reached by its own IPv6 name) or none known is kept as the name; a name that points only at public IPv4
+/// addresses is refused.
+fn classify(addrs: &[std::net::IpAddr]) -> Lan {
+    if let Some(v4) = addrs.iter().find(|a| a.is_ipv4() && is_home_ip(**a)) {
+        return Lan::Address(v4.to_string());
     }
-    host.to_ascii_lowercase().ends_with(".local")
+    if addrs.iter().any(|a| a.is_ipv4()) {
+        return Lan::No;
+    }
+    Lan::Name
+}
+
+fn lan_host(host: &str, port: i32) -> Lan {
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        return if is_home_ip(ip) { Lan::Address(host.to_owned()) } else { Lan::No };
+    }
+    if host.to_ascii_lowercase().ends_with(".local") {
+        return Lan::Name;
+    }
+    // names are looked up now and then, not for every track
+    static SEEN: std::sync::Mutex<Vec<(String, std::time::Instant, Lan)>> = std::sync::Mutex::new(Vec::new());
+    if let Ok(seen) = SEEN.lock() {
+        if let Some((_, at, l)) = seen.iter().find(|(h, _, _)| h == host) {
+            if at.elapsed() < std::time::Duration::from_secs(300) {
+                return l.clone();
+            }
+        }
+    }
+    use std::net::ToSocketAddrs;
+    let addrs: Vec<std::net::IpAddr> = (host, port.clamp(1, 65535) as u16).to_socket_addrs().map(|a| a.map(|a| a.ip()).collect()).unwrap_or_default();
+    let l = classify(&addrs);
+    if let Ok(mut seen) = SEEN.lock() {
+        seen.retain(|(h, _, _)| h != host);
+        seen.push((host.to_owned(), std::time::Instant::now(), l.clone()));
+    }
+    l
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn ip(s: &str) -> std::net::IpAddr {
+        s.parse().unwrap()
+    }
+
     #[test]
     fn the_token_only_goes_to_the_home_network() {
-        for h in ["10.0.0.5", "192.168.1.20", "172.16.4.2", "172.31.255.1", "169.254.3.4", "127.0.0.1", "fd12:3456::1", "fe80::1", "plex.local"] {
-            assert!(is_home_host(h), "{h}");
+        for h in ["10.0.0.5", "192.168.1.20", "172.16.4.2", "172.31.255.1", "169.254.3.4", "127.0.0.1", "fd12:3456::1", "fe80::1"] {
+            assert!(is_home_ip(ip(h)), "{h}");
         }
-        for h in ["8.8.8.8", "172.32.0.1", "203.0.113.9", "2001:db8::1", "plex.example.com", "192-168-1-5.abc.plex.direct", ""] {
-            assert!(!is_home_host(h), "{h}");
+        for h in ["8.8.8.8", "172.32.0.1", "203.0.113.9", "2001:db8::1"] {
+            assert!(!is_home_ip(ip(h)), "{h}");
         }
+        assert_eq!(lan_host("10.0.0.5", 32400), Lan::Address("10.0.0.5".into()));
+        assert_eq!(lan_host("203.0.113.9", 32400), Lan::No);
+        assert_eq!(lan_host("plex.local", 32400), Lan::Name);
+    }
+
+    #[test]
+    fn a_name_is_judged_by_what_it_points_at() {
+        assert_eq!(classify(&[ip("2001:db8::5"), ip("10.0.0.5")]), Lan::Address("10.0.0.5".into()), "a home address wins");
+        assert_eq!(classify(&[ip("203.0.113.9"), ip("2001:db8::5")]), Lan::No, "a public IPv4 address is where the token would go");
+        assert_eq!(classify(&[ip("2001:db8::5")]), Lan::Name, "an IPv6-only name stays a name");
+        assert_eq!(classify(&[]), Lan::Name, "not known from here: the speaker looks it up");
     }
 
     const TRACKS: &str = r#"{"MediaContainer":{"size":2,"totalSize":42,"offset":0,"Metadata":[
