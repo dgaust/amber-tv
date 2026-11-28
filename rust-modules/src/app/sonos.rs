@@ -243,6 +243,7 @@ pub(crate) fn toggle_member(id: &str) {
             if let Ok(mut j) = JOINED.lock() {
                 j.retain(|u| *u != room.uuid);
             }
+            restore_tv_input(vec![room.clone()], 600);
         } else {
             let r = soap(&room.ip, "AVTransport", "SetAVTransportURI", &format!("<InstanceID>0</InstanceID><CurrentURI>x-rincon:{}</CurrentURI><CurrentURIMetaData></CurrentURIMetaData>", t.coord_uuid));
             plx_base::eventlog::log(&format!("sonos: {} joins the group ({})", room.name, match &r { Ok(_) => "ok".to_owned(), Err(e) => e.clone() }));
@@ -271,20 +272,38 @@ pub(crate) fn group_volume(delta: i32) {
     });
 }
 
-/// Rooms this app joined to the group leave it (the music is going back to the TV).
-fn unjoin_all() {
-    let joined = JOINED.lock().map(|mut j| std::mem::take(&mut *j)).unwrap_or_default();
-    if joined.is_empty() {
+/// Switch these rooms back to their TV input (a soundbar left on a Sonos queue is silent for the TV). Rooms with no TV
+/// input refuse, which is fine.
+fn restore_tv_input(rooms: Vec<Room>, after_ms: u64) {
+    if rooms.is_empty() {
         return;
     }
-    let rooms = ROOMS.lock().map(|r| r.clone()).unwrap_or_default();
-    let _ = std::thread::Builder::new().name("sonos-ungroup".into()).spawn(move || {
-        for u in joined {
-            if let Some(r) = rooms.iter().find(|r| r.uuid == u) {
-                let _ = soap(&r.ip, "AVTransport", "BecomeCoordinatorOfStandaloneGroup", "<InstanceID>0</InstanceID>");
+    let _ = std::thread::Builder::new().name("sonos-tv".into()).spawn(move || {
+        std::thread::sleep(Duration::from_millis(after_ms));
+        for r in rooms {
+            let uri = format!("x-sonos-htastream:{}:spdif", r.uuid);
+            let set = soap(&r.ip, "AVTransport", "SetAVTransportURI", &format!("<InstanceID>0</InstanceID><CurrentURI>{uri}</CurrentURI><CurrentURIMetaData></CurrentURIMetaData>"));
+            if set.is_ok() {
+                let _ = soap(&r.ip, "AVTransport", "Play", "<InstanceID>0</InstanceID><Speed>1</Speed>");
+                plx_base::eventlog::log(&format!("sonos: {} is back on its TV input", r.name));
             }
         }
     });
+}
+
+/// The music is going back to the TV: rooms this app joined leave the group, and the rooms that played go back to
+/// their TV input.
+fn unjoin_all(playing: Vec<Room>) {
+    let joined = JOINED.lock().map(|mut j| std::mem::take(&mut *j)).unwrap_or_default();
+    let rooms = ROOMS.lock().map(|r| r.clone()).unwrap_or_default();
+    let leaving: Vec<Room> = joined.iter().filter_map(|u| rooms.iter().find(|r| r.uuid == *u).cloned()).collect();
+    let _ = std::thread::Builder::new().name("sonos-ungroup".into()).spawn(move || {
+        for r in &leaving {
+            let _ = soap(&r.ip, "AVTransport", "BecomeCoordinatorOfStandaloneGroup", "<InstanceID>0</InstanceID>");
+        }
+    });
+    // after the lead has been told to stop
+    restore_tv_input(playing, 2000);
 }
 
 fn discover() -> Vec<Room> {
@@ -588,7 +607,11 @@ fn send(c: Cmd) {
 pub(crate) fn choose(id: &str) {
     let stop = active();
     if id.is_empty() {
-        unjoin_all();
+        let playing: Vec<Room> = match TARGET.lock().ok().and_then(|t| t.clone()) {
+            Some(t) => ROOMS.lock().map(|r| r.iter().filter(|r| r.coord_uuid == t.coord_uuid).cloned().collect()).unwrap_or_default(),
+            None => Vec::new(),
+        };
+        unjoin_all(playing);
         send(Cmd::Quit { stop });
         snap_with(|s| *s = Snap::new());
         if let Ok(mut t) = TARGET.lock() {
