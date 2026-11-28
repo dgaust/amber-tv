@@ -10,7 +10,7 @@
 use plx_media_codecs::ffi::*;
 use plx_media_codecs::SpeedDecoder;
 use std::os::raw::{c_int, c_void};
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
@@ -32,11 +32,13 @@ pub struct Stream {
     pub total: usize,
     /// 0 arriving, 1 complete, 2 failed.
     state: AtomicU8,
+    /// The download goes no further than this many bytes (a track held ready fetches only its start).
+    cap: AtomicUsize,
 }
 
 impl Stream {
     pub fn new(total: usize) -> Stream {
-        Stream { buf: Mutex::new(Vec::with_capacity(total.min(300 << 20))), cv: Condvar::new(), total, state: AtomicU8::new(0) }
+        Stream { buf: Mutex::new(Vec::with_capacity(total.min(300 << 20))), cv: Condvar::new(), total, state: AtomicU8::new(0), cap: AtomicUsize::new(usize::MAX) }
     }
     pub fn push(&self, bytes: &[u8]) {
         if let Ok(mut b) = self.buf.lock() {
@@ -58,6 +60,12 @@ impl Stream {
     pub fn fail(&self) {
         self.state.store(2, Ordering::SeqCst);
         self.cv.notify_all();
+    }
+    pub fn set_cap(&self, bytes: usize) {
+        self.cap.store(bytes, Ordering::SeqCst);
+    }
+    pub fn cap(&self) -> usize {
+        self.cap.load(Ordering::SeqCst)
     }
     pub fn downloaded(&self) -> usize {
         self.buf.lock().map_or(0, |b| b.len())

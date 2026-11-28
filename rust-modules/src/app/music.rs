@@ -21,8 +21,9 @@ use std::sync::{Arc, Mutex};
 const PAGE: usize = 120;
 /// Files larger than this are not held in memory.
 const MAX_FILE: usize = 260 * 1024 * 1024;
-/// The next track is fetched ahead only when it is no bigger than this.
-const PREFETCH_MAX: usize = 100 * 1024 * 1024;
+/// The next track is held ready by fetching this much of its start (the rest comes once it plays): enough to begin
+/// at once, whatever the file's size.
+const PREFETCH_HEAD: usize = 24 * 1024 * 1024;
 
 #[derive(Default)]
 struct Shared {
@@ -520,6 +521,11 @@ fn download(key: String, total: usize, stream: Arc<decode::Stream>) {
         if total > 0 && at >= total {
             break;
         }
+        // a track held ready: wait here until it plays
+        if at >= stream.cap() {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            continue;
+        }
         let mut to = at + chunk - 1;
         if total > 0 {
             to = to.min(total - 1);
@@ -999,6 +1005,10 @@ impl Engine {
     /// Start fetching `item`'s file, and (when `ahead`) decoding it from the start as it arrives.
     fn start_fetch(&mut self, item: &MusicItem, ahead: bool) {
         let stream = Arc::new(decode::Stream::new(item.part_size.max(0) as usize));
+        if ahead {
+            stream.set_cap(PREFETCH_HEAD);
+            plx_base::eventlog::log(&format!("music: holding \"{}\" ready ({} MB file)", item.title, item.part_size / 1_000_000));
+        }
         let (s2, key, total) = (stream.clone(), item.part_key.clone(), item.part_size.max(0) as usize);
         let spawned = std::thread::Builder::new().name("music-fetch".into()).spawn(move || download(key, total, s2));
         if spawned.is_ok() {
@@ -1017,7 +1027,11 @@ impl Engine {
             self.start_fetch(item, false);
         }
         match std::mem::replace(&mut self.file, File::None) {
-            File::Stream { stream, dec, .. } => Some((stream, dec)),
+            File::Stream { stream, dec, .. } => {
+                // it plays now: the rest of the file is wanted
+                stream.set_cap(usize::MAX);
+                Some((stream, dec))
+            }
             File::None => None,
         }
     }
@@ -1045,6 +1059,7 @@ impl Engine {
             return false;
         };
         self.buffering = false;
+        let have = data.downloaded();
         self.cur_stream = Some(data.clone());
         // a decoder started ahead is from the start of the track: right for a play from the top
         let (dec, how) = match ahead {
@@ -1056,7 +1071,7 @@ impl Engine {
                 (decode::spawn(data, offset_ms), "new")
             }
         };
-        plx_base::eventlog::log(&format!("music: decoding \"{}\" from {} ms ({how})", item.title, offset_ms));
+        plx_base::eventlog::log(&format!("music: decoding \"{}\" from {} ms ({how}, {} of {} MB here)", item.title, offset_ms, have / 1_000_000, item.part_size / 1_000_000));
         let first = self.next_audio_pts;
         self.slots.push_back(Slot { first_pts: first, offset_ms, item: item.clone(), duration_ms: item.duration_ms, order_pos: pos });
         self.cur = Some(TrackRun { dec: Some(dec), first_pts: first, base_ns: None, last_end_pts: first, level: level_for(&item), xf_ms: i64::from(plx_data::layout::music_crossfade()) * 1000 });
@@ -1343,6 +1358,7 @@ impl Engine {
                         if let Some((_, item)) = Self::entry(np) {
                             if matches!(&self.file, File::Stream { rk, .. } if *rk == item.rk) {
                                 if let File::Stream { stream: data, dec, .. } = std::mem::replace(&mut self.file, File::None) {
+                                    data.set_cap(usize::MAX);
                                     let dec = dec.unwrap_or_else(|| decode::spawn(data, 0));
                                     plx_base::eventlog::log(&format!("music: crossfading into \"{}\"", item.title));
                                     self.slots.push_back(Slot { first_pts: pts, offset_ms: 0, item: item.clone(), duration_ms: item.duration_ms, order_pos: np });
@@ -1414,11 +1430,13 @@ impl Engine {
             return;
         }
         // the next track's file, while this one plays
-        if self.cur.is_some() && self.fade.is_none() && matches!(self.file, File::None) && self.restart_next_pos.is_none() {
+        if self.cur.is_some() && self.fade.is_none() && self.restart_next_pos.is_none() && self.restart_at.is_none() {
             let pos = with(|s| s.q.pos);
             if let Some(np) = Self::step_pos(pos, 1, true).filter(|&n| n != pos) {
                 if let Some((_, item)) = Self::entry(np) {
-                    if (item.part_size as usize) <= PREFETCH_MAX {
+                    // what is held is another track's (the queue changed, or the viewer went back), or it failed: hold this one instead
+                    let held = matches!(&self.file, File::Stream { rk, stream, .. } if *rk == item.rk && !stream.is_failed());
+                    if !held && (item.part_size as usize) <= MAX_FILE {
                         self.start_fetch(&item, true);
                     }
                 }
