@@ -62,6 +62,17 @@ pub struct NowPlaying {
     pub anim: u32,
 }
 
+/// A Sonos speaker the music can be sent to.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Speaker {
+    pub id: String,
+    pub name: String,
+    /// 0..100, or -1 while not known.
+    pub volume: i32,
+    /// The music plays on this one.
+    pub current: bool,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct MusicModel {
     pub status: MusicStatus,
@@ -76,6 +87,10 @@ pub struct MusicModel {
     pub qpos: usize,
     pub shuffle: bool,
     pub repeat: Repeat,
+    /// Where the music plays: a speaker's name, empty for this TV.
+    pub output: String,
+    pub speakers: Vec<Speaker>,
+    pub scanning: bool,
     pub note: String,
     /// The viewer pressed blue on another page: open on Now Playing.
     pub open_now_playing: bool,
@@ -105,6 +120,11 @@ pub enum MusicOut {
     Radio { rk: String },
     /// Rate an item, half stars 0..10 (0 clears it). WRITES to the server.
     Rate { rk: String, half_stars: i32 },
+    /// Look for speakers on the network.
+    Speakers,
+    /// Play on this speaker (empty: on this TV).
+    UseSpeaker { id: String },
+    SpeakerVolume { id: String, delta: i32 },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -119,6 +139,7 @@ enum View {
     Album(MusicItem),
     NowPlaying,
     Queue,
+    Speakers,
 }
 
 const TABS: [&str; 6] = ["Recommended", "Artists", "Albums", "Tracks", "Playlists", "Settings"];
@@ -233,7 +254,7 @@ impl MusicScreen {
             View::Artist(a) => Some(format!("artist:{}", a.rk)),
             View::Album(a) if a.kind == MusicKind::Playlist => Some(format!("playlist:{}", a.rk)),
             View::Album(a) => Some(format!("album:{}", a.rk)),
-            View::NowPlaying | View::Queue | View::Settings => None,
+            View::NowPlaying | View::Queue | View::Settings | View::Speakers => None,
         }
     }
 
@@ -252,6 +273,7 @@ impl MusicScreen {
             View::NowPlaying => 0,
             View::Settings => 2,
             View::Queue => self.model.queue.len(),
+            View::Speakers => 1 + self.model.speakers.len(),
             _ => self.list().len(),
         }
     }
@@ -360,6 +382,7 @@ impl MusicScreen {
             View::Album(a) => self.album_key(key, &a, fx),
             View::NowPlaying => self.np_key(key, fx),
             View::Queue => self.queue_key(key, fx),
+            View::Speakers => self.speakers_key(key, fx),
             View::Settings => self.settings_key(key),
         };
         fx.invalidate(Provenance::Input);
@@ -612,6 +635,28 @@ impl MusicScreen {
         Self::text(p, "Music is decoded on the TV, so surround mixes play as stereo and hi-res files play at 48 kHz.", LEFT, TOP + 300.0, theme::size::MICRO, theme::TEXT_TERTIARY, 0, 1300.0);
     }
 
+    fn speakers_key<H: ContentLike>(&mut self, key: Key, fx: &mut Effects<'_, H>) -> Handled {
+        let n = 1 + self.model.speakers.len();
+        match key {
+            Key::Up if self.cur > 0 => self.cur -= 1,
+            Key::Down if self.cur + 1 < n => self.cur += 1,
+            Key::Up | Key::Down => {}
+            Key::Left | Key::Right if self.cur > 0 => {
+                if let Some(s) = self.model.speakers.get(self.cur - 1) {
+                    Self::out(fx, MusicOut::SpeakerVolume { id: s.id.clone(), delta: if key == Key::Left { -4 } else { 4 } });
+                }
+            }
+            Key::Ok => {
+                let id = if self.cur == 0 { String::new() } else { self.model.speakers.get(self.cur - 1).map(|s| s.id.clone()).unwrap_or_default() };
+                Self::out(fx, MusicOut::UseSpeaker { id });
+                self.pop();
+                return Handled::Yes;
+            }
+            _ => return Handled::No,
+        }
+        Handled::Yes
+    }
+
     fn queue_key<H: ContentLike>(&mut self, key: Key, fx: &mut Effects<'_, H>) -> Handled {
         let n = self.model.queue.len();
         match key {
@@ -663,11 +708,11 @@ impl MusicScreen {
                         self.stars = s;
                     }
                     _ => {
-                        let c = self.np_col.min(3) as i32 + dir as i32;
+                        let c = self.np_col.min(4) as i32 + dir as i32;
                         if c < 0 {
                             return Handled::No;
                         }
-                        self.np_col = (c as usize).min(3);
+                        self.np_col = (c as usize).min(4);
                     }
                 }
             }
@@ -689,7 +734,12 @@ impl MusicScreen {
                     1 => {
                         Self::out(fx, MusicOut::Radio { rk: now.item.rk.clone() });
                     }
-                    2 => self.dark = true,
+                    2 => {
+                        self.push(View::Speakers);
+                        self.cur = self.model.speakers.iter().position(|s| s.current).map_or(0, |i| i + 1);
+                        Self::out(fx, MusicOut::Speakers);
+                    }
+                    3 => self.dark = true,
                     _ => {
                         Self::out(fx, MusicOut::Stop);
                         self.pop();
@@ -1031,6 +1081,41 @@ impl MusicScreen {
         }
     }
 
+    fn draw_speakers(&self, p: Painter, active: bool) {
+        Self::text(p, "Play on", LEFT, TOP - 20.0, 48, theme::TEXT_PRIMARY, 1, 800.0);
+        let rows = 1 + self.model.speakers.len();
+        for k in 0..rows {
+            let y = TOP + 50.0 + k as f32 * 76.0;
+            let f = active && k == self.cur;
+            let (name, here, vol) = if k == 0 {
+                ("This TV".to_owned(), self.model.output.is_empty(), -1)
+            } else {
+                let s = &self.model.speakers[k - 1];
+                (s.name.clone(), s.current, s.volume)
+            };
+            if f {
+                p.rrect(Rect::new(LEFT - 12.0, y - 12.0, 1000.0, 68.0), 14.0, 14.0, theme::ACCENT);
+            }
+            let ink = if f { theme::ACCENT_INK } else { theme::TEXT_PRIMARY };
+            Self::text(p, &name, LEFT + 12.0, y + 22.0, theme::size::BODY, ink, 1, 560.0);
+            if here {
+                Self::text(p, "Playing here", LEFT + 600.0, y + 22.0, theme::size::CAPTION, if f { theme::ACCENT_INK } else { theme::RAIL_CURRENT }, 1, 200.0);
+            }
+            if vol >= 0 {
+                let t = if f { format!("\u{2039}  Volume {vol}  \u{203a}") } else { format!("Volume {vol}") };
+                Self::text(p, &t, LEFT + 800.0, y + 22.0, theme::size::CAPTION, if f { theme::ACCENT_INK } else { theme::TEXT_SECONDARY }, 0, 190.0);
+            }
+        }
+        let y = TOP + 50.0 + rows as f32 * 76.0 + 20.0;
+        if self.model.scanning {
+            Self::text(p, "Looking for speakers\u{2026}", LEFT, y + 10.0, theme::size::CAPTION, theme::TEXT_TERTIARY, 0, 800.0);
+        } else if self.model.speakers.is_empty() {
+            Self::text(p, "No Sonos speakers were found on this network.", LEFT, y + 10.0, theme::size::CAPTION, theme::TEXT_TERTIARY, 0, 1000.0);
+        } else {
+            Self::text(p, "The speaker plays the music itself, straight from Plex: the TV is the remote.", LEFT, y + 10.0, theme::size::MICRO, theme::TEXT_TERTIARY, 0, 1300.0);
+        }
+    }
+
     fn draw_queue(&self, p: Painter, active: bool) {
         Self::text(p, "Up next", LEFT, TOP - 20.0, 48, theme::TEXT_PRIMARY, 1, 800.0);
         let q = &self.model.queue;
@@ -1058,7 +1143,8 @@ impl MusicScreen {
         Self::text(p, it.artist(), x, 290.0, 34, theme::RAIL_CURRENT, 0, w);
         Self::text(p, &it.parent_title, x, 336.0, theme::size::BODY, theme::TEXT_SECONDARY, 0, w);
         if !it.codec.is_empty() {
-            Self::text(p, &it.quality_label(), x, 378.0, theme::size::MICRO, theme::TEXT_TERTIARY, 0, w);
+            let q = if self.model.output.is_empty() { it.quality_label() } else { format!("{}   \u{b7}   on {}", it.quality_label(), self.model.output) };
+            Self::text(p, &q, x, 378.0, theme::size::MICRO, theme::TEXT_TERTIARY, 0, w);
         }
         // the progress bar, or what is being waited for
         let by = 440.0;
@@ -1138,8 +1224,8 @@ impl MusicScreen {
         }
         Self::text(p, if rf { "Left / Right to rate, OK to save" } else { "Your rating" }, x + 420.0, ry + 18.0, theme::size::MICRO, theme::TEXT_TERTIARY, 0, 360.0);
         // queue and stop
-        let (bw, bgap) = (200.0, ((w - 4.0 * 200.0) / 3.0).max(16.0));
-        for (i, label) in ["Queue", "Radio", "Screen off", "Stop"].iter().enumerate() {
+        let (bw, bgap) = (164.0, ((w - 5.0 * 164.0) / 4.0).max(10.0));
+        for (i, label) in ["Queue", "Radio", "Speaker", "Screen off", "Stop"].iter().enumerate() {
             let f = active && self.np_row == 2 && self.np_col == i;
             Self::button(p, x + i as f32 * (bw + bgap), 650.0, bw, label, f);
         }
@@ -1359,6 +1445,7 @@ impl<H: ContentLike> Screen<H> for MusicScreen {
             View::Album(a) => self.draw_album(p, a, holds),
             View::NowPlaying => self.draw_now_playing(p, holds),
             View::Queue => self.draw_queue(p, holds),
+            View::Speakers => self.draw_speakers(p, holds),
             View::Settings => self.draw_settings(p, holds),
         }
         if !matches!(self.view, View::NowPlaying) {

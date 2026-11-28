@@ -15,6 +15,7 @@ use plx_play_feed::music_decode::{self as decode, Msg};
 use plx_play_feed::shared::FEED_SHARED;
 use plx_screens::music::{MusicList, MusicModel, MusicStatus, NowPlaying, Repeat};
 use std::collections::{HashMap, VecDeque};
+use crate::app::sonos;
 use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -64,6 +65,8 @@ static GEN: AtomicU32 = AtomicU32::new(0);
 /// Set by the blue key on another page: the music page opens on Now Playing when it next gets its snapshot.
 /// An album another page asked to open (by key), until the music page takes it.
 static OPEN_ALBUM: Mutex<Option<String>> = Mutex::new(None);
+/// Where on the track the TV's own player starts when the music comes back from a speaker (ms).
+static RESUME_MS: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
 static OPEN_NP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn with<R>(f: impl FnOnce(&mut Shared) -> R) -> R {
@@ -288,7 +291,8 @@ pub(crate) fn request_hubs() {
 
 pub(crate) fn model_stamp() -> u64 {
     // the position moves a few times a second while playing; the page asks again every frame it is up
-    with(|s| s.stamp) ^ ENGINE.with(|e| e.borrow().stamp()).wrapping_mul(0x9e37_79b9)
+    let sp = sonos::snapshot().map_or(0, |s| (s.pos_ms / 250) as u64 ^ ((s.playing as u64) << 40));
+    with(|s| s.stamp) ^ ENGINE.with(|e| e.borrow().stamp()).wrapping_mul(0x9e37_79b9) ^ (sonos::generation() as u64).wrapping_mul(0x85eb_ca6b) ^ sp
 }
 
 pub(crate) fn model() -> MusicModel {
@@ -297,9 +301,24 @@ pub(crate) fn model() -> MusicModel {
         (e.now_playing(), e.starting())
     });
     let anim = crate::app::clock::now() / 300;
-    with(|s| {
+    let sn = sonos::snapshot();
+    let mut m = with(|s| {
         // before the first sound: the track that is about to play, and what it is waiting for
         let now = heard.or_else(|| {
+            // a speaker plays it: what the speaker says
+            if let Some(sn) = &sn {
+                let item = s.q.items.get(*s.q.order.get(sn.qpos)?)?.clone();
+                return Some(NowPlaying {
+                    duration_ms: if sn.dur_ms > 0 { sn.dur_ms } else { item.duration_ms },
+                    item,
+                    pos_ms: sn.pos_ms,
+                    playing: sn.playing && !sn.loading,
+                    buffering: sn.loading,
+                    status: if sn.loading { format!("Sending to {}", sonos::target_name()) } else { String::new() },
+                    progress: -1.0,
+                    anim,
+                });
+            }
             if starting.is_none() && !s.q.want_start {
                 return None;
             }
@@ -308,7 +327,11 @@ pub(crate) fn model() -> MusicModel {
             Some(NowPlaying { duration_ms: item.duration_ms, item, pos_ms: 0, playing: false, buffering: true, status, progress, anim })
         });
         build_model(s, now)
-    })
+    });
+    m.output = sonos::target_name();
+    m.speakers = sonos::speakers();
+    m.scanning = sonos::scanning();
+    m
 }
 
 fn build_model(s: &mut Shared, now: Option<NowPlaying>) -> MusicModel {
@@ -324,6 +347,9 @@ fn build_model(s: &mut Shared, now: Option<NowPlaying>) -> MusicModel {
         qpos: s.q.shown_pos,
         shuffle: s.q.shuffle,
         repeat: s.q.repeat,
+        output: String::new(),
+        speakers: Vec::new(),
+        scanning: false,
         note: if now_secs() < s.note_until { s.note.clone() } else { String::new() },
         open_now_playing: OPEN_NP.swap(false, Ordering::AcqRel),
         open_album: OPEN_ALBUM.lock().ok().and_then(|mut o| o.take()).and_then(|rk| {
@@ -331,6 +357,76 @@ fn build_model(s: &mut Shared, now: Option<NowPlaying>) -> MusicModel {
         }),
         }
     }
+}
+
+/// The queue, for the speaker's controller.
+pub(crate) fn say(text: &str) {
+    with(|s| note(s, text));
+}
+pub(crate) fn sonos_len() -> usize {
+    with(|s| s.q.order.len())
+}
+pub(crate) fn sonos_item(pos: usize) -> Option<MusicItem> {
+    Engine::entry(pos).map(|(_, i)| i)
+}
+pub(crate) fn sonos_pos() -> usize {
+    with(|s| s.q.pos)
+}
+pub(crate) fn sonos_repeat() -> Repeat {
+    with(|s| s.q.repeat)
+}
+/// The speaker moved to queue position `pos`.
+pub(crate) fn sonos_shown(pos: usize) {
+    with(|s| {
+        s.q.shown_pos = pos;
+        s.q.pos = pos;
+        bump(s);
+    });
+}
+pub(crate) fn sonos_ended() {
+    with(bump);
+}
+
+/// Where the music plays: a speaker's id, empty for this TV. What plays carries on there from where it is.
+pub(crate) fn use_speaker(id: &str) {
+    if id == sonos::target_id() {
+        return;
+    }
+    let from_speaker = sonos::snapshot();
+    let from_tv = ENGINE.with(|e| {
+        let e = e.borrow();
+        e.playing.as_ref().map(|p| (p.order_pos, e.position_ms().unwrap_or(0)))
+    });
+    sonos::choose(id);
+    if id.is_empty() {
+        // back on this TV: from the track and the place the speaker had reached
+        if let Some(sn) = from_speaker {
+            RESUME_MS.store(sn.pos_ms, Ordering::Release);
+            with(|s| {
+                s.q.pos = sn.qpos;
+                s.q.want_start = true;
+                bump(s);
+            });
+        }
+    } else if let Some(h) = from_tv {
+        ENGINE.with(|e| e.borrow_mut().handoff = Some(h));
+    } else if let Some(sn) = from_speaker {
+        sonos::load(sn.qpos, sn.pos_ms);
+    }
+    with(bump);
+}
+
+/// What the viewer hears now, wherever it plays: the track and whether it is playing (not paused).
+fn heard() -> Option<(MusicItem, bool)> {
+    let tv = ENGINE.with(|e| {
+        let e = e.borrow();
+        e.playing.as_ref().map(|p| (p.item.clone(), e.played && !e.paused))
+    });
+    tv.or_else(|| {
+        let sn = sonos::snapshot().filter(|s| !s.loading)?;
+        let item = with(|s| s.q.items.get(*s.q.order.get(sn.qpos)?).cloned())?;
+        Some((item, sn.playing))
+    })
 }
 
 fn note(s: &mut Shared, text: &str) {
@@ -380,6 +476,7 @@ pub(crate) fn play(items: Vec<MusicItem>, start: usize, shuffle: bool) {
 
 /// Items that are not tracks (an album, an artist) are expanded by the page before `play`.
 pub(crate) fn play_next(item: MusicItem) {
+    let mut inserted: Option<usize> = None;
     with(|s| {
         if item.part_key.is_empty() {
             return;
@@ -392,7 +489,11 @@ pub(crate) fn play_next(item: MusicItem) {
             s.q.want_start = true;
         }
         note(s, "Playing next");
+        inserted = Some(pos);
     });
+    if let (Some(pos), true) = (inserted, sonos::selected()) {
+        sonos::inserted(pos);
+    }
 }
 
 pub(crate) fn add_to_queue(item: MusicItem) {
@@ -424,7 +525,11 @@ pub(crate) fn toggle_shuffle() {
         }
         bump(s);
     });
-    ENGINE.with(|e| e.borrow_mut().queue_changed = true);
+    if sonos::selected() {
+        sonos::reload();
+    } else {
+        ENGINE.with(|e| e.borrow_mut().queue_changed = true);
+    }
 }
 
 pub(crate) fn cycle_repeat() {
@@ -436,6 +541,9 @@ pub(crate) fn cycle_repeat() {
         };
         bump(s);
     });
+    if sonos::selected() {
+        sonos::repeat_changed();
+    }
 }
 
 /// Rate a track or album, `half_stars` 0..10, off the frame thread.
@@ -615,6 +723,8 @@ struct Engine {
     restart_at: Option<(usize, i64)>,
     /// The track that follows the one decoded, once it is time to start it.
     restart_next_pos: Option<usize>,
+    /// The music moves to a speaker: the queue position and how far in.
+    handoff: Option<(usize, i64)>,
 }
 
 impl Default for Engine {
@@ -652,6 +762,7 @@ impl Default for Engine {
             feed_errors: 0,
             restart_at: None,
             restart_next_pos: None,
+            handoff: None,
         }
     }
 }
@@ -691,6 +802,9 @@ fn crossfade(a: &mut [u8], b: &[u8], r: f32) {
 
 /// The viewer's intents, applied on the next [`tick`].
 pub(crate) fn toggle_pause() {
+    if sonos::selected() {
+        return sonos::toggle();
+    }
     ENGINE.with(|e| {
         let mut e = e.borrow_mut();
         if e.active() && e.played {
@@ -701,18 +815,30 @@ pub(crate) fn toggle_pause() {
 }
 
 pub(crate) fn next_track() {
+    if sonos::selected() {
+        return sonos::next();
+    }
     ENGINE.with(|e| e.borrow_mut().skip = Some(1));
 }
 
 pub(crate) fn previous_track() {
+    if sonos::selected() {
+        return sonos::previous();
+    }
     ENGINE.with(|e| e.borrow_mut().skip = Some(-1));
 }
 
 pub(crate) fn seek_to(ms: i64) {
+    if sonos::selected() {
+        return sonos::seek(ms.max(0));
+    }
     ENGINE.with(|e| e.borrow_mut().seek_to_ms = Some(ms.max(0)));
 }
 
 pub(crate) fn stop() {
+    if sonos::selected() {
+        return sonos::stop();
+    }
     ENGINE.with(|e| e.borrow_mut().stop_asked = true);
 }
 
@@ -752,11 +878,9 @@ pub(crate) fn publish_home_row() {
 
 /// While a track plays: its artist's and album's pictures for the screensaver (cleared when nothing plays).
 pub(crate) fn publish_saver() {
-    let m = ENGINE.with(|e| {
-        let e = e.borrow();
-        let p = e.playing.as_ref().filter(|_| e.played && !e.paused)?;
+    let m = heard().filter(|(_, playing)| *playing).and_then(|(item, _)| {
         let mut pictures: Vec<String> = Vec::new();
-        for path in [&p.item.grandparent_thumb, &p.item.parent_thumb, &p.item.thumb] {
+        for path in [&item.grandparent_thumb, &item.parent_thumb, &item.thumb] {
             if !path.is_empty() && !pictures.contains(path) {
                 pictures.push(path.clone());
             }
@@ -764,9 +888,9 @@ pub(crate) fn publish_saver() {
         (!pictures.is_empty()).then(|| plx_data::saver::MusicSaver {
             sid: plx_plex::plex::current_server().raw(),
             pictures,
-            title: p.item.title.clone(),
-            artist: p.item.artist().to_owned(),
-            album: p.item.parent_title.clone(),
+            title: item.title.clone(),
+            artist: item.artist().to_owned(),
+            album: item.parent_title.clone(),
         })
     });
     plx_data::saver::set_music(m);
@@ -774,13 +898,10 @@ pub(crate) fn publish_saver() {
 
 /// What the pill beside the clock says while music plays, and whether it is playing (not paused).
 pub(crate) fn now_label() -> Option<(String, bool)> {
-    ENGINE.with(|e| {
-        let e = e.borrow();
-        let p = e.playing.as_ref()?;
-        let artist = p.item.artist();
-        let line = if artist.is_empty() { p.item.title.clone() } else { format!("{} \u{b7} {}", p.item.title, artist) };
-        Some((line, e.played && !e.paused))
-    })
+    let (item, playing) = heard()?;
+    let artist = item.artist();
+    let line = if artist.is_empty() { item.title.clone() } else { format!("{} \u{b7} {}", item.title, artist) };
+    Some((line, playing))
 }
 
 pub(crate) fn request_now_playing() {
@@ -790,11 +911,15 @@ pub(crate) fn request_now_playing() {
 
 /// Is there a music session (playing or paused)? The global media keys ask.
 pub(crate) fn has_session() -> bool {
-    ENGINE.with(|e| e.borrow().playing.is_some())
+    ENGINE.with(|e| e.borrow().playing.is_some()) || sonos::active()
 }
 
 /// A film or channel is about to start: give the pipeline back first.
 pub(crate) fn stop_for_video(mt: &plx_base::task::MainThread) {
+    // the speaker is the TV's sound too: music from Plex waits while a film plays
+    if sonos::active() {
+        sonos::pause();
+    }
     ENGINE.with(|e| {
         let mut e = e.borrow_mut();
         if e.active() {
@@ -1124,6 +1249,18 @@ impl Engine {
             return;
         }
 
+        // a speaker plays: the engine only gives it the queue (and the pipeline back, if the TV was playing)
+        if sonos::selected() {
+            if let Some((pos, off)) = self.handoff.take() {
+                self.release(mt, "the music moved to a speaker");
+                sonos::load(pos, off);
+            }
+            if with(|s| std::mem::take(&mut s.q.want_start)) {
+                let pos = with(|s| s.q.pos);
+                sonos::load(pos, 0);
+            }
+            return;
+        }
         // a new queue to play (or the shuffle toggled): start, or restart in place
         let want = with(|s| std::mem::take(&mut s.q.want_start));
         if want {
@@ -1131,7 +1268,7 @@ impl Engine {
             match self.boot {
                 Boot::Off => {
                     self.begin_session(now);
-                    self.restart_at = Some((pos, 0));
+                    self.restart_at = Some((pos, RESUME_MS.swap(0, Ordering::AcqRel)));
                     return;
                 }
                 Boot::Loading { .. } => {
@@ -1494,6 +1631,9 @@ impl Engine {
 }
 
 pub(crate) fn jump_to(pos: usize) {
+    if sonos::selected() {
+        return sonos::jump(pos);
+    }
     ENGINE.with(|e| e.borrow_mut().jump = Some(pos));
 }
 
@@ -1522,6 +1662,9 @@ pub(crate) fn handle(o: plx_screens::music::MusicOut) {
         O::JumpTo { pos } => jump_to(pos),
         O::Radio { rk } => radio(rk),
         O::Rate { rk, half_stars } => rate(rk, half_stars),
+        O::Speakers => sonos::rescan(),
+        O::UseSpeaker { id } => use_speaker(&id),
+        O::SpeakerVolume { id, delta } => sonos::volume(&id, delta),
     }
 }
 

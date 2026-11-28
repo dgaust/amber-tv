@@ -408,6 +408,23 @@ impl Client {
         }
     }
 
+    /// `path` on this server as a plain-HTTP address carrying the token, for a device on the home network that
+    /// fetches the file itself (a Sonos speaker). A secure `plex.direct` name is turned back into the address it
+    /// stands for (`10-0-0-5.<hash>.plex.direct` is `10.0.0.5`); the server answers plain HTTP there too.
+    pub fn music_lan_url(&self, path: &str) -> Option<String> {
+        let mut host = self.origin.host().to_owned();
+        if host.ends_with(".plex.direct") {
+            let first = host.split('.').next().unwrap_or("");
+            if first.split('-').count() == 4 && first.split('-').all(|p| p.parse::<u8>().is_ok()) {
+                host = first.replace('-', ".");
+            } else {
+                return None;
+            }
+        }
+        let host = if host.contains(':') { format!("[{host}]") } else { host };
+        Some(format!("http://{host}:{}{}", self.origin.port(), self.with_token(path)))
+    }
+
     /// The whole audio file of a track, as the server stores it.
     pub fn music_fetch_part(&self, part_key: &str) -> Option<Vec<u8>> {
         self.body_2xx_bulk(part_key, &[])
