@@ -421,6 +421,10 @@ impl Client {
                 return None;
             }
         }
+        // a plain-http link carries the server's token: it goes only where a speaker on the home network can reach it
+        if !is_home_host(&host) {
+            return None;
+        }
         let host = if host.contains(':') { format!("[{host}]") } else { host };
         Some(format!("http://{host}:{}{}", self.origin.port(), self.with_token(path)))
     }
@@ -440,9 +444,32 @@ impl Client {
     }
 }
 
+/// A private, loopback or link-local address, or a `.local` name: somewhere a home network reaches and the internet
+/// does not.
+fn is_home_host(host: &str) -> bool {
+    if let Ok(v4) = host.parse::<std::net::Ipv4Addr>() {
+        return v4.is_private() || v4.is_loopback() || v4.is_link_local();
+    }
+    if let Ok(v6) = host.parse::<std::net::Ipv6Addr>() {
+        let s = v6.segments()[0];
+        return v6.is_loopback() || (s & 0xfe00) == 0xfc00 || (s & 0xffc0) == 0xfe80;
+    }
+    host.to_ascii_lowercase().ends_with(".local")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_token_only_goes_to_the_home_network() {
+        for h in ["10.0.0.5", "192.168.1.20", "172.16.4.2", "172.31.255.1", "169.254.3.4", "127.0.0.1", "fd12:3456::1", "fe80::1", "plex.local"] {
+            assert!(is_home_host(h), "{h}");
+        }
+        for h in ["8.8.8.8", "172.32.0.1", "203.0.113.9", "2001:db8::1", "plex.example.com", "192-168-1-5.abc.plex.direct", ""] {
+            assert!(!is_home_host(h), "{h}");
+        }
+    }
 
     const TRACKS: &str = r#"{"MediaContainer":{"size":2,"totalSize":42,"offset":0,"Metadata":[
       {"ratingKey":"101","type":"track","title":"Glass Harbour","parentTitle":"Night Shift","parentRatingKey":"90",

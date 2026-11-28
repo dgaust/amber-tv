@@ -25,6 +25,10 @@ const MAX_FILE: usize = 260 * 1024 * 1024;
 /// The next track is held ready by fetching this much of its start (the rest comes once it plays): enough to begin
 /// at once, whatever the file's size.
 const PREFETCH_HEAD: usize = 24 * 1024 * 1024;
+/// An mp4 file can keep its index at the end, so the decoder needs the whole of it: it is fetched ahead up to this size.
+const PREFETCH_MP4: usize = 100 * 1024 * 1024;
+/// A next track that failed is not tried again for this long.
+const PREFETCH_RETRY: std::time::Duration = std::time::Duration::from_secs(20);
 
 #[derive(Default)]
 struct Shared {
@@ -330,6 +334,10 @@ pub(crate) fn model() -> MusicModel {
     });
     m.output = sonos::target_name();
     m.speakers = sonos::speakers();
+    let together = m.speakers.iter().filter(|s| s.current).count();
+    if together >= 2 {
+        m.output = format!("{} + {}", m.output, together - 1);
+    }
     m.scanning = sonos::scanning();
     m.group_volume = sonos::group_volume_now();
     m
@@ -399,7 +407,9 @@ pub(crate) fn use_speaker(id: &str) {
         let e = e.borrow();
         e.playing.as_ref().map(|p| (p.order_pos, e.position_ms().unwrap_or(0)))
     });
-    sonos::choose(id);
+    if !sonos::choose(id) {
+        return;
+    }
     if id.is_empty() {
         // back on this TV: from the track and the place the speaker had reached
         if let Some(sn) = from_speaker {
@@ -426,7 +436,7 @@ pub(crate) fn toggle_speaker(id: &str) {
     match sonos::member_state(id) {
         // the only speaker: back to this TV
         (true, 1, _) => use_speaker(""),
-        (true, n, true) if n > 1 => with(|s| note(s, "Take the other speakers out first.")),
+        (true, n, lead) if n > 1 && (lead || id == sonos::target_id()) => with(|s| note(s, "Take the other speakers out first.")),
         _ => sonos::toggle_member(id),
     }
 }
@@ -740,6 +750,8 @@ struct Engine {
     restart_next_pos: Option<usize>,
     /// The music moves to a speaker: the queue position and how far in.
     handoff: Option<(usize, i64)>,
+    /// The next track whose fetch was started, and when it may be tried again if it failed.
+    next_retry: Option<(String, std::time::Instant)>,
 }
 
 impl Default for Engine {
@@ -778,6 +790,7 @@ impl Default for Engine {
             restart_at: None,
             restart_next_pos: None,
             handoff: None,
+            next_retry: None,
         }
     }
 }
@@ -931,9 +944,9 @@ pub(crate) fn has_session() -> bool {
 
 /// A film or channel is about to start: give the pipeline back first.
 pub(crate) fn stop_for_video(mt: &plx_base::task::MainThread) {
-    // the speaker is the TV's sound too: music from Plex waits while a film plays
+    // the speaker may be the TV's sound too: the music stops there and the room goes back to the TV while a film plays
     if sonos::active() {
-        sonos::pause();
+        sonos::stop();
     }
     ENGINE.with(|e| {
         let mut e = e.borrow_mut();
@@ -1150,7 +1163,8 @@ impl Engine {
     fn start_fetch(&mut self, item: &MusicItem, ahead: bool) {
         let stream = Arc::new(decode::Stream::new(item.part_size.max(0) as usize));
         if ahead {
-            stream.set_cap(PREFETCH_HEAD);
+            let mp4 = matches!(item.container.to_ascii_lowercase().as_str(), "mp4" | "m4a" | "m4b" | "mov") || matches!(item.codec.as_str(), "alac" | "aac" | "m4a") && item.container.is_empty();
+            stream.set_cap(if mp4 { PREFETCH_MP4 } else { PREFETCH_HEAD });
             plx_base::eventlog::log(&format!("music: holding \"{}\" ready ({} MB file)", item.title, item.part_size / 1_000_000));
         }
         let (s2, key, total) = (stream.clone(), item.part_key.clone(), item.part_size.max(0) as usize);
@@ -1592,8 +1606,10 @@ impl Engine {
                 if let Some((_, item)) = Self::entry(np) {
                     // what is held is another track's (the queue changed, or the viewer went back), or it failed: hold this one instead
                     let held = matches!(&self.file, File::Stream { rk, stream, .. } if *rk == item.rk && !stream.is_failed());
-                    if !held && (item.part_size as usize) <= MAX_FILE {
+                    let waiting = self.next_retry.as_ref().is_some_and(|(rk, at)| *rk == item.rk && std::time::Instant::now() < *at);
+                    if !held && !waiting && (item.part_size as usize) <= MAX_FILE {
                         self.start_fetch(&item, true);
+                        self.next_retry = Some((item.rk.clone(), std::time::Instant::now() + PREFETCH_RETRY));
                     }
                 }
             }

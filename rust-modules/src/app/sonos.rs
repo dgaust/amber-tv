@@ -14,12 +14,15 @@ use plx_screens::music::{Repeat, Speaker};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, UdpSocket};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 const PORT: u16 = 1400;
+/// The server is not at an address a speaker on the home network can use.
+const NO_LAN: &str = "the server is not on the home network";
 /// A Sonos queue holds 1000 tracks.
 const MAX_QUEUE: usize = 1000;
 
@@ -45,6 +48,14 @@ static JOINED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static GEN: AtomicU32 = AtomicU32::new(0);
 static SNAP: Mutex<Snap> = Mutex::new(Snap::new());
 static CMD: Mutex<Option<Sender<Cmd>>> = Mutex::new(None);
+/// Which controller is the current one (a controller that was replaced stops touching the shared state).
+static CTL_ID: AtomicU32 = AtomicU32::new(0);
+/// Rooms whose group is being changed (a second press waits for the first).
+static BUSY: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// Volume steps not sent yet (a room's id, or `GROUP`), merged so a held key is one request at a time.
+static VOL_PENDING: Mutex<Vec<(String, i32)>> = Mutex::new(Vec::new());
+static VOL_WORKER: AtomicBool = AtomicBool::new(false);
+const GROUP: &str = "\u{1}group";
 
 fn bump() {
     GEN.fetch_add(1, Ordering::Relaxed);
@@ -85,7 +96,7 @@ pub(crate) fn generation() -> u32 {
 
 /// True while the music is set to play on a speaker.
 pub(crate) fn selected() -> bool {
-    TARGET.lock().map_or(false, |t| t.is_some())
+    TARGET.lock().is_ok_and(|t| t.is_some())
 }
 
 pub(crate) fn target_id() -> String {
@@ -98,7 +109,7 @@ pub(crate) fn target_name() -> String {
 
 /// The speaker has a session (loading, playing or paused).
 pub(crate) fn active() -> bool {
-    SNAP.lock().map_or(false, |s| s.active)
+    SNAP.lock().is_ok_and(|s| s.active)
 }
 
 /// The session, with the position moved on to now while it plays.
@@ -124,19 +135,29 @@ pub(crate) fn scanning() -> bool {
 }
 
 pub(crate) fn speakers() -> Vec<Speaker> {
+    let busy = BUSY.lock().map(|b| b.clone()).unwrap_or_default();
     let cur = TARGET.lock().ok().and_then(|t| t.as_ref().map(|r| r.coord_uuid.clone()));
     let vols = VOLUMES.lock().ok().and_then(|v| v.clone()).unwrap_or_default();
     ROOMS
         .lock()
         .map(|r| {
             r.iter()
-                .map(|r| Speaker { id: r.uuid.clone(), name: r.name.clone(), volume: vols.get(&r.uuid).copied().unwrap_or(-1), current: cur.as_deref() == Some(r.coord_uuid.as_str()) })
+                .map(|r| Speaker { id: r.uuid.clone(), name: r.name.clone(), volume: vols.get(&r.uuid).copied().unwrap_or(-1), current: cur.as_deref() == Some(r.coord_uuid.as_str()), busy: busy.contains(&r.uuid) })
                 .collect()
         })
         .unwrap_or_default()
 }
 
 // ---- finding speakers --------------------------------------------------------------------------------
+
+/// Clears the scanning flag however the scan ends (a panic included).
+struct ScanDone;
+impl Drop for ScanDone {
+    fn drop(&mut self) {
+        SCANNING.store(false, Ordering::Release);
+        bump();
+    }
+}
 
 /// Look for speakers in the background (the page shows them as they arrive).
 pub(crate) fn rescan() {
@@ -145,6 +166,7 @@ pub(crate) fn rescan() {
     }
     bump();
     let _ = std::thread::Builder::new().name("sonos-scan".into()).spawn(|| {
+        let _done = ScanDone;
         let rooms = discover();
         plx_base::eventlog::log(&format!("sonos: found {} room(s)", rooms.len()));
         let vols: HashMap<String, i32> = std::thread::scope(|sc| {
@@ -154,13 +176,14 @@ pub(crate) fn rescan() {
         if let Ok(mut v) = VOLUMES.lock() {
             v.get_or_insert_with(HashMap::new).extend(vols);
         }
-        if let Ok(mut r) = ROOMS.lock() {
-            *r = rooms;
+        // a scan that finds nothing (a Wi-Fi blip) leaves the rooms already known
+        if !rooms.is_empty() {
+            if let Ok(mut r) = ROOMS.lock() {
+                *r = rooms;
+            }
         }
         refresh_target();
         refresh_group_volume();
-        SCANNING.store(false, Ordering::Release);
-        bump();
     });
 }
 
@@ -227,7 +250,7 @@ pub(crate) fn member_state(id: &str) -> (bool, usize, bool) {
     let Some(t) = TARGET.lock().ok().and_then(|t| t.clone()) else { return (false, 0, false) };
     let rooms = ROOMS.lock().map(|r| r.clone()).unwrap_or_default();
     let n = rooms.iter().filter(|r| r.coord_uuid == t.coord_uuid).count();
-    let inside = rooms.iter().find(|r| r.uuid == id).map_or(false, |r| r.coord_uuid == t.coord_uuid);
+    let inside = rooms.iter().find(|r| r.uuid == id).is_some_and(|r| r.coord_uuid == t.coord_uuid);
     (inside, n, id == t.coord_uuid)
 }
 
@@ -235,6 +258,14 @@ pub(crate) fn member_state(id: &str) -> (bool, usize, bool) {
 pub(crate) fn toggle_member(id: &str) {
     let Some(t) = TARGET.lock().ok().and_then(|t| t.clone()) else { return };
     let Some(room) = ROOMS.lock().ok().and_then(|r| r.iter().find(|r| r.uuid == id).cloned()) else { return };
+    {
+        let mut b = BUSY.lock().unwrap_or_else(|e| e.into_inner());
+        if b.contains(&room.uuid) {
+            return;
+        }
+        b.push(room.uuid.clone());
+    }
+    bump();
     let (inside, _, _) = member_state(id);
     let _ = std::thread::Builder::new().name("sonos-group".into()).spawn(move || {
         if inside {
@@ -245,7 +276,7 @@ pub(crate) fn toggle_member(id: &str) {
             }
             restore_tv_input(vec![room.clone()], 600);
         } else {
-            let r = soap(&room.ip, "AVTransport", "SetAVTransportURI", &format!("<InstanceID>0</InstanceID><CurrentURI>x-rincon:{}</CurrentURI><CurrentURIMetaData></CurrentURIMetaData>", t.coord_uuid));
+            let r = soap(&room.ip, "AVTransport", "SetAVTransportURI", &format!("<InstanceID>0</InstanceID><CurrentURI>x-rincon:{}</CurrentURI><CurrentURIMetaData></CurrentURIMetaData>", esc(&t.coord_uuid)));
             plx_base::eventlog::log(&format!("sonos: {} joins the group ({})", room.name, match &r { Ok(_) => "ok".to_owned(), Err(e) => e.clone() }));
             if r.is_ok() {
                 if let Ok(mut j) = JOINED.lock() {
@@ -255,25 +286,100 @@ pub(crate) fn toggle_member(id: &str) {
         }
         std::thread::sleep(Duration::from_millis(400));
         refresh_zones(&t.coord_ip);
+        if let Ok(mut b) = BUSY.lock() {
+            b.retain(|u| *u != room.uuid);
+        }
+        bump();
     });
 }
 
 /// Move the whole playing group's volume by `delta`, the rooms keeping their balance.
 pub(crate) fn group_volume(delta: i32) {
-    let Some(t) = TARGET.lock().ok().and_then(|t| t.clone()) else { return };
-    let _ = std::thread::Builder::new().name("sonos-volume".into()).spawn(move || {
-        let _ = soap(&t.coord_ip, "GroupRenderingControl", "SnapshotGroupVolume", "<InstanceID>0</InstanceID>");
-        if let Ok(b) = soap(&t.coord_ip, "GroupRenderingControl", "SetRelativeGroupVolume", &format!("<InstanceID>0</InstanceID><Adjustment>{delta}</Adjustment>")) {
-            if let Some(v) = tag(&b, "NewVolume").and_then(|v| v.trim().parse::<i32>().ok()) {
-                GROUP_VOL.store(v, Ordering::Relaxed);
+    let v = GROUP_VOL.load(Ordering::Relaxed);
+    if v >= 0 {
+        GROUP_VOL.store((v + delta).clamp(0, 100), Ordering::Relaxed);
+        bump();
+    }
+    queue_volume(GROUP, delta);
+}
+
+/// Move a room's volume by `delta`.
+pub(crate) fn volume(id: &str, delta: i32) {
+    if let Ok(mut m) = VOLUMES.lock() {
+        if let Some(v) = m.get_or_insert_with(HashMap::new).get_mut(id) {
+            *v = (*v + delta).clamp(0, 100);
+        }
+    }
+    bump();
+    queue_volume(id, delta);
+}
+
+/// Steps pile up while a request is out, and go as one: a held key is a few requests, not a flood, and each one is
+/// relative so no read-then-write can lose a step.
+fn queue_volume(key: &str, delta: i32) {
+    if let Ok(mut p) = VOL_PENDING.lock() {
+        match p.iter_mut().find(|(k, _)| k == key) {
+            Some(e) => e.1 = (e.1 + delta).clamp(-10, 10),
+            None => p.push((key.to_owned(), delta.clamp(-10, 10))),
+        }
+    }
+    if VOL_WORKER.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let _ = std::thread::Builder::new().name("sonos-volume".into()).spawn(|| {
+        loop {
+            let batch = VOL_PENDING.lock().map(|mut p| std::mem::take(&mut *p)).unwrap_or_default();
+            if batch.is_empty() {
+                VOL_WORKER.store(false, Ordering::Release);
+                // a step that arrived as the worker was leaving
+                let more = VOL_PENDING.lock().is_ok_and(|p| !p.is_empty());
+                if more && !VOL_WORKER.swap(true, Ordering::AcqRel) {
+                    continue;
+                }
+                break;
             }
+            for (key, d) in batch {
+                send_volume(&key, d);
+            }
+            std::thread::sleep(Duration::from_millis(120));
         }
         refresh_group_volume();
     });
 }
 
+fn send_volume(key: &str, d: i32) {
+    if d == 0 {
+        return;
+    }
+    if key == GROUP {
+        let Some(t) = TARGET.lock().ok().and_then(|t| t.clone()) else { return };
+        let _ = soap(&t.coord_ip, "GroupRenderingControl", "SnapshotGroupVolume", "<InstanceID>0</InstanceID>");
+        if let Ok(b) = soap(&t.coord_ip, "GroupRenderingControl", "SetRelativeGroupVolume", &format!("<InstanceID>0</InstanceID><Adjustment>{d}</Adjustment>")) {
+            if let Some(v) = tag(&b, "NewVolume").and_then(|v| v.trim().parse::<i32>().ok()) {
+                GROUP_VOL.store(v, Ordering::Relaxed);
+                bump();
+            }
+        }
+        return;
+    }
+    let Some(room) = ROOMS.lock().ok().and_then(|r| r.iter().find(|r| r.uuid == key).cloned()) else { return };
+    if let Ok(b) = soap(&room.ip, "RenderingControl", "SetRelativeVolume", &format!("<InstanceID>0</InstanceID><Channel>Master</Channel><Adjustment>{d}</Adjustment>")) {
+        if let Some(v) = tag(&b, "NewVolume").and_then(|v| v.trim().parse::<i32>().ok()) {
+            if let Ok(mut m) = VOLUMES.lock() {
+                m.get_or_insert_with(HashMap::new).insert(room.uuid.clone(), v);
+            }
+            bump();
+        }
+    }
+}
+
+/// A room the music is playing in now (a session is loading or playing there).
+fn in_use(r: &Room) -> bool {
+    active() && TARGET.lock().ok().and_then(|t| t.clone()).is_some_and(|t| t.uuid == r.uuid || t.coord_uuid == r.coord_uuid)
+}
+
 /// Switch these rooms back to their TV input (a soundbar left on a Sonos queue is silent for the TV). Rooms with no TV
-/// input refuse, which is fine.
+/// input refuse, which is fine. A room that has music again by then is left alone.
 fn restore_tv_input(rooms: Vec<Room>, after_ms: u64) {
     if rooms.is_empty() {
         return;
@@ -281,29 +387,42 @@ fn restore_tv_input(rooms: Vec<Room>, after_ms: u64) {
     let _ = std::thread::Builder::new().name("sonos-tv".into()).spawn(move || {
         std::thread::sleep(Duration::from_millis(after_ms));
         for r in rooms {
-            let uri = format!("x-sonos-htastream:{}:spdif", r.uuid);
-            let set = soap(&r.ip, "AVTransport", "SetAVTransportURI", &format!("<InstanceID>0</InstanceID><CurrentURI>{uri}</CurrentURI><CurrentURIMetaData></CurrentURIMetaData>"));
-            if set.is_ok() {
-                let _ = soap(&r.ip, "AVTransport", "Play", "<InstanceID>0</InstanceID><Speed>1</Speed>");
-                plx_base::eventlog::log(&format!("sonos: {} is back on its TV input", r.name));
-            }
+            put_back_on_tv(&r);
         }
     });
 }
 
-/// The music is going back to the TV: rooms this app joined leave the group, and the rooms that played go back to
-/// their TV input.
-fn unjoin_all(playing: Vec<Room>) {
+fn put_back_on_tv(r: &Room) {
+    if in_use(r) {
+        return;
+    }
+    let uri = format!("x-sonos-htastream:{}:spdif", esc(&r.uuid));
+    let set = soap(&r.ip, "AVTransport", "SetAVTransportURI", &format!("<InstanceID>0</InstanceID><CurrentURI>{uri}</CurrentURI><CurrentURIMetaData></CurrentURIMetaData>"));
+    if set.is_ok() {
+        let _ = soap(&r.ip, "AVTransport", "Play", "<InstanceID>0</InstanceID><Speed>1</Speed>");
+        plx_base::eventlog::log(&format!("sonos: {} is back on its TV input", r.name));
+    }
+}
+
+/// The music is over on these rooms (the speaker has already been told to stop): its queue is emptied (it held a
+/// link with the server's token), rooms this app joined leave the group, and the rooms that played go back to their
+/// TV input. Blocking: it runs on the controller's thread.
+fn wind_down(playing: Vec<Room>) {
+    let Some(lead) = playing.first().cloned() else { return };
+    if !in_use(&lead) {
+        let _ = soap(&lead.coord_ip, "AVTransport", "RemoveAllTracksFromQueue", "<InstanceID>0</InstanceID>");
+    }
     let joined = JOINED.lock().map(|mut j| std::mem::take(&mut *j)).unwrap_or_default();
-    let rooms = ROOMS.lock().map(|r| r.clone()).unwrap_or_default();
-    let leaving: Vec<Room> = joined.iter().filter_map(|u| rooms.iter().find(|r| r.uuid == *u).cloned()).collect();
-    let _ = std::thread::Builder::new().name("sonos-ungroup".into()).spawn(move || {
-        for r in &leaving {
+    for r in playing.iter().filter(|r| joined.contains(&r.uuid)) {
+        if !in_use(r) {
             let _ = soap(&r.ip, "AVTransport", "BecomeCoordinatorOfStandaloneGroup", "<InstanceID>0</InstanceID>");
         }
-    });
-    // after the lead has been told to stop
-    restore_tv_input(playing, 2000);
+    }
+    std::thread::sleep(Duration::from_millis(500));
+    for r in &playing {
+        put_back_on_tv(r);
+    }
+    refresh_zones(&lead.coord_ip);
 }
 
 fn discover() -> Vec<Room> {
@@ -406,27 +525,41 @@ fn http(ip: &str, method: &str, path: &str, headers: &[(&str, &str)], body: &str
     loop {
         match s.read(&mut buf) {
             Ok(0) => break,
-            Ok(n) => out.extend_from_slice(&buf[..n]),
+            Ok(n) => {
+                out.extend_from_slice(&buf[..n]);
+                // a speaker's replies are small: a host that never stops is not one
+                if out.len() > 4 * 1024 * 1024 {
+                    return None;
+                }
+            }
             Err(_) => break,
         }
     }
-    let text = String::from_utf8_lossy(&out).into_owned();
-    let (head, rest) = text.split_once("\r\n\r\n")?;
+    let at = out.windows(4).position(|w| w == b"\r\n\r\n")?;
+    let head = String::from_utf8_lossy(&out[..at]).into_owned();
+    let rest = &out[at + 4..];
     let status: u16 = head.split_whitespace().nth(1)?.parse().ok()?;
     let chunked = head.to_ascii_lowercase().contains("transfer-encoding: chunked");
-    Some((status, if chunked { unchunk(rest) } else { rest.to_owned() }))
+    let body = if chunked { unchunk(rest) } else { rest.to_vec() };
+    Some((status, String::from_utf8_lossy(&body).into_owned()))
 }
 
-fn unchunk(s: &str) -> String {
-    let mut out = String::new();
-    let mut rest = s;
-    while let Some((len, after)) = rest.split_once("\r\n") {
-        let n = usize::from_str_radix(len.split(';').next().unwrap_or("0").trim(), 16).unwrap_or(0);
+/// A chunked body put back together, on bytes (a chunk's size counts bytes, and may end inside a character).
+fn unchunk(b: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut rest = b;
+    while let Some(eol) = rest.windows(2).position(|w| w == b"\r\n") {
+        let size = String::from_utf8_lossy(&rest[..eol]);
+        let n = usize::from_str_radix(size.split(';').next().unwrap_or("0").trim(), 16).unwrap_or(0);
+        let after = &rest[eol + 2..];
         if n == 0 || after.len() < n {
             break;
         }
-        out.push_str(&after[..n]);
-        rest = after[n..].trim_start_matches("\r\n");
+        out.extend_from_slice(&after[..n]);
+        rest = &after[n..];
+        while rest.starts_with(b"\r\n") {
+            rest = &rest[2..];
+        }
     }
     out
 }
@@ -459,21 +592,6 @@ fn get_volume(ip: &str) -> Option<i32> {
     tag(&b, "CurrentVolume")?.trim().parse().ok()
 }
 
-/// Move a room's volume by `delta` (in the background).
-pub(crate) fn volume(id: &str, delta: i32) {
-    let Some(room) = ROOMS.lock().ok().and_then(|r| r.iter().find(|r| r.uuid == id).cloned()) else { return };
-    let _ = std::thread::Builder::new().name("sonos-volume".into()).spawn(move || {
-        let Some(v) = get_volume(&room.ip) else { return };
-        let n = (v + delta).clamp(0, 100);
-        if soap(&room.ip, "RenderingControl", "SetVolume", &format!("<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>{n}</DesiredVolume>")).is_ok() {
-            if let Ok(mut m) = VOLUMES.lock() {
-                m.get_or_insert_with(HashMap::new).insert(room.uuid.clone(), n);
-            }
-            bump();
-        }
-    });
-}
-
 // ---- small XML helpers -------------------------------------------------------------------------------
 
 fn unesc(s: &str) -> String {
@@ -481,6 +599,8 @@ fn unesc(s: &str) -> String {
 }
 
 fn esc(s: &str) -> String {
+    // XML has no place for most control characters: one in a title would make the speaker refuse the track
+    let s: String = s.chars().filter(|c| !c.is_control() || matches!(c, '\t' | '\n' | '\r')).collect();
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;")
 }
 
@@ -506,7 +626,7 @@ fn ip_of(location: &str) -> String {
 
 /// The rooms of a `GetZoneGroupState` reply, each with the speaker that leads its group.
 fn parse_zones(body: &str) -> Vec<Room> {
-    let xml = tag(body, "ZoneGroupState").map(|s| s).unwrap_or_default();
+    let xml = tag(body, "ZoneGroupState").unwrap_or_default();
     let xml = if xml.contains("<ZoneGroup") { xml } else { unesc(&xml) };
     let mut rooms = Vec::new();
     for g in xml.split("<ZoneGroup ").skip(1) {
@@ -518,7 +638,7 @@ fn parse_zones(body: &str) -> Vec<Room> {
             .skip(1)
             .filter_map(|m| {
                 let t = format!(" {}", &m[..m.find('>')?]);
-                Some((attr(&t, "UUID")?, attr(&t, "ZoneName")?, ip_of(&attr(&t, "Location")?), attr(&t, "Invisible").as_deref() == Some("1")))
+                Some((attr(&t, "UUID")?, attr(&t, "ZoneName")?, ip_of(&attr(&t, "Location")?), attr(&t, "Invisible").as_deref() == Some("1") || attr(&t, "IsZoneBridge").as_deref() == Some("1")))
             })
             .collect();
         let coord_ip = members.iter().find(|m| m.0 == coord).map(|m| m.2.clone()).unwrap_or_default();
@@ -546,7 +666,7 @@ fn hms(s: &str) -> i64 {
 }
 
 fn fmt_hms(ms: i64) -> String {
-    let s = (ms.max(0) / 1000) as i64;
+    let s = ms.max(0) / 1000;
     format!("{}:{:02}:{:02}", s / 3600, (s / 60) % 60, s % 60)
 }
 
@@ -582,7 +702,6 @@ enum Cmd {
     /// Send the queue and play from this position, this far in.
     Load { pos: usize, offset_ms: i64 },
     Toggle,
-    Pause,
     Next,
     Prev,
     Seek(i64),
@@ -593,8 +712,8 @@ enum Cmd {
     /// A track went in right after the one that plays, at this queue position.
     Inserted(usize),
     Repeat,
-    /// The controller ends; `stop`: stop the speaker too.
-    Quit { stop: bool },
+    /// The controller ends; `stop`: stop the speaker too, `wind`: give its rooms back to the TV.
+    Quit { stop: bool, wind: bool },
 }
 
 fn send(c: Cmd) {
@@ -603,16 +722,19 @@ fn send(c: Cmd) {
     }
 }
 
-/// Make `id` (empty: this TV) where the music plays. Starting the controller, or ending it.
-pub(crate) fn choose(id: &str) {
+/// Make `id` (empty: this TV) where the music plays. Starting the controller, or ending it. False when there is no
+/// such room.
+pub(crate) fn choose(id: &str) -> bool {
     let stop = active();
+    let playing: Vec<Room> = match TARGET.lock().ok().and_then(|t| t.clone()) {
+        Some(t) => ROOMS.lock().map(|r| r.iter().filter(|r| r.coord_uuid == t.coord_uuid).cloned().collect()).unwrap_or_default(),
+        None => Vec::new(),
+    };
     if id.is_empty() {
-        let playing: Vec<Room> = match TARGET.lock().ok().and_then(|t| t.clone()) {
-            Some(t) => ROOMS.lock().map(|r| r.iter().filter(|r| r.coord_uuid == t.coord_uuid).cloned().collect()).unwrap_or_default(),
-            None => Vec::new(),
-        };
-        unjoin_all(playing);
-        send(Cmd::Quit { stop });
+        // the old controller stops the speaker, gives the rooms back to the TV, and ends; nothing it does after this
+        // touches what the page shows
+        CTL_ID.fetch_add(1, Ordering::AcqRel);
+        send(Cmd::Quit { stop, wind: true });
         snap_with(|s| *s = Snap::new());
         if let Ok(mut t) = TARGET.lock() {
             *t = None;
@@ -621,14 +743,17 @@ pub(crate) fn choose(id: &str) {
             *c = None;
         }
         bump();
-        return;
+        return true;
     }
-    let Some(room) = ROOMS.lock().ok().and_then(|r| r.iter().find(|r| r.uuid == id).cloned()) else { return };
+    let Some(room) = ROOMS.lock().ok().and_then(|r| r.iter().find(|r| r.uuid == id).cloned()) else { return false };
     let same = TARGET.lock().ok().and_then(|t| t.as_ref().map(|t| t.uuid == room.uuid)).unwrap_or(false);
     if same {
-        return;
+        return true;
     }
-    send(Cmd::Quit { stop });
+    // moving to a room of the group that played: the group stays as it is
+    let wind = !playing.iter().any(|r| r.uuid == room.uuid);
+    let ctl = CTL_ID.fetch_add(1, Ordering::AcqRel) + 1;
+    send(Cmd::Quit { stop, wind });
     snap_with(|s| *s = Snap::new());
     let (tx, rx) = channel();
     if let Ok(mut c) = CMD.lock() {
@@ -637,8 +762,23 @@ pub(crate) fn choose(id: &str) {
     if let Ok(mut t) = TARGET.lock() {
         *t = Some(room.clone());
     }
-    let _ = std::thread::Builder::new().name("sonos-ctl".into()).spawn(move || Ctl::new(room).run(rx));
+    let _ = std::thread::Builder::new().name("sonos-ctl".into()).spawn(move || {
+        if catch_unwind(AssertUnwindSafe(|| Ctl::new(room, ctl).run(rx))).is_err() {
+            plx_base::eventlog::log("sonos: the controller failed");
+            if CTL_ID.load(Ordering::Acquire) == ctl {
+                if let Ok(mut c) = CMD.lock() {
+                    *c = None;
+                }
+                if let Ok(mut t) = TARGET.lock() {
+                    *t = None;
+                }
+                snap_with(|s| *s = Snap::new());
+                super::music::sonos_ended();
+            }
+        }
+    });
     bump();
+    true
 }
 
 pub(crate) fn load(pos: usize, offset_ms: i64) {
@@ -646,9 +786,6 @@ pub(crate) fn load(pos: usize, offset_ms: i64) {
 }
 pub(crate) fn toggle() {
     send(Cmd::Toggle);
-}
-pub(crate) fn pause() {
-    send(Cmd::Pause);
 }
 pub(crate) fn next() {
     send(Cmd::Next);
@@ -676,6 +813,7 @@ pub(crate) fn repeat_changed() {
 }
 
 struct Ctl {
+    id: u32,
     room: Room,
     /// The queue position (play order) of the speaker's first track.
     base: usize,
@@ -693,12 +831,31 @@ struct Ctl {
     started: Instant,
     replayed: bool,
     last_state: String,
+    /// The speaker has played something this session, and how many polls in a row showed a track that is not ours.
+    played: bool,
+    foreign: u32,
 }
 
 impl Ctl {
-    fn new(room: Room) -> Ctl {
+    fn new(room: Room, id: u32) -> Ctl {
         let now = Instant::now();
-        Ctl { room, base: 0, enq: 0, last_qpos: usize::MAX, last_poll: now, last_report: now, silent: 0, stopped: 0, append_after: now, started: now, replayed: false, last_state: String::new() }
+        Ctl { id, room, base: 0, enq: 0, last_qpos: usize::MAX, last_poll: now, last_report: now, silent: 0, stopped: 0, append_after: now, started: now, replayed: false, last_state: String::new(), played: false, foreign: 0 }
+    }
+
+    /// This is still the controller of the session (a replaced one stops touching what the page shows).
+    fn mine(&self) -> bool {
+        CTL_ID.load(Ordering::Acquire) == self.id
+    }
+
+    fn snap<R>(&self, f: impl FnOnce(&mut Snap) -> R) -> Option<R> {
+        self.mine().then(|| snap_with(f))
+    }
+
+    /// A change of track was asked for: the speaker may be a while fetching it.
+    fn expect_change(&mut self) {
+        self.started = Instant::now();
+        self.replayed = true;
+        self.foreign = 0;
     }
 
     fn av(&self, action: &str, inner: &str) -> Result<String, String> {
@@ -709,11 +866,14 @@ impl Ctl {
         plx_base::eventlog::log(&format!("sonos: controlling {} ({})", self.room.name, self.room.coord_ip));
         loop {
             let more = snap_with_peek(|s| s.active && !s.loading) && self.base + self.enq < super::music::sonos_len() && self.enq < MAX_QUEUE;
-            let wait = if more { Duration::from_millis(1) } else { Duration::from_millis(200) };
+            let wait = if more { self.append_after.saturating_duration_since(Instant::now()).clamp(Duration::from_millis(1), Duration::from_millis(200)) } else { Duration::from_millis(200) };
             match rx.recv_timeout(wait) {
-                Ok(Cmd::Quit { stop }) => {
+                Ok(Cmd::Quit { stop, wind }) => {
                     if stop {
                         let _ = self.av("Stop", "<InstanceID>0</InstanceID>");
+                    }
+                    if wind {
+                        self.wind_down();
                     }
                     break;
                 }
@@ -738,13 +898,26 @@ impl Ctl {
         super::music::say(text);
     }
 
-    /// The session is over (the queue ended, the speaker was taken over, or the viewer stopped it).
-    fn end_session(&mut self, stop_speaker: bool) {
+    /// The rooms of this controller's group go back to the TV.
+    fn wind_down(&self) {
+        let rooms: Vec<Room> = ROOMS.lock().map(|r| r.iter().filter(|r| r.coord_uuid == self.room.coord_uuid).cloned().collect()).unwrap_or_default();
+        wind_down(if rooms.is_empty() { vec![self.room.clone()] } else { rooms });
+    }
+
+    /// The session is over (the queue ended, the speaker was taken over, or the viewer stopped it). `wind`: the rooms
+    /// go back to the TV (not when someone else has the speaker now).
+    fn end_session(&mut self, stop_speaker: bool, wind: bool) {
+        if !self.mine() {
+            return;
+        }
         if stop_speaker {
             let _ = self.av("Stop", "<InstanceID>0</InstanceID>");
         }
-        snap_with(|s| *s = Snap::new());
+        self.snap(|s| *s = Snap::new());
         super::music::sonos_ended();
+        if wind {
+            self.wind_down();
+        }
     }
 
     fn command(&mut self, c: Cmd) {
@@ -754,33 +927,36 @@ impl Ctl {
                 let playing = snap_with_peek(|s| s.playing);
                 let r = self.av(if playing { "Pause" } else { "Play" }, "<InstanceID>0</InstanceID><Speed>1</Speed>");
                 if r.is_ok() {
-                    snap_with(|s| {
+                    self.snap(|s| {
                         s.pos_ms = snapshot_pos(s);
                         s.at = Some(Instant::now());
                         s.playing = !playing;
                     });
                 }
             }
-            Cmd::Pause => {
-                let _ = self.av("Pause", "<InstanceID>0</InstanceID>");
-            }
             Cmd::Next => {
+                self.expect_change();
                 let _ = self.av("Next", "<InstanceID>0</InstanceID>");
                 self.last_poll = Instant::now() - Duration::from_millis(800);
             }
             Cmd::Prev => {
-                let rel = snapshot().map_or(0, |s| s.pos_ms);
-                let first = snapshot().map_or(true, |s| s.qpos <= self.base);
-                if rel > 3000 || first {
+                let (rel, at) = snapshot().map_or((0, 0), |s| (s.pos_ms, s.qpos));
+                if rel > 3000 || (at <= self.base && at == 0) {
                     let _ = self.av("Seek", "<InstanceID>0</InstanceID><Unit>REL_TIME</Unit><Target>0:00:00</Target>");
+                } else if at <= self.base {
+                    // the speaker's queue starts here: send it again from the track before
+                    self.expect_change();
+                    self.load(at - 1, 0);
+                    return;
                 } else {
+                    self.expect_change();
                     let _ = self.av("Previous", "<InstanceID>0</InstanceID>");
                 }
                 self.last_poll = Instant::now() - Duration::from_millis(800);
             }
             Cmd::Seek(ms) => {
                 if self.av("Seek", &format!("<InstanceID>0</InstanceID><Unit>REL_TIME</Unit><Target>{}</Target>", fmt_hms(ms))).is_ok() {
-                    snap_with(|s| {
+                    self.snap(|s| {
                         s.pos_ms = ms;
                         s.at = Some(Instant::now());
                     });
@@ -789,6 +965,7 @@ impl Ctl {
             Cmd::Jump(pos) => {
                 if pos >= self.base && pos - self.base < self.enq {
                     let n = pos - self.base + 1;
+                    self.expect_change();
                     let _ = self.av("Seek", &format!("<InstanceID>0</InstanceID><Unit>TRACK_NR</Unit><Target>{n}</Target>"));
                     let _ = self.av("Play", "<InstanceID>0</InstanceID><Speed>1</Speed>");
                     self.last_poll = Instant::now() - Duration::from_millis(800);
@@ -796,7 +973,7 @@ impl Ctl {
                     self.load(pos, 0);
                 }
             }
-            Cmd::Stop => self.end_session(true),
+            Cmd::Stop => self.end_session(true, true),
             Cmd::Reload => {
                 if let Some(s) = snapshot() {
                     let pos = super::music::sonos_pos();
@@ -829,7 +1006,7 @@ impl Ctl {
     /// Add `item` to the speaker's queue at track number `at` (0 = the end).
     fn add(&self, item: &MusicItem, at: usize) -> Result<(), String> {
         let client = plx_plex::plex::client();
-        let Some(url) = client.music_lan_url(&item.part_key) else { return Err("the server has no plain address".into()) };
+        let Some(url) = client.music_lan_url(&item.part_key) else { return Err(NO_LAN.into()) };
         let art = (!item.cover().is_empty()).then(|| client.music_lan_url(item.cover())).flatten();
         let meta = didl(item, &url, art.as_deref());
         self.av(
@@ -862,22 +1039,30 @@ impl Ctl {
             return;
         }
         let pos = pos.min(len - 1);
-        snap_with(|s| {
+        self.snap(|s| {
             *s = Snap::new();
             s.active = true;
             s.loading = true;
             s.qpos = pos;
         });
-        self.base = if pos > 40 { pos - 10 } else { 0 };
+        // a few tracks behind the one that starts (for Previous); further back the queue is sent again
+        self.base = pos.saturating_sub(5);
         self.enq = 0;
         self.last_qpos = usize::MAX;
         self.stopped = 0;
         self.silent = 0;
         plx_base::eventlog::log(&format!("sonos: sending the queue from track {} to {}", pos + 1, self.room.name));
         if let Err(e) = self.start(pos, offset_ms) {
+            if !self.mine() {
+                return;
+            }
             plx_base::eventlog::log(&format!("sonos: could not start ({e})"));
-            self.say(&format!("{} did not start playing.", self.room.name));
-            self.end_session(false);
+            if e == NO_LAN {
+                self.say(&format!("{} cannot reach Plex from the home network.", self.room.name));
+            } else {
+                self.say(&format!("{} did not start playing.", self.room.name));
+            }
+            self.end_session(false, true);
         }
     }
 
@@ -885,6 +1070,9 @@ impl Ctl {
         let _ = self.av("Stop", "<InstanceID>0</InstanceID>");
         self.av("RemoveAllTracksFromQueue", "<InstanceID>0</InstanceID>")?;
         for p in self.base..=pos {
+            if !self.mine() {
+                return Err("replaced".into());
+            }
             let item = super::music::sonos_item(p).ok_or("the queue changed")?;
             self.add(&item, 0)?;
             self.enq += 1;
@@ -898,7 +1086,9 @@ impl Ctl {
         self.av("Play", "<InstanceID>0</InstanceID><Speed>1</Speed>")?;
         self.started = Instant::now();
         self.replayed = false;
-        snap_with(|s| {
+        self.played = false;
+        self.foreign = 0;
+        self.snap(|s| {
             s.loading = false;
             s.playing = true;
             s.pos_ms = offset_ms.max(0);
@@ -916,7 +1106,7 @@ impl Ctl {
             self.silent += 1;
             if self.silent >= 6 {
                 self.say(&format!("{} stopped answering.", self.room.name));
-                self.end_session(false);
+                self.end_session(false, false);
             }
             return;
         };
@@ -945,23 +1135,38 @@ impl Ctl {
             self.stopped += 1;
             if self.stopped >= 3 {
                 plx_base::eventlog::log("sonos: the speaker stopped, the session ends");
-                self.end_session(false);
+                if !self.played {
+                    self.say(&format!("{} could not play this. Can it reach Plex?", self.room.name));
+                }
+                self.end_session(false, true);
             }
             return;
         }
         self.stopped = 0;
+        if state == "PLAYING" {
+            self.played = true;
+        }
         let qpos = self.base + track - 1;
-        let ours = super::music::sonos_item(qpos).map_or(false, |it| {
+        let ours = super::music::sonos_item(qpos).is_some_and(|it| {
             let id = it.part_key.split('/').nth(3).unwrap_or("");
             !id.is_empty() && uri.contains(&format!("/library/parts/{id}/"))
         });
         if !ours {
-            plx_base::eventlog::log(&format!("sonos: the speaker is playing something else ({uri})"));
-            self.end_session(false);
+            // between two tracks the speaker may name none for a moment: only a second look in a row ends the session
+            if state == "TRANSITIONING" {
+                return;
+            }
+            self.foreign += 1;
+            if self.foreign >= 2 {
+                plx_base::eventlog::log("sonos: the speaker is playing something else");
+                self.say(&format!("{} was taken over.", self.room.name));
+                self.end_session(false, false);
+            }
             return;
         }
+        self.foreign = 0;
         let playing = state == "PLAYING" || state == "TRANSITIONING";
-        snap_with(|s| {
+        self.snap(|s| {
             s.qpos = qpos;
             s.pos_ms = rel;
             s.dur_ms = dur;
@@ -1032,13 +1237,38 @@ mod tests {
         let it = MusicItem { title: "Rock & Roll <3".into(), codec: "flac".into(), duration_ms: 61_000, ..Default::default() };
         let d = didl(&it, "http://10.0.0.5:32400/library/parts/1/2/file.flac?X-Plex-Token=a&b=c", None);
         assert!(d.contains("Rock &amp; Roll &lt;3"));
-        assert!(d.contains("token") || d.contains("X-Plex-Token=a&amp;b=c"));
+        assert!(d.contains("X-Plex-Token=a&amp;b=c"));
         assert!(d.contains("audio/flac") && d.contains("0:01:01"));
         assert!(tag(&format!("<x>{}</x>", esc(&d)), "x").unwrap() == d, "escaping twice round-trips");
     }
 
     #[test]
     fn a_chunked_reply_is_put_back_together() {
-        assert_eq!(unchunk("5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n"), "hello world");
+        assert_eq!(unchunk(b"5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n"), b"hello world");
+    }
+
+    #[test]
+    fn a_chunk_that_ends_inside_a_character_does_not_panic() {
+        // "Küche" is six bytes, the second chunk starting in the middle of the ü
+        let body = "Küche".as_bytes();
+        let mut wire = Vec::new();
+        wire.extend_from_slice(b"2\r\n");
+        wire.extend_from_slice(&body[..2]);
+        wire.extend_from_slice(b"\r\n4\r\n");
+        wire.extend_from_slice(&body[2..]);
+        wire.extend_from_slice(b"\r\n0\r\n\r\n");
+        assert_eq!(String::from_utf8_lossy(&unchunk(&wire)), "Küche");
+    }
+
+    #[test]
+    fn control_characters_never_reach_the_speaker() {
+        assert_eq!(esc("a\u{1}b\u{8}c\td & e"), "abc\td &amp; e");
+    }
+
+    #[test]
+    fn a_bridge_is_not_a_room() {
+        let z = r#"<ZoneGroupState>&lt;ZoneGroups&gt;&lt;ZoneGroup Coordinator=&quot;RINCON_A&quot; ID=&quot;x&quot;&gt;&lt;ZoneGroupMember UUID=&quot;RINCON_A&quot; Location=&quot;http://10.0.0.62:1400/xml/device_description.xml&quot; ZoneName=&quot;Living Room&quot;/&gt;&lt;/ZoneGroup&gt;&lt;ZoneGroup Coordinator=&quot;RINCON_B&quot; ID=&quot;y&quot;&gt;&lt;ZoneGroupMember UUID=&quot;RINCON_B&quot; Location=&quot;http://10.0.0.64:1400/xml/device_description.xml&quot; ZoneName=&quot;BRIDGE&quot; IsZoneBridge=&quot;1&quot;/&gt;&lt;/ZoneGroup&gt;&lt;/ZoneGroups&gt;</ZoneGroupState>"#;
+        let names: Vec<String> = parse_zones(z).into_iter().map(|r| r.name).collect();
+        assert_eq!(names, ["Living Room"]);
     }
 }
