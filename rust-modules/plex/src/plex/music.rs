@@ -412,6 +412,11 @@ impl Client {
     /// fetches the file itself (a Sonos speaker). A secure `plex.direct` name is turned back into the address it
     /// stands for (`10-0-0-5.<hash>.plex.direct` is `10.0.0.5`); the server answers plain HTTP there too.
     pub fn music_lan_url(&self, path: &str) -> Option<String> {
+        self.music_lan_url_via(path, None)
+    }
+
+    /// The host and what is known of it: a `plex.direct` name for an IPv4 address is that address.
+    fn lan_choice(&self) -> (String, Lan) {
         let mut host = self.origin.host().to_owned();
         if host.ends_with(".plex.direct") {
             let first = host.split('.').next().unwrap_or("");
@@ -419,12 +424,29 @@ impl Client {
                 host = first.replace('-', ".");
             }
         }
-        // a plain-http link carries the server's token: it goes only where a speaker on the home network can reach it
+        let l = lan_host(&host, self.origin.port());
+        (host, l)
+    }
+
+    /// The speaker can be given this server's address as it is: an IPv4 address on the home network. (A server this
+    /// client reaches by an IPv6 name cannot be fetched from by a speaker, which wants IPv4.)
+    pub fn music_lan_has_address(&self) -> bool {
+        matches!(self.lan_choice().1, Lan::Address(a) if a.parse::<std::net::Ipv4Addr>().is_ok())
+    }
+
+    /// As [`Client::music_lan_url`], with `via` the server's own address on the home network when it is known (a
+    /// home address only: anything else is ignored).
+    pub fn music_lan_url_via(&self, path: &str, via: Option<&str>) -> Option<String> {
         let port = self.origin.port();
-        let host = match lan_host(&host, port) {
-            Lan::Address(a) => a,
-            Lan::Name => host,
-            Lan::No => return None,
+        let given = via.filter(|a| a.parse::<std::net::IpAddr>().is_ok_and(is_home_ip));
+        // a plain-http link carries the server's token: it goes only where a speaker on the home network can reach it
+        let host = match given {
+            Some(a) => a.to_owned(),
+            None => match self.lan_choice() {
+                (_, Lan::Address(a)) => a,
+                (name, Lan::Name) => name,
+                (_, Lan::No) => return None,
+            },
         };
         let host = if host.contains(':') { format!("[{host}]") } else { host };
         Some(format!("http://{host}:{port}{}", self.with_token(path)))

@@ -254,6 +254,11 @@ impl MusicScreen {
             self.stack.clear();
             self.view = View::Home;
             self.push(View::Album(a));
+        } else if self.view == View::NowPlaying && self.model.now.is_none() {
+            // nothing plays any more (it ended, or never started): back to where the viewer came from, with the music to pick from
+            if !self.pop() {
+                self.view = View::Home;
+            }
         }
         let n = self.len();
         self.cur = self.cur.min(n.saturating_sub(1));
@@ -1680,6 +1685,32 @@ mod tests {
             press(&mut s, Key::Up);
         }
         assert_eq!((s.cur, s.first), (0, 0));
+    }
+
+    #[test]
+    fn when_nothing_plays_any_more_now_playing_goes_back_to_the_music_page() {
+        let mut s = MusicScreen::new(EntryId(1));
+        let m = MusicModel { status: MusicStatus::Ready, ..Default::default() };
+        s.input(m.clone());
+        s.goto_tab(2);
+        s.push(View::NowPlaying);
+        let playing = NowPlaying { item: album("1"), ..Default::default() };
+        let with_now = MusicModel { now: Some(playing), ..m.clone() };
+        s.input(with_now);
+        assert_eq!(s.view, View::NowPlaying, "while something plays it stays");
+        s.input(MusicModel { note: "Living Room did not start playing.".into(), ..m });
+        assert_eq!(s.view, View::Albums, "back where the viewer came from");
+        assert!(!s.pop(), "and no Now Playing left behind it");
+    }
+
+    #[test]
+    fn with_nowhere_to_go_back_to_it_lands_on_the_music_home() {
+        let mut s = MusicScreen::new(EntryId(1));
+        let m = MusicModel { status: MusicStatus::Ready, ..Default::default() };
+        s.input(m.clone());
+        s.view = View::NowPlaying;
+        s.input(MusicModel { note: "x".into(), ..m });
+        assert_eq!(s.view, View::Home);
     }
 
     #[test]

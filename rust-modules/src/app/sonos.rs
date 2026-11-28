@@ -505,15 +505,86 @@ fn scan_subnet() -> Vec<String> {
     found.into_inner().unwrap_or_default()
 }
 
+// ---- the Plex server, as a speaker can reach it --------------------------------------------------------
+
+/// The Plex server's IPv4 address on the home network, once found (with the server's machine id), and when a look
+/// for it last came up empty.
+static PLEX_LAN: Mutex<Option<(String, String)>> = Mutex::new(None);
+static PLEX_LAN_MISS: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// This TV may reach the server by an IPv6 name, which a speaker cannot use. Then the server's IPv4 address is looked
+/// for on the home network (every host of the /24 with Plex's port open that names this server's machine id), once,
+/// and remembered. `None`: the client's own address is fine, or the server was not found.
+fn plex_home_address(client: &plx_plex::plex::Client) -> Option<String> {
+    if client.music_lan_has_address() {
+        return None;
+    }
+    let mid = client.machine_id().to_owned();
+    if mid.is_empty() {
+        return None;
+    }
+    if let Some((m, ip)) = PLEX_LAN.lock().ok().and_then(|g| g.clone()) {
+        if m == mid {
+            return Some(ip);
+        }
+    }
+    if PLEX_LAN_MISS.lock().ok().and_then(|g| *g).is_some_and(|at| at.elapsed() < Duration::from_secs(60)) {
+        return None;
+    }
+    let found = find_plex(&mid, client.port().clamp(1, 65535) as u16);
+    match &found {
+        Some(_) => plx_base::eventlog::log("sonos: found the Plex server on the home network (speakers cannot use its IPv6 address)"),
+        None => plx_base::eventlog::log("sonos: the Plex server was not found at an IPv4 address on the home network"),
+    }
+    if let Ok(mut g) = PLEX_LAN.lock() {
+        *g = found.clone().map(|ip| (mid, ip));
+    }
+    if let Ok(mut m) = PLEX_LAN_MISS.lock() {
+        *m = found.is_none().then(Instant::now);
+    }
+    found
+}
+
+fn find_plex(mid: &str, port: u16) -> Option<String> {
+    let me = local_ip()?;
+    let o = me.octets();
+    let found: Mutex<Option<String>> = Mutex::new(None);
+    let want = format!("machineIdentifier=\"{mid}\"");
+    let hosts: Vec<u8> = (1..=254u8).collect();
+    std::thread::scope(|sc| {
+        for chunk in hosts.chunks(4) {
+            let (found, want) = (&found, &want);
+            sc.spawn(move || {
+                for &h in chunk {
+                    let ip = format!("{}.{}.{}.{}", o[0], o[1], o[2], h);
+                    let Ok(addr) = format!("{ip}:{port}").parse::<SocketAddr>() else { continue };
+                    if TcpStream::connect_timeout(&addr, Duration::from_millis(250)).is_ok() {
+                        if let Some((200, body)) = http_at(&ip, port, "GET", "/identity", &[], "", 2000) {
+                            if body.contains(want.as_str()) {
+                                *found.lock().unwrap_or_else(|e| e.into_inner()) = Some(ip);
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    });
+    found.into_inner().unwrap_or_default()
+}
+
 // ---- the wire ----------------------------------------------------------------------------------------
 
 /// One HTTP exchange with the speaker at `ip`: (status, body).
 fn http(ip: &str, method: &str, path: &str, headers: &[(&str, &str)], body: &str, timeout_ms: u64) -> Option<(u16, String)> {
-    let addr: SocketAddr = format!("{ip}:{PORT}").parse().ok()?;
+    http_at(ip, PORT, method, path, headers, body, timeout_ms)
+}
+
+fn http_at(ip: &str, port: u16, method: &str, path: &str, headers: &[(&str, &str)], body: &str, timeout_ms: u64) -> Option<(u16, String)> {
+    let addr: SocketAddr = format!("{ip}:{port}").parse().ok()?;
     let mut s = TcpStream::connect_timeout(&addr, Duration::from_millis(timeout_ms)).ok()?;
     let _ = s.set_read_timeout(Some(Duration::from_millis(timeout_ms)));
     let _ = s.set_write_timeout(Some(Duration::from_millis(timeout_ms)));
-    let mut req = format!("{method} {path} HTTP/1.1\r\nHost: {ip}:{PORT}\r\nConnection: close\r\nContent-Length: {}\r\n", body.len());
+    let mut req = format!("{method} {path} HTTP/1.1\r\nHost: {ip}:{port}\r\nConnection: close\r\nContent-Length: {}\r\n", body.len());
     for (k, v) in headers {
         req.push_str(&format!("{k}: {v}\r\n"));
     }
@@ -1006,8 +1077,9 @@ impl Ctl {
     /// Add `item` to the speaker's queue at track number `at` (0 = the end).
     fn add(&self, item: &MusicItem, at: usize) -> Result<(), String> {
         let client = plx_plex::plex::client();
-        let Some(url) = client.music_lan_url(&item.part_key) else { return Err(NO_LAN.into()) };
-        let art = (!item.cover().is_empty()).then(|| client.music_lan_url(item.cover())).flatten();
+        let via = plex_home_address(client);
+        let Some(url) = client.music_lan_url_via(&item.part_key, via.as_deref()) else { return Err(NO_LAN.into()) };
+        let art = (!item.cover().is_empty()).then(|| client.music_lan_url_via(item.cover(), via.as_deref())).flatten();
         let meta = didl(item, &url, art.as_deref());
         self.av(
             "AddURIToQueue",
