@@ -7066,7 +7066,7 @@ fn the_arrival_animation_follows_the_setting() {
     let snapshot = plx_data::pms::hubs_snapshot(&state);
     let was = plx_data::layout::home_arrival();
     for (mode, snap, arrive, rise) in [(0u8, 1.0, 1.0, false), (1, 0.0, 0.0, false), (2, 0.0, 0.0, true), (3, 0.0, 1.0, false)] {
-        plx_data::layout::update(|l| l.home_arrival = mode);
+        plx_data::layout::update(|l| l.home_arrival = Some(mode));
         let mut s = screen(snapshot.view());
         s.snap.jump(1.0);
         s.snap_target = 1.0;
@@ -7078,5 +7078,5 @@ fn the_arrival_animation_follows_the_setting() {
         assert_eq!(s.arrive.pos, arrive, "mode {mode}: how much of the art is in");
         assert_eq!(s.arrive_rise, rise, "mode {mode}: rising");
     }
-    plx_data::layout::update(|l| l.home_arrival = was);
+    plx_data::layout::update(|l| l.home_arrival = Some(was));
 }

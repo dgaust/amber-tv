@@ -1811,7 +1811,8 @@ impl HomeScreen {
     /// `update` lands the dive (`Spring::land`) once it is within a hair of it, which a bare `step`
     /// never does.
     fn dive_rests(&self) -> bool {
-        self.snap.vel == 0.0
+        // the arrival's fade / rise moves the picture too: named every frame it would fill the ground's texture every frame
+        self.snap.vel == 0.0 && self.arrive.pos == 1.0 && self.arrive.vel == 0.0
     }
 
     fn env(&self, dt: f32) -> Env {
