@@ -29,7 +29,7 @@ pub struct Layout {
     /// Amber music: seconds of crossfade between tracks (0 is gapless), and loudness levelling (0 off, 1 on).
     pub music_crossfade: u8,
     pub music_levelling: u8,
-    /// Amber Home: how the billboard comes in when the page is arrived at from elsewhere (0 glide, 1 fade, 2 rise, 3 none); absent is rise.
+    /// Amber Home: how the billboard comes in when the page is arrived at from elsewhere (0 glide, 1 fade, 2 rise, 3 off); absent is rise.
     pub home_arrival: Option<u8>,
 }
 
@@ -99,7 +99,7 @@ pub fn step_music_crossfade() -> u8 {
 }
 
 /// The Home arrival animations, in the order the setting steps through them.
-pub const HOME_ARRIVAL_LABELS: [&str; 4] = ["Glide down", "Fade in", "Rise up", "None"];
+pub const HOME_ARRIVAL_LABELS: [&str; 4] = ["Glide down", "Fade in", "Rise up", "Off"];
 
 /// What a Home that was never set uses.
 pub const HOME_ARRIVAL_DEFAULT: u8 = 2;

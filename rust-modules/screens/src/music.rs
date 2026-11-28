@@ -71,6 +71,8 @@ pub struct Speaker {
     pub volume: i32,
     /// The music plays on this one (it is in the playing group).
     pub current: bool,
+    /// Its group is being changed.
+    pub busy: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -198,6 +200,8 @@ pub struct MusicScreen {
     fresh: bool,
     /// The picture is blacked out while the music plays (any key brings it back).
     dark: bool,
+    /// Speakers: Left / Right change the volume of the row under the cursor (Right starts it; OK or Back ends it).
+    adjust: bool,
 }
 
 impl MusicScreen {
@@ -225,6 +229,7 @@ impl MusicScreen {
             want_play: None,
             fresh: true,
             dark: false,
+            adjust: false,
         }
     }
 
@@ -319,6 +324,7 @@ impl MusicScreen {
         self.cur = 0;
         self.first = 0;
         self.tabs = false;
+        self.adjust = false;
         self.fresh = true;
     }
 
@@ -328,6 +334,7 @@ impl MusicScreen {
                 self.view = v;
                 self.cur = cur;
                 self.first = first;
+                self.adjust = false;
                 true
             }
             None => false,
@@ -661,10 +668,21 @@ impl MusicScreen {
     fn speakers_key<H: ContentLike>(&mut self, key: Key, fx: &mut Effects<'_, H>) -> Handled {
         let rows = self.speaker_rows();
         let n = rows.len();
+        let volume_row = matches!(rows.get(self.cur), Some(SRow::Room(_) | SRow::Group));
         match key {
-            Key::Up if self.cur > 0 => self.cur -= 1,
-            Key::Down if self.cur + 1 < n => self.cur += 1,
+            Key::Up if self.cur > 0 => {
+                self.cur -= 1;
+                self.adjust = false;
+            }
+            Key::Down if self.cur + 1 < n => {
+                self.cur += 1;
+                self.adjust = false;
+            }
             Key::Up | Key::Down => {}
+            // as in the other lists Left goes to the sidebar; while a volume is being changed it steps it down
+            Key::Left if !self.adjust => return Handled::No,
+            Key::Right if !self.adjust && !volume_row => return Handled::No,
+            Key::Right if !self.adjust => self.adjust = true,
             Key::Left | Key::Right => {
                 let delta = if key == Key::Left { -4 } else { 4 };
                 match rows.get(self.cur) {
@@ -677,6 +695,7 @@ impl MusicScreen {
                     _ => return Handled::No,
                 }
             }
+            Key::Ok if self.adjust => self.adjust = false,
             Key::Ok => match rows.get(self.cur) {
                 Some(SRow::Tv) => {
                     Self::out(fx, MusicOut::UseSpeaker { id: String::new() });
@@ -684,7 +703,7 @@ impl MusicScreen {
                     return Handled::Yes;
                 }
                 Some(SRow::Room(i)) => {
-                    if let Some(s) = self.model.speakers.get(*i) {
+                    if let Some(s) = self.model.speakers.get(*i).filter(|s| !s.busy) {
                         Self::out(fx, MusicOut::ToggleSpeaker { id: s.id.clone() });
                     }
                 }
@@ -692,6 +711,7 @@ impl MusicScreen {
             },
             _ => return Handled::No,
         }
+        self.keep_in_view(1, Self::list_visible_rows(64.0) - 1);
         Handled::Yes
     }
 
@@ -1120,52 +1140,63 @@ impl MusicScreen {
     }
 
     fn draw_speakers(&self, p: Painter, active: bool) {
-        Self::text(p, "Play on", LEFT, TOP - 20.0, 48, theme::TEXT_PRIMARY, 1, 800.0);
+        Self::text(p, "Speakers", LEFT, TOP - 20.0, 48, theme::TEXT_PRIMARY, 1, 800.0);
         let rows = self.speaker_rows();
-        for (k, row) in rows.iter().enumerate() {
-            let y = TOP + 50.0 + k as f32 * 76.0;
+        let visible = Self::list_visible_rows(64.0) - 1;
+        let mut shown = 0;
+        for (k, row) in rows.iter().enumerate().skip(self.first).take(visible) {
+            shown += 1;
+            let y = TOP + 50.0 + (k - self.first) as f32 * 64.0;
             let f = active && k == self.cur;
             if f {
-                p.rrect(Rect::new(LEFT - 12.0, y - 12.0, 1100.0, 68.0), 14.0, 14.0, theme::ACCENT);
+                p.rrect(Rect::new(LEFT, y, RIGHT - LEFT, 60.0), 8.0, 8.0, theme::ACCENT);
             }
             let ink = if f { theme::ACCENT_INK } else { theme::TEXT_PRIMARY };
             let sub = if f { theme::ACCENT_INK } else { theme::TEXT_SECONDARY };
+            // where the music plays is marked with a bare check, as a picker marks the current choice
+            let mark = |on: bool| {
+                if on {
+                    plx_ui::icons::draw(p, plx_ui::icons::Icon::Check, Rect::new(LEFT + 16.0, y + 14.0, 32.0, 32.0), if f { theme::ACCENT_INK } else { theme::RAIL_CURRENT });
+                }
+            };
+            let volume = |v: i32, busy: bool| {
+                let t = if busy {
+                    "Updating\u{2026}".to_owned()
+                } else if f && self.adjust {
+                    format!("\u{2039}  Volume {v}  \u{203a}")
+                } else {
+                    format!("Volume {v}")
+                };
+                Self::text(p, &t, RIGHT - 340.0, y + 30.0, theme::size::CAPTION, sub, 0, 320.0);
+            };
             match row {
                 SRow::Tv => {
-                    Self::text(p, "This TV", LEFT + 64.0, y + 22.0, theme::size::BODY, ink, 1, 560.0);
-                    if self.model.output.is_empty() {
-                        Self::text(p, "Playing here", LEFT + 660.0, y + 22.0, theme::size::CAPTION, if f { theme::ACCENT_INK } else { theme::RAIL_CURRENT }, 1, 200.0);
-                    }
+                    mark(self.model.output.is_empty());
+                    Self::text(p, "This TV", LEFT + 80.0, y + 30.0, theme::size::CAPTION, ink, 1, 560.0);
                 }
                 SRow::Room(i) => {
                     let s = &self.model.speakers[*i];
-                    // the box
-                    let b = Rect::new(LEFT + 8.0, y + 4.0, 36.0, 36.0);
-                    p.rrect(b, 9.0, 9.0, theme::with_a(ink, if s.current { 1.0 } else { 0.45 }));
-                    p.rrect(Rect::new(b.x + 3.0, b.y + 3.0, 30.0, 30.0), 7.0, 7.0, if f { theme::ACCENT } else { [0.06, 0.06, 0.07, 1.0] });
-                    if s.current {
-                        plx_ui::icons::draw(p, plx_ui::icons::Icon::Check, Rect::new(b.x + 4.0, b.y + 4.0, 28.0, 28.0), ink);
-                    }
-                    Self::text(p, &s.name, LEFT + 64.0, y + 22.0, theme::size::BODY, ink, 1, 560.0);
-                    if s.volume >= 0 {
-                        let t = if f { format!("\u{2039}  Volume {}  \u{203a}", s.volume) } else { format!("Volume {}", s.volume) };
-                        Self::text(p, &t, LEFT + 800.0, y + 22.0, theme::size::CAPTION, sub, 0, 290.0);
+                    mark(s.current);
+                    Self::text(p, &s.name, LEFT + 80.0, y + 30.0, theme::size::CAPTION, ink, 1, 560.0);
+                    if s.busy || s.volume >= 0 {
+                        volume(s.volume, s.busy);
                     }
                 }
                 SRow::Group => {
-                    Self::text(p, "All speakers together", LEFT + 64.0, y + 22.0, theme::size::BODY, ink, 1, 700.0);
-                    let t = if f { format!("\u{2039}  Volume {}  \u{203a}", self.model.group_volume.max(0)) } else { format!("Volume {}", self.model.group_volume.max(0)) };
-                    Self::text(p, &t, LEFT + 800.0, y + 22.0, theme::size::CAPTION, sub, 0, 290.0);
+                    Self::text(p, "All speakers together", LEFT + 80.0, y + 30.0, theme::size::CAPTION, ink, 1, 700.0);
+                    volume(self.model.group_volume.max(0), false);
                 }
             }
         }
-        let y = TOP + 50.0 + rows.len() as f32 * 76.0 + 20.0;
+        let y = TOP + 50.0 + shown as f32 * 64.0 + 20.0;
         if self.model.scanning {
-            Self::text(p, "Looking for speakers\u{2026}", LEFT, y + 10.0, theme::size::CAPTION, theme::TEXT_TERTIARY, 0, 800.0);
+            Self::text(p, "Looking for speakers\u{2026}", LEFT, y, theme::size::CAPTION, theme::TEXT_TERTIARY, 0, 800.0);
         } else if self.model.speakers.is_empty() {
-            Self::text(p, "No Sonos speakers were found on this network.", LEFT, y + 10.0, theme::size::CAPTION, theme::TEXT_TERTIARY, 0, 1000.0);
+            Self::text(p, "No Sonos speakers were found on this network.", LEFT, y, theme::size::CAPTION, theme::TEXT_TERTIARY, 0, 1000.0);
+        } else if self.adjust {
+            Self::text(p, "Left / Right to change the volume, OK when done", LEFT, y, theme::size::MICRO, theme::TEXT_TERTIARY, 0, 1500.0);
         } else {
-            Self::text(p, "OK ticks a speaker: the first starts the music there, more join it as a group. Left and Right change the volume.", LEFT, y + 10.0, theme::size::MICRO, theme::TEXT_TERTIARY, 0, 1500.0);
+            Self::text(p, "OK to add or remove a speaker, Right to change its volume", LEFT, y, theme::size::MICRO, theme::TEXT_TERTIARY, 0, 1500.0);
         }
     }
 
@@ -1278,7 +1309,7 @@ impl MusicScreen {
         Self::text(p, if rf { "Left / Right to rate, OK to save" } else { "Your rating" }, x + 420.0, ry + 18.0, theme::size::MICRO, theme::TEXT_TERTIARY, 0, 360.0);
         // queue and stop
         let (bw, bgap) = (164.0, ((w - 5.0 * 164.0) / 4.0).max(10.0));
-        for (i, label) in ["Queue", "Radio", "Speaker", "Screen off", "Stop"].iter().enumerate() {
+        for (i, label) in ["Queue", "Radio", "Speakers", "Screen off", "Stop"].iter().enumerate() {
             let f = active && self.np_row == 2 && self.np_col == i;
             Self::button(p, x + i as f32 * (bw + bgap), 650.0, bw, label, f);
         }
@@ -1393,6 +1424,11 @@ impl<H: ContentLike> Machine<H> for MusicScreen {
             {
                 if self.tabs {
                     self.tabs = false;
+                    fx.invalidate(Provenance::Input);
+                    return Handled::Yes;
+                }
+                if self.adjust {
+                    self.adjust = false;
                     fx.invalidate(Provenance::Input);
                     return Handled::Yes;
                 }
@@ -1543,6 +1579,107 @@ mod tests {
         s.input(m);
         s.goto_tab(2);
         s
+    }
+
+    /// A host with no stores: the page reads its model from itself.
+    struct MusicHost;
+    impl crate::registry::ScreenInputsLike for MusicHost {
+        fn screen_inputs<'a>(_: &Cx<'a, Self>) -> &'a crate::registry::ScreenInputs {
+            crate::registry::caption_fixture()
+        }
+    }
+    impl plx_machine::machine::Host for MusicHost {
+        type Arg = crate::registry::SettingsPage;
+        type Fx = AppFx;
+        type Msg = crate::registry::AppMsg;
+        type Elem = u32;
+        type Views<'a> = ();
+        type Init = crate::registry::NoInit;
+        type Memory = crate::registry::PageMemory;
+    }
+
+    fn speaker(id: &str, current: bool) -> Speaker {
+        Speaker { id: id.into(), name: format!("room {id}"), volume: 20, current, busy: false }
+    }
+
+    fn speakers_screen(n: usize, current: &[usize]) -> MusicScreen {
+        let mut s = MusicScreen::new(EntryId(1));
+        let m = MusicModel { status: MusicStatus::Ready, speakers: (0..n).map(|i| speaker(&i.to_string(), current.contains(&i))).collect(), ..Default::default() };
+        s.input(m);
+        s.push(View::Speakers);
+        s
+    }
+
+    /// Press a key on the Speakers page: whether the page handled it, and what it asked the engine for.
+    fn press(s: &mut MusicScreen, key: Key) -> (Handled, Vec<MusicOut>) {
+        use plx_machine::machine::MachineId;
+        use plx_machine::present::Present;
+        let mut out: Vec<plx_machine::machine::Stamped<MusicHost>> = Vec::new();
+        let mut present = Present::new();
+        let mut fx = Effects::new(&mut out, MachineId::Session, &mut present);
+        let h = s.speakers_key(key, &mut fx);
+        let asked = out.into_iter().filter_map(|f| match f.fx { Fx::App(AppFx::Music(o)) => Some(o), _ => None }).collect();
+        (h, asked)
+    }
+
+    #[test]
+    fn left_leaves_the_speakers_page_like_the_other_lists() {
+        let mut s = speakers_screen(3, &[1]);
+        s.cur = 2;
+        assert_eq!(press(&mut s, Key::Left).0, Handled::No);
+        s.cur = 0;
+        assert_eq!(press(&mut s, Key::Right).0, Handled::No, "no volume on the TV row");
+    }
+
+    #[test]
+    fn right_starts_a_volume_change_and_ok_ends_it() {
+        let mut s = speakers_screen(3, &[1]);
+        s.cur = 2;
+        let (h, asked) = press(&mut s, Key::Right);
+        assert_eq!(h, Handled::Yes);
+        assert!(asked.is_empty() && s.adjust, "the first Right only starts it");
+        let (_, asked) = press(&mut s, Key::Right);
+        assert!(matches!(asked.as_slice(), [MusicOut::SpeakerVolume { id, delta: 4 }] if id == "1"));
+        let (_, asked) = press(&mut s, Key::Left);
+        assert!(matches!(asked.as_slice(), [MusicOut::SpeakerVolume { delta: -4, .. }]));
+        let (_, asked) = press(&mut s, Key::Ok);
+        assert!(asked.is_empty() && !s.adjust, "OK ends it without picking the room");
+    }
+
+    #[test]
+    fn moving_off_a_row_ends_the_volume_change() {
+        let mut s = speakers_screen(3, &[0]);
+        s.cur = 1;
+        press(&mut s, Key::Right);
+        assert!(s.adjust);
+        press(&mut s, Key::Down);
+        assert!(!s.adjust);
+    }
+
+    #[test]
+    fn a_room_whose_group_is_changing_ignores_ok() {
+        let mut s = speakers_screen(2, &[]);
+        s.model.speakers[0].busy = true;
+        s.cur = 1;
+        assert!(press(&mut s, Key::Ok).1.is_empty());
+        s.cur = 2;
+        assert!(matches!(press(&mut s, Key::Ok).1.as_slice(), [MusicOut::ToggleSpeaker { id }] if id == "1"));
+    }
+
+    #[test]
+    fn a_long_list_of_speakers_scrolls_with_the_cursor() {
+        let mut s = speakers_screen(20, &[0]);
+        let visible = MusicScreen::list_visible_rows(64.0) - 1;
+        assert!(visible < 21);
+        for _ in 0..20 {
+            press(&mut s, Key::Down);
+        }
+        assert_eq!(s.cur, 20);
+        assert!(s.first + visible > s.cur && s.cur >= s.first, "the cursor row is on the page");
+        for _ in 0..20 {
+            press(&mut s, Key::Up);
+        }
+        assert_eq!((s.cur, s.first), (0, 0));
     }
 
     #[test]
