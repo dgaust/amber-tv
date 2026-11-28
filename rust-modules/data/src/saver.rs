@@ -16,6 +16,39 @@ pub struct SaverImage {
     pub rating: String,
 }
 
+/// While music plays the screensaver shows its pictures instead: the artist and the album, moving slowly about the
+/// screen (so nothing stays in one place on the panel).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MusicSaver {
+    pub sid: u16,
+    /// Server paths of the pictures to show in turn (the artist, the album).
+    pub pictures: Vec<String>,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+}
+
+static MUSIC: Mutex<Option<MusicSaver>> = Mutex::new(None);
+static MUSIC_GEN: AtomicU32 = AtomicU32::new(0);
+
+/// Set (or clear, with `None`) what plays. A value equal to the one held changes nothing.
+pub fn set_music(m: Option<MusicSaver>) {
+    let mut held = MUSIC.lock().unwrap_or_else(|e| e.into_inner());
+    if *held == m {
+        return;
+    }
+    *held = m;
+    MUSIC_GEN.fetch_add(1, Ordering::Relaxed);
+}
+
+pub fn music() -> Option<MusicSaver> {
+    MUSIC.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+pub fn music_generation() -> u32 {
+    MUSIC_GEN.load(Ordering::Relaxed)
+}
+
 static IMAGES: Mutex<Vec<SaverImage>> = Mutex::new(Vec::new());
 static GEN: AtomicU32 = AtomicU32::new(0);
 
@@ -53,7 +86,20 @@ pub fn rating_allowed(content_rating: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{rating_allowed, rating_label};
+    use super::{rating_allowed, rating_label, set_music, music, music_generation, MusicSaver};
+    #[test]
+    fn the_music_pictures_change_the_generation_only_when_they_differ() {
+        let m = MusicSaver { sid: 1, pictures: vec!["/a".into()], title: "T".into(), artist: "A".into(), album: "B".into() };
+        set_music(Some(m.clone()));
+        let g = music_generation();
+        set_music(Some(m.clone()));
+        assert_eq!(music_generation(), g, "the same value changes nothing");
+        assert_eq!(music(), Some(m));
+        set_music(None);
+        assert_ne!(music_generation(), g);
+        assert_eq!(music(), None);
+    }
+
     #[test]
     fn the_country_is_dropped() {
         assert_eq!(rating_label("au/MA 15+"), "MA 15+");

@@ -1632,6 +1632,7 @@ impl Bridge {
         let top = d.nav.top_page().map(|e| e.id).filter(|_| d.top_arg() == Some(&AppArg::Music));
         crate::app::music::tick_data(top.is_some());
         crate::app::music::publish_home_row();
+        crate::app::music::publish_saver();
         let Some(id) = top else { return };
         let Some(inst) = d.nav.entry_mut(id).and_then(|e| e.inst.as_mut()) else { return };
         let Some(screen) = inst.screen.as_any_mut().and_then(|a| a.downcast_mut::<plx_screens::music::MusicScreen>())

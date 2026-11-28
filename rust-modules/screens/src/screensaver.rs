@@ -25,6 +25,8 @@ const SLIDE_S: f32 = 20.0;
 const FADE_S: f32 = 3.0;
 /// The slow push-in over a picture's time: 1.0 up to this scale.
 const DRIFT: f32 = 1.08;
+/// Seconds each of the artist's and album's pictures is shown while music plays.
+const MUSIC_SLIDE_S: f32 = 20.0;
 /// How long a picture's caption is up for, from the picture's start.
 const CAPTION_S: f32 = 9.0;
 /// A pointer has to move this far from where it first was to count as the viewer.
@@ -43,6 +45,10 @@ pub struct ScreensaverScreen {
     shown: u32,
     /// The picture on has its image loaded (the clock and caption wait for it).
     ready: bool,
+    /// While music plays: what plays, and seconds since this page opened (the picture's path about the screen).
+    music: Option<plx_data::saver::MusicSaver>,
+    music_gen: u32,
+    clock: f32,
 }
 
 impl ScreensaverScreen {
@@ -50,10 +56,15 @@ impl ScreensaverScreen {
     pub const SHAPE: &'static str = "ScreensaverScreen{entry:u32,idx:u32}";
 
     pub fn new(entry: EntryId) -> Self {
-        Self { entry, images: Vec::new(), gen: u32::MAX, idx: 0, prev: None, elapsed: 0.0, pointer: None, shown: 0, ready: false }
+        Self { entry, images: Vec::new(), gen: u32::MAX, idx: 0, prev: None, elapsed: 0.0, pointer: None, shown: 0, ready: false, music: None, music_gen: u32::MAX, clock: 0.0 }
     }
 
     fn refresh(&mut self) {
+        let mg = plx_data::saver::music_generation();
+        if mg != self.music_gen {
+            self.music_gen = mg;
+            self.music = plx_data::saver::music();
+        }
         let gen = plx_data::saver::generation();
         if gen != self.gen {
             self.gen = gen;
@@ -103,6 +114,46 @@ impl ScreensaverScreen {
         true
     }
 
+    /// Music is playing: the artist's and the album's pictures in turn, a square that drifts slowly about the screen
+    /// with the track and artist under it, so no part of the panel holds one thing for long.
+    fn draw_music(&self, p: Painter, m: &plx_data::saver::MusicSaver, measure: &dyn plx_machine::machine::Measure) {
+        let (w, h) = (plx_ui::consts::SCR_W, plx_ui::consts::SCR_H);
+        let side = 640.0;
+        let group_h = side + 120.0;
+        // the path: two slow sines of different periods, so it never retraces itself for minutes
+        let tx = (w - side) * 0.5 * 0.92;
+        let ty = (h - group_h) * 0.5 * 0.92;
+        let x = (w - side) * 0.5 + tx * (self.clock * 0.037).sin();
+        let y = (h - group_h) * 0.5 + ty * (self.clock * 0.053 + 1.3).sin();
+        // the pictures in turn: each in for MUSIC_SLIDE_S, fading in and out at its ends
+        let n = m.pictures.len().max(1);
+        let slot = (self.clock / MUSIC_SLIDE_S) as usize % n;
+        let t = self.clock % MUSIC_SLIDE_S;
+        let alpha = if n == 1 { 1.0 } else { (t / 2.0).min((MUSIC_SLIDE_S - t) / 2.0).clamp(0.0, 1.0) };
+        let alpha = alpha * (self.clock / 2.0).clamp(0.0, 1.0);
+        if let Some(path) = m.pictures.get(slot) {
+            let (tex, iw, ih) = plx_ui::widgets::resolve_tex_wh_on(m.sid, path, 640, 640, 0);
+            if tex != 0 && iw > 0.0 && ih > 0.0 {
+                let uv = if iw > ih {
+                    let u = (1.0 - ih / iw) * 0.5;
+                    [u, 0.0, 1.0 - u, 1.0]
+                } else {
+                    let v = (1.0 - iw / ih) * 0.5;
+                    [0.0, v, 1.0, 1.0 - v]
+                };
+                p.tex_uv(tex, uv, Rect::new(x, y, side, side), 24.0, [1.0, 1.0, 1.0, alpha]);
+            }
+        }
+        let a = (self.clock / 2.0).clamp(0.0, 1.0);
+        let centred = |s: &str, sz: i32, bold: i32, cy: f32, ink: [f32; 4]| {
+            let tw = CString::new(s).map_or(0.0, |c| measure.width(&c, sz, bold != 0)).min(side);
+            Self::text(p, s, x + (side - tw) * 0.5, cy, sz, ink, bold, side);
+        };
+        centred(&m.title, theme::size::TITLE, 1, y + side + 44.0, [1.0, 1.0, 1.0, 0.92 * a]);
+        let sub = if m.album.is_empty() { m.artist.clone() } else { format!("{}  \u{b7}  {}", m.artist, m.album) };
+        centred(&sub, theme::size::BODY, 0, y + side + 98.0, [1.0, 1.0, 1.0, 0.6 * a]);
+    }
+
     fn text(p: Painter, s: &str, x: f32, cy: f32, sz: i32, ink: [f32; 4], bold: i32, max_w: f32) {
         let shown = plx_gfx::text::elide(s, max_w.max(10.0), sz, bold, false);
         let Ok(c) = CString::new(shown) else { return };
@@ -133,6 +184,7 @@ impl<H: ContentLike> Machine<H> for ScreensaverScreen {
             // the slideshow moves every frame
             ScreenEvent::Tick(t) => {
                 self.refresh();
+                self.clock += t.dt();
                 self.advance(t.dt());
                 fx.invalidate(Provenance::Input);
                 Handled::No
@@ -216,6 +268,11 @@ impl<H: ContentLike> Screen<H> for ScreensaverScreen {
         let p = f.painter.alpha(f.page_alpha);
         let (w, h) = (plx_ui::consts::SCR_W, plx_ui::consts::SCR_H);
         p.rrect(Rect::new(-200.0, 0.0, w + 400.0, h), 0.0, 0.0, [0.0, 0.0, 0.0, 1.0]);
+        // music playing: the artist and album, moving, in place of the slideshow
+        if let Some(m) = self.music.as_ref() {
+            self.draw_music(p, m, f.measure);
+            return;
+        }
         let fade = self.fade();
         if let Some(prev) = self.prev {
             // the picture going out holds full until the new one has covered it

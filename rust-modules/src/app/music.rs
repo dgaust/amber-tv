@@ -744,6 +744,28 @@ pub(crate) fn publish_home_row() {
     plx_data::pms::set_music_row(cards);
 }
 
+/// While a track plays: its artist's and album's pictures for the screensaver (cleared when nothing plays).
+pub(crate) fn publish_saver() {
+    let m = ENGINE.with(|e| {
+        let e = e.borrow();
+        let p = e.playing.as_ref().filter(|_| e.played && !e.paused)?;
+        let mut pictures: Vec<String> = Vec::new();
+        for path in [&p.item.grandparent_thumb, &p.item.parent_thumb, &p.item.thumb] {
+            if !path.is_empty() && !pictures.contains(path) {
+                pictures.push(path.clone());
+            }
+        }
+        (!pictures.is_empty()).then(|| plx_data::saver::MusicSaver {
+            sid: plx_plex::plex::current_server().raw(),
+            pictures,
+            title: p.item.title.clone(),
+            artist: p.item.artist().to_owned(),
+            album: p.item.parent_title.clone(),
+        })
+    });
+    plx_data::saver::set_music(m);
+}
+
 /// What the pill beside the clock says while music plays, and whether it is playing (not paused).
 pub(crate) fn now_label() -> Option<(String, bool)> {
     ENGINE.with(|e| {

@@ -111,7 +111,7 @@ pub(crate) fn tick(d: &mut Dispatcher<super::bridge::AppHost>, last_input: u32) 
         LAST_WATCHING.store(now, Ordering::Relaxed);
         return;
     }
-    if plx_data::saver::count() == 0 { return; }
+    if plx_data::saver::count() == 0 && plx_data::saver::music().is_none() { return; }
     let last_active = if now.wrapping_sub(last_input) < now.wrapping_sub(LAST_WATCHING.load(Ordering::Relaxed)) {
         last_input
     } else {

@@ -634,13 +634,13 @@ impl MusicScreen {
         match key {
             Key::Up if self.np_row > 0 => {
                 self.np_row -= 1;
-                if self.np_row == 2 {
+                if self.np_row == 3 {
                     self.stars = now.item.user_rating.max(0.0) as i32;
                 }
             }
             Key::Down if self.np_row < 3 => {
                 self.np_row += 1;
-                if self.np_row == 2 {
+                if self.np_row == 3 {
                     self.stars = now.item.user_rating.max(0.0) as i32;
                 }
             }
@@ -658,7 +658,7 @@ impl MusicScreen {
                             return Handled::No;
                         }
                     }
-                    2 => {
+                    3 => {
                         let s = (self.stars + dir as i32).clamp(0, 10);
                         self.stars = s;
                     }
@@ -680,7 +680,7 @@ impl MusicScreen {
                     3 => Self::out(fx, MusicOut::Next),
                     _ => Self::out(fx, MusicOut::CycleRepeat),
                 },
-                2 => Self::out(fx, MusicOut::Rate { rk: now.item.rk.clone(), half_stars: self.stars }),
+                3 => Self::out(fx, MusicOut::Rate { rk: now.item.rk.clone(), half_stars: self.stars }),
                 _ => match self.np_col {
                     0 => {
                         self.push(View::Queue);
@@ -1121,8 +1121,8 @@ impl MusicScreen {
             cx += d + gap;
         }
         // the rating: five stars in half steps, drawn (a font may lack the glyph)
-        let ry = 680.0;
-        let rf = active && self.np_row == 2;
+        let ry = 770.0;
+        let rf = active && self.np_row == 3;
         let shown = if rf { self.stars } else if it.user_rating > 0.0 { it.user_rating as i32 } else { 0 };
         if rf {
             p.rrect(Rect::new(x - 12.0, ry - 12.0, 400.0, 60.0), 14.0, 14.0, theme::with_a(theme::TEXT_PRIMARY, 0.14));
@@ -1140,8 +1140,8 @@ impl MusicScreen {
         // queue and stop
         let (bw, bgap) = (200.0, ((w - 4.0 * 200.0) / 3.0).max(16.0));
         for (i, label) in ["Queue", "Radio", "Screen off", "Stop"].iter().enumerate() {
-            let f = active && self.np_row == 3 && self.np_col == i;
-            Self::button(p, x + i as f32 * (bw + bgap), 770.0, bw, label, f);
+            let f = active && self.np_row == 2 && self.np_col == i;
+            Self::button(p, x + i as f32 * (bw + bgap), 650.0, bw, label, f);
         }
         // what comes next
         if let Some(next) = self.model.queue.get(self.model.qpos + 1) {
