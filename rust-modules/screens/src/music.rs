@@ -124,6 +124,8 @@ pub enum MusicOut {
     Radio { rk: String },
     /// Rate an item, half stars 0..10 (0 clears it). WRITES to the server.
     Rate { rk: String, half_stars: i32 },
+    /// Black out the whole screen, the sidebar and clock too.
+    ScreenOff,
     /// Look for speakers on the network.
     Speakers,
     /// Play on this speaker (empty: on this TV).
@@ -198,8 +200,6 @@ pub struct MusicScreen {
     want_play: Option<(String, bool)>,
     /// The viewer opened a list from here; the first time its data arrives the cursor is reset.
     fresh: bool,
-    /// The picture is blacked out while the music plays (any key brings it back).
-    dark: bool,
     /// Speakers: Left / Right change the volume of the row under the cursor (Right starts it; OK or Back ends it).
     adjust: bool,
 }
@@ -228,7 +228,6 @@ impl MusicScreen {
             asked: Vec::new(),
             want_play: None,
             fresh: true,
-            dark: false,
             adjust: false,
         }
     }
@@ -802,7 +801,7 @@ impl MusicScreen {
                         self.cur = self.model.speakers.iter().position(|s| s.current).map_or(0, |i| i + 1);
                         Self::out(fx, MusicOut::Speakers);
                     }
-                    3 => self.dark = true,
+                    3 => Self::out(fx, MusicOut::ScreenOff),
                     _ => {
                         Self::out(fx, MusicOut::Stop);
                         self.pop();
@@ -1371,23 +1370,6 @@ impl<H: ContentLike> Machine<H> for MusicScreen {
 
     fn step(&mut self, ev: &Self::Ev, cx: &Cx<'_, H>, fx: &mut Effects<'_, H>) -> Handled {
         let holds = cx.focus.current.is_some_and(|k| k.entry == self.entry && k.elem == ELEM);
-        if self.dark {
-            // the dark screen takes every press (the key that brings the picture back does nothing else)
-            if let ScreenEvent::Input(input) = ev {
-                if matches!(input.kind, InputKind::Key { .. }) {
-                    if matches!(input.kind, InputKind::Key { edge: Edge::Down, .. }) {
-                        self.dark = false;
-                        fx.invalidate(Provenance::Input);
-                    }
-                    return Handled::Yes;
-                }
-            }
-            if matches!(ev, ScreenEvent::PressCommit(_) | ScreenEvent::Activate(_)) {
-                self.dark = false;
-                fx.invalidate(Provenance::Input);
-                return Handled::Yes;
-            }
-        }
         match ev {
             ScreenEvent::Enter(_) | ScreenEvent::Uncover | ScreenEvent::StoreChanged(..) => {
                 self.want(fx);
@@ -1455,7 +1437,7 @@ impl<H: ContentLike> Machine<H> for MusicScreen {
             // the yellow key blacks the picture out while music plays
             ScreenEvent::Input(input) if holds && matches!(input.kind, InputKind::Key { wcode: 488, edge: Edge::Down, .. }) => {
                 if self.model.now.is_some() {
-                    self.dark = true;
+                    Self::out(fx, MusicOut::ScreenOff);
                     fx.invalidate(Provenance::Input);
                 }
                 Handled::Yes
@@ -1551,9 +1533,6 @@ impl<H: ContentLike> Screen<H> for MusicScreen {
         if !self.model.note.is_empty() {
             Self::text(p, &self.model.note, LEFT, SCR_H - 150.0, theme::size::CAPTION, theme::TEXT_PRIMARY, 1, 1200.0);
         }
-        if self.dark {
-            p.rrect(Rect::new(-200.0, -50.0, plx_ui::consts::SCR_W + 400.0, SCR_H + 100.0), 0.0, 0.0, [0.0, 0.0, 0.0, 1.0]);
-        }
     }
     fn render(&self) -> RenderStrategy {
         RenderStrategy::Page
@@ -1628,6 +1607,28 @@ mod tests {
         let h = s.speakers_key(key, &mut fx);
         let asked = out.into_iter().filter_map(|f| match f.fx { Fx::App(AppFx::Music(o)) => Some(o), _ => None }).collect();
         (h, asked)
+    }
+
+    /// Press OK on a Now Playing action: what it asked the app for.
+    fn np_ok(s: &mut MusicScreen, col: usize) -> Vec<MusicOut> {
+        use plx_machine::machine::MachineId;
+        use plx_machine::present::Present;
+        let mut out: Vec<plx_machine::machine::Stamped<MusicHost>> = Vec::new();
+        let mut present = Present::new();
+        let mut fx = Effects::new(&mut out, MachineId::Session, &mut present);
+        s.np_row = 2;
+        s.np_col = col;
+        s.np_key(Key::Ok, &mut fx);
+        out.into_iter().filter_map(|f| match f.fx { Fx::App(AppFx::Music(o)) => Some(o), _ => None }).collect()
+    }
+
+    #[test]
+    fn screen_off_asks_the_app_to_black_out_the_whole_screen() {
+        let mut s = MusicScreen::new(EntryId(1));
+        let now = NowPlaying { item: album("1"), ..Default::default() };
+        s.input(MusicModel { status: MusicStatus::Ready, now: Some(now), ..Default::default() });
+        s.push(View::NowPlaying);
+        assert!(matches!(np_ok(&mut s, 3).as_slice(), [MusicOut::ScreenOff]), "the page paints nothing itself: the sidebar and clock would stay");
     }
 
     #[test]

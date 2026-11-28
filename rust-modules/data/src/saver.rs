@@ -28,6 +28,18 @@ pub struct MusicSaver {
     pub album: String,
 }
 
+/// The next screensaver page is a plain black screen (the viewer asked for the screen off), not the slideshow.
+static BLACKOUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_blackout(on: bool) {
+    BLACKOUT.store(on, Ordering::SeqCst);
+}
+
+/// Read, and clear, whether the page that is opening is a black screen.
+pub fn take_blackout() -> bool {
+    BLACKOUT.swap(false, Ordering::SeqCst)
+}
+
 static MUSIC: Mutex<Option<MusicSaver>> = Mutex::new(None);
 static MUSIC_GEN: AtomicU32 = AtomicU32::new(0);
 

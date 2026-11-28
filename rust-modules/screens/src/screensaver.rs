@@ -49,6 +49,8 @@ pub struct ScreensaverScreen {
     music: Option<plx_data::saver::MusicSaver>,
     music_gen: u32,
     clock: f32,
+    /// The viewer asked for the screen off: nothing but black.
+    black: bool,
 }
 
 impl ScreensaverScreen {
@@ -56,7 +58,7 @@ impl ScreensaverScreen {
     pub const SHAPE: &'static str = "ScreensaverScreen{entry:u32,idx:u32}";
 
     pub fn new(entry: EntryId) -> Self {
-        Self { entry, images: Vec::new(), gen: u32::MAX, idx: 0, prev: None, elapsed: 0.0, pointer: None, shown: 0, ready: false, music: None, music_gen: u32::MAX, clock: 0.0 }
+        Self { entry, images: Vec::new(), gen: u32::MAX, idx: 0, prev: None, elapsed: 0.0, pointer: None, shown: 0, ready: false, music: None, music_gen: u32::MAX, clock: 0.0, black: false }
     }
 
     fn refresh(&mut self) {
@@ -178,6 +180,7 @@ impl<H: ContentLike> Machine<H> for ScreensaverScreen {
     fn step(&mut self, ev: &Self::Ev, _cx: &Cx<'_, H>, fx: &mut Effects<'_, H>) -> Handled {
         match ev {
             ScreenEvent::Enter(_) => {
+                self.black = plx_data::saver::take_blackout();
                 self.refresh();
                 fx.invalidate(Provenance::Nav);
                 Handled::Yes
@@ -269,6 +272,9 @@ impl<H: ContentLike> Screen<H> for ScreensaverScreen {
         let p = f.painter.alpha(f.page_alpha);
         let (w, h) = (plx_ui::consts::SCR_W, plx_ui::consts::SCR_H);
         p.rrect(Rect::new(-200.0, 0.0, w + 400.0, h), 0.0, 0.0, [0.0, 0.0, 0.0, 1.0]);
+        if self.black {
+            return;
+        }
         // music playing: the artist and album, moving, in place of the slideshow
         if let Some(m) = self.music.as_ref() {
             self.draw_music(p, m, f.measure);

@@ -1705,6 +1705,8 @@ pub(crate) fn handle(o: plx_screens::music::MusicOut) {
         O::JumpTo { pos } => jump_to(pos),
         O::Radio { rk } => radio(rk),
         O::Rate { rk, half_stars } => rate(rk, half_stars),
+        // the bridge opens the black page itself
+        O::ScreenOff => {}
         O::Speakers => sonos::rescan(),
         O::UseSpeaker { id } => use_speaker(&id),
         O::ToggleSpeaker { id } => toggle_speaker(&id),

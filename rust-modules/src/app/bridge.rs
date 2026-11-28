@@ -3375,6 +3375,12 @@ impl Bridge {
                 if outcome == AppCommandOutcome::Completed { self.completed_screen_commands.push(label); }
                 outcome
             }
+            // the whole screen goes black (the sidebar and clock too): the screensaver's page, with nothing on it
+            Ok(AppFx::Music(plx_screens::music::MusicOut::ScreenOff)) => {
+                plx_data::saver::set_blackout(true);
+                d.request(plx_machine::machine::MachineId::Nav, plx_machine::machine::NavOp::Push(plx_screens::registry::AppArg::Screensaver));
+                AppCommandOutcome::Completed
+            }
             Ok(AppFx::Music(out)) => {
                 super::music::handle(out);
                 AppCommandOutcome::Completed
