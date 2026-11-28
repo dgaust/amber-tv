@@ -1053,6 +1053,10 @@ impl Engine {
                 |_| {},
             );
         }
+        // what this session left in the feed (its media id, its source info) must not reach the next one: video clears
+        // it when it stops, and without this a second music session in the same run bound to the first one's output
+        // and played no sound
+        FEED_SHARED.reset_session();
         let keep = (self.pending_pause, self.skip);
         let _ = keep;
         *self = Engine::default();
