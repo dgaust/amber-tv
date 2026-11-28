@@ -7033,3 +7033,24 @@ fn recent_channels_is_a_shelf_of_squares_at_the_poster_pitch() {
     assert_eq!(style.w, RowStyle::HOME.w, "a poster's width");
     assert!(style.pitch_fixed() < super::deck_style(false).pitch_fixed(), "shorter tiles, shorter pitch");
 }
+
+/// Coming back to Home from another page (the focus arrives from the bar, or the page is restored), the first row
+/// shows the billboard as it does when the viewer comes up to it from the next row: the page does not keep the
+/// grid-only position it was left in.
+#[test]
+fn arriving_in_the_first_row_from_off_the_page_shows_the_billboard() {
+    let _guard = plx_base::testlock::serial();
+    let mut state = plx_data::pms::PmsState::default();
+    let adapter = std::sync::Arc::new(plx_data::pms::PmsAdapter::default());
+    plx_data::pms::seed_for_test(&mut state, &adapter, 2, plx_data::pms::HubState::Ready);
+    let snapshot = plx_data::pms::hubs_snapshot(&state);
+    for by in [By::Dir, By::Restore] {
+        let mut s = screen(snapshot.view());
+        s.snap.jump(1.0);
+        s.snap_target = 1.0;
+        let to = first_card(&s);
+        let from = if by == By::Restore { None } else { Some(FocusKey { entry: s.entry, elem: 9_999_999 }) };
+        step(&mut s, snapshot.view(), Some(to), &ScreenEvent::FocusMoved { from, to, by });
+        assert_eq!(s.snap_target, 0.0, "{by:?}: the billboard shows");
+    }
+}

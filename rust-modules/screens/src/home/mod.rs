@@ -3541,9 +3541,13 @@ impl<H: HomeLike> Machine<H> for HomeScreen {
                     match to_loc {
                         Some(Located::Hero(_)) => self.snap_target = 0.0,
                         // Amber: the first row stands under the billboard; arriving in it from
-                        // another row (Up) shows the billboard again. A move along it keeps the page.
+                        // another row (Up), or from off the page (the bar, another page, a restore),
+                        // shows the billboard again. A move along it keeps the page.
                         Some(Located::Item(0, _) | Located::Heading(0))
-                            if from_loc.is_some_and(|l| !matches!(l, Located::Item(0, _) | Located::Heading(0))) =>
+                            if match from_loc {
+                                Some(l) => !matches!(l, Located::Item(0, _) | Located::Heading(0)),
+                                None => from.is_some() || matches!(by, By::Restore),
+                            } =>
                         {
                             self.snap_target = 0.0
                         }
