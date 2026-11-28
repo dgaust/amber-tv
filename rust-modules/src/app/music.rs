@@ -501,8 +501,10 @@ struct Slot {
 
 enum File {
     None,
-    /// A track's file arriving in chunks (the decoder reads it as it grows).
-    Stream { rk: String, stream: Arc<decode::Stream> },
+    /// A track's file arriving in chunks (the decoder reads it as it grows). `dec` is a decoder already
+    /// running on it from the start of the track, held back by its full queue until the track is wanted:
+    /// a skip to it then has audio ready at once.
+    Stream { rk: String, stream: Arc<decode::Stream>, dec: Option<decode::Running> },
 }
 
 /// Download `key` into `stream` in ranged chunks, growing from half a megabyte to eight.
@@ -972,25 +974,28 @@ impl Engine {
         })
     }
 
-    fn start_fetch(&mut self, item: &MusicItem) {
+    /// Start fetching `item`'s file, and (when `ahead`) decoding it from the start as it arrives.
+    fn start_fetch(&mut self, item: &MusicItem, ahead: bool) {
         let stream = Arc::new(decode::Stream::new(item.part_size.max(0) as usize));
         let (s2, key, total) = (stream.clone(), item.part_key.clone(), item.part_size.max(0) as usize);
         let spawned = std::thread::Builder::new().name("music-fetch".into()).spawn(move || download(key, total, s2));
         if spawned.is_ok() {
-            self.file = File::Stream { rk: item.rk.clone(), stream };
+            let dec = ahead.then(|| decode::spawn(stream.clone(), 0));
+            self.file = File::Stream { rk: item.rk.clone(), stream, dec };
         } else {
             stream.fail();
             self.file = File::None;
         }
     }
 
-    /// The file for `item`, arriving or here; starts the download if none is under way for it.
-    fn file_for(&mut self, item: &MusicItem) -> Option<Arc<decode::Stream>> {
+    /// The file for `item`, arriving or here, with the decoder already on it if one was started ahead;
+    /// starts the download if none is under way for it.
+    fn file_for(&mut self, item: &MusicItem) -> Option<(Arc<decode::Stream>, Option<decode::Running>)> {
         if !matches!(&self.file, File::Stream { rk, .. } if *rk == item.rk) {
-            self.start_fetch(item);
+            self.start_fetch(item, false);
         }
         match std::mem::replace(&mut self.file, File::None) {
-            File::Stream { stream, .. } => Some(stream),
+            File::Stream { stream, dec, .. } => Some((stream, dec)),
             File::None => None,
         }
     }
@@ -1013,14 +1018,23 @@ impl Engine {
             }
             return false;
         }
-        let Some(data) = self.file_for(&item) else {
+        let Some((data, ahead)) = self.file_for(&item) else {
             self.buffering = true;
             return false;
         };
         self.buffering = false;
         self.cur_stream = Some(data.clone());
-        let dec = decode::spawn(data, offset_ms);
-        plx_base::eventlog::log(&format!("music: decoding \"{}\" from {} ms", item.title, offset_ms));
+        // a decoder started ahead is from the start of the track: right for a play from the top
+        let (dec, how) = match ahead {
+            Some(d) if offset_ms == 0 => (d, "ready ahead"),
+            other => {
+                if let Some(d) = other {
+                    d.stop();
+                }
+                (decode::spawn(data, offset_ms), "new")
+            }
+        };
+        plx_base::eventlog::log(&format!("music: decoding \"{}\" from {} ms ({how})", item.title, offset_ms));
         let first = self.next_audio_pts;
         self.slots.push_back(Slot { first_pts: first, offset_ms, item: item.clone(), duration_ms: item.duration_ms, order_pos: pos });
         self.cur = Some(TrackRun { dec: Some(dec), first_pts: first, base_ns: None, last_end_pts: first, level: level_for(&item), xf_ms: i64::from(plx_data::layout::music_crossfade()) * 1000 });
@@ -1115,8 +1129,17 @@ impl Engine {
             Boot::Off => return,
             Boot::Loading { rv, at } => {
                 let got = rv.load(Ordering::SeqCst);
+                let started = *at;
                 if got == i32::MIN {
-                    if now.wrapping_sub(*at) > 20_000 {
+                    // the pipeline takes a moment to come up: have the first track's file and decoder under way meanwhile
+                    if let Some((pos, _)) = self.restart_at {
+                        if let Some((_, item)) = Self::entry(pos) {
+                            if (item.part_size as usize) <= MAX_FILE && !matches!(&self.file, File::Stream { rk, .. } if *rk == item.rk) {
+                                self.start_fetch(&item, true);
+                            }
+                        }
+                    }
+                    if now.wrapping_sub(started) > 20_000 {
                         with(|s| note(s, "The audio output did not start."));
                         self.release(mt, "the Load never returned");
                     }
@@ -1297,8 +1320,8 @@ impl Engine {
                     if let Some(np) = Self::step_pos(shown, 1, true).filter(|&n| n != shown) {
                         if let Some((_, item)) = Self::entry(np) {
                             if matches!(&self.file, File::Stream { rk, .. } if *rk == item.rk) {
-                                if let File::Stream { stream: data, .. } = std::mem::replace(&mut self.file, File::None) {
-                                    let dec = decode::spawn(data, 0);
+                                if let File::Stream { stream: data, dec, .. } = std::mem::replace(&mut self.file, File::None) {
+                                    let dec = dec.unwrap_or_else(|| decode::spawn(data, 0));
                                     plx_base::eventlog::log(&format!("music: crossfading into \"{}\"", item.title));
                                     self.slots.push_back(Slot { first_pts: pts, offset_ms: 0, item: item.clone(), duration_ms: item.duration_ms, order_pos: np });
                                     let au_ms = (dur / 1_000_000).max(1);
@@ -1374,7 +1397,7 @@ impl Engine {
             if let Some(np) = Self::step_pos(pos, 1, true).filter(|&n| n != pos) {
                 if let Some((_, item)) = Self::entry(np) {
                     if (item.part_size as usize) <= PREFETCH_MAX {
-                        self.start_fetch(&item);
+                        self.start_fetch(&item, true);
                     }
                 }
             }
