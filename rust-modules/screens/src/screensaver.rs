@@ -123,8 +123,9 @@ impl ScreensaverScreen {
         // the path: two slow sines of different periods, so it never retraces itself for minutes
         let tx = (w - side) * 0.5 * 0.92;
         let ty = (h - group_h) * 0.5 * 0.92;
-        let x = (w - side) * 0.5 + tx * (self.clock * 0.037).sin();
-        let y = (h - group_h) * 0.5 + ty * (self.clock * 0.053 + 1.3).sin();
+        // whole pixels: the picture and the words (which the renderer snaps to whole pixels) then step together
+        let x = ((w - side) * 0.5 + tx * (self.clock * 0.037).sin()).round();
+        let y = ((h - group_h) * 0.5 + ty * (self.clock * 0.053 + 1.3).sin()).round();
         // the pictures in turn: each in for MUSIC_SLIDE_S, fading in and out at its ends
         let n = m.pictures.len().max(1);
         let slot = (self.clock / MUSIC_SLIDE_S) as usize % n;
@@ -147,7 +148,7 @@ impl ScreensaverScreen {
         let a = (self.clock / 2.0).clamp(0.0, 1.0);
         let centred = |s: &str, sz: i32, bold: i32, cy: f32, ink: [f32; 4]| {
             let tw = CString::new(s).map_or(0.0, |c| measure.width(&c, sz, bold != 0)).min(side);
-            Self::text(p, s, x + (side - tw) * 0.5, cy, sz, ink, bold, side);
+            Self::text(p, s, x + ((side - tw) * 0.5).round(), cy, sz, ink, bold, side);
         };
         centred(&m.title, theme::size::TITLE, 1, y + side + 44.0, [1.0, 1.0, 1.0, 0.92 * a]);
         let sub = if m.album.is_empty() { m.artist.clone() } else { format!("{}  \u{b7}  {}", m.artist, m.album) };
