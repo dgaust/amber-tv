@@ -23,10 +23,37 @@ const QUEUE_AUS: usize = 400;
 const AVSEEK_SIZE_FLAG: c_int = 0x10000;
 const AVERROR_EOF_CODE: c_int = -541_478_725;
 
+/// A place this far past what has arrived is fetched on its own, not waited for: see [`Stream::wanted`].
+pub const JUMP_GAP: usize = 2 * 1024 * 1024;
+
+struct Inner {
+    /// The file from its first byte, as far as it has arrived.
+    data: Vec<u8>,
+    /// A piece fetched from a place the decoder jumped to (a resume, a seek, an index at the end of the file): where
+    /// it starts, and what there is of it. The part of the file between `data` and it is still to come.
+    island: Option<(usize, Vec<u8>)>,
+}
+
+impl Inner {
+    /// The start has caught up with the island: they are one.
+    fn merge(&mut self) {
+        if let Some((s, isl)) = self.island.take() {
+            if self.data.len() >= s {
+                if s + isl.len() > self.data.len() {
+                    let skip = self.data.len() - s;
+                    self.data.extend_from_slice(&isl[skip..]);
+                }
+            } else {
+                self.island = Some((s, isl));
+            }
+        }
+    }
+}
+
 /// A track file that is still arriving: the bytes so far, and how many there will be. The decoder reads it
 /// as it grows (a read past the end waits for more), so decoding starts with the first chunk, not the last.
 pub struct Stream {
-    buf: Mutex<Vec<u8>>,
+    buf: Mutex<Inner>,
     cv: Condvar,
     /// The file's size when the server said (0 = unknown until it is all here).
     pub total: usize,
@@ -34,24 +61,76 @@ pub struct Stream {
     state: AtomicU8,
     /// The download goes no further than this many bytes (a track held ready fetches only its start).
     cap: AtomicUsize,
+    /// A place the decoder is waiting for that is far ahead of what has arrived (usize::MAX = none).
+    want: AtomicUsize,
 }
 
 impl Stream {
     pub fn new(total: usize) -> Stream {
-        Stream { buf: Mutex::new(Vec::with_capacity(total.min(300 << 20))), cv: Condvar::new(), total, state: AtomicU8::new(0), cap: AtomicUsize::new(usize::MAX) }
+        Stream {
+            buf: Mutex::new(Inner { data: Vec::with_capacity(total.min(300 << 20)), island: None }),
+            cv: Condvar::new(),
+            total,
+            state: AtomicU8::new(0),
+            cap: AtomicUsize::new(usize::MAX),
+            want: AtomicUsize::new(usize::MAX),
+        }
     }
+    /// The next bytes of the file from its start.
     pub fn push(&self, bytes: &[u8]) {
         if let Ok(mut b) = self.buf.lock() {
-            b.extend_from_slice(bytes);
+            b.data.extend_from_slice(bytes);
+            b.merge();
         }
         self.cv.notify_all();
     }
     /// The server sent the whole file where a part was asked for: replace what there is.
     pub fn set_all(&self, bytes: Vec<u8>) {
         if let Ok(mut b) = self.buf.lock() {
-            *b = bytes;
+            b.data = bytes;
+            b.island = None;
         }
         self.finish();
+    }
+    /// Start a piece at `start`, far ahead of what has arrived (the decoder is waiting there).
+    pub fn begin_island(&self, start: usize) {
+        if let Ok(mut b) = self.buf.lock() {
+            b.island = Some((start, Vec::new()));
+        }
+        self.want.store(usize::MAX, Ordering::SeqCst);
+    }
+    /// The next bytes of the piece (or of the file, if the start has caught up with it meanwhile).
+    pub fn push_island(&self, bytes: &[u8]) {
+        if let Ok(mut b) = self.buf.lock() {
+            match b.island.as_mut() {
+                Some((_, isl)) => isl.extend_from_slice(bytes),
+                None => b.data.extend_from_slice(bytes),
+            }
+        }
+        self.cv.notify_all();
+    }
+    /// Where the piece starts, while there is one.
+    pub fn island_start(&self) -> Option<usize> {
+        self.buf.lock().ok().and_then(|b| b.island.as_ref().map(|i| i.0))
+    }
+    /// How much of the file has arrived from its start.
+    pub fn prefix_len(&self) -> usize {
+        self.buf.lock().map_or(0, |b| b.data.len())
+    }
+    /// A place the decoder is waiting for that neither the start nor the piece will reach soon: the download should
+    /// go there now.
+    pub fn wanted(&self) -> Option<usize> {
+        let w = self.want.load(Ordering::SeqCst);
+        if w == usize::MAX {
+            return None;
+        }
+        let b = self.buf.lock().ok()?;
+        let near_start = w <= b.data.len() + JUMP_GAP;
+        let in_island = b.island.as_ref().is_some_and(|(s, isl)| w >= *s && w < *s + isl.len() + JUMP_GAP);
+        if near_start || in_island {
+            return None;
+        }
+        Some(w)
     }
     pub fn finish(&self) {
         self.state.store(1, Ordering::SeqCst);
@@ -68,7 +147,7 @@ impl Stream {
         self.cap.load(Ordering::SeqCst)
     }
     pub fn downloaded(&self) -> usize {
-        self.buf.lock().map_or(0, |b| b.len())
+        self.buf.lock().map_or(0, |b| b.data.len() + b.island.as_ref().map_or(0, |i| i.1.len()))
     }
     pub fn is_complete(&self) -> bool {
         self.state.load(Ordering::SeqCst) == 1
@@ -165,11 +244,21 @@ extern "C" fn mem_read(op: *mut c_void, dst: *mut u8, n: c_int) -> c_int {
     let io = unsafe { &mut *(op as *mut MemIo) };
     let Ok(mut b) = io.stream.buf.lock() else { return AVERROR_IO };
     loop {
-        if io.pos < b.len() {
-            let take = (b.len() - io.pos).min(n.max(0) as usize);
-            unsafe { std::ptr::copy_nonoverlapping(b.as_ptr().add(io.pos), dst, take) };
+        if io.pos < b.data.len() {
+            let take = (b.data.len() - io.pos).min(n.max(0) as usize);
+            unsafe { std::ptr::copy_nonoverlapping(b.data.as_ptr().add(io.pos), dst, take) };
             io.pos += take;
+            io.stream.want.store(usize::MAX, Ordering::SeqCst);
             return take as c_int;
+        }
+        if let Some((s, isl)) = b.island.as_ref() {
+            if io.pos >= *s && io.pos < *s + isl.len() {
+                let take = (*s + isl.len() - io.pos).min(n.max(0) as usize);
+                unsafe { std::ptr::copy_nonoverlapping(isl.as_ptr().add(io.pos - *s), dst, take) };
+                io.pos += take;
+                io.stream.want.store(usize::MAX, Ordering::SeqCst);
+                return take as c_int;
+            }
         }
         if io.stream.is_complete() {
             return AVERROR_EOF_CODE;
@@ -179,6 +268,10 @@ extern "C" fn mem_read(op: *mut c_void, dst: *mut u8, n: c_int) -> c_int {
         }
         if io.stop.load(Ordering::SeqCst) {
             return AVERROR_EOF_CODE;
+        }
+        // a place far past what has arrived: say so, and the download goes there rather than the reader waiting for the rest
+        if io.stream.total > 0 && io.pos > b.data.len() + JUMP_GAP {
+            io.stream.want.store(io.pos, Ordering::SeqCst);
         }
         b = match io.stream.cv.wait_timeout(b, Duration::from_millis(100)) {
             Ok((g, _)) => g,
@@ -195,7 +288,7 @@ fn total_size(io: &MemIo) -> Option<usize> {
     let mut b = io.stream.buf.lock().ok()?;
     loop {
         if io.stream.is_complete() {
-            return Some(b.len());
+            return Some(b.data.len());
         }
         if io.stream.is_failed() || io.stop.load(Ordering::SeqCst) {
             return None;
@@ -413,6 +506,57 @@ mod tests {
         assert_eq!(&out[..4], &[5, 6, 7, 8]);
         assert_eq!(mem_read(op, out.as_mut_ptr(), 8), AVERROR_EOF_CODE);
         t.join().unwrap();
+    }
+
+    #[test]
+    fn a_far_place_is_asked_for_and_read_from_its_own_piece() {
+        let total = 6 * 1024 * 1024;
+        let stream = Arc::new(Stream::new(total));
+        stream.push(&vec![1u8; 1024]);
+        let far = 5 * 1024 * 1024;
+        let mut io = MemIo { stream: stream.clone(), stop: Arc::new(AtomicBool::new(false)), pos: far };
+        let s2 = stream.clone();
+        let t = std::thread::spawn(move || {
+            // the download notices what the reader waits for, and starts a piece there
+            let w = loop {
+                if let Some(w) = s2.wanted() {
+                    break w;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            };
+            assert_eq!(w, far);
+            s2.begin_island(w);
+            s2.push_island(&[7, 8, 9]);
+        });
+        let op = &mut io as *mut MemIo as *mut c_void;
+        let mut out = [0u8; 8];
+        assert_eq!(mem_read(op, out.as_mut_ptr(), 8), 3);
+        assert_eq!(&out[..3], &[7, 8, 9]);
+        t.join().unwrap();
+        assert!(stream.wanted().is_none(), "answered");
+    }
+
+    #[test]
+    fn a_place_near_the_arrived_start_is_waited_for_not_jumped_to() {
+        let stream = Arc::new(Stream::new(20 * 1024 * 1024));
+        stream.push(&vec![0u8; 1024 * 1024]);
+        stream.want.store(2 * 1024 * 1024, Ordering::SeqCst);
+        assert!(stream.wanted().is_none());
+    }
+
+    #[test]
+    fn the_start_catching_up_with_the_piece_makes_them_one() {
+        let stream = Stream::new(100);
+        stream.push(&[1, 2, 3, 4]);
+        stream.begin_island(6);
+        stream.push_island(&[7, 8, 9]);
+        assert_eq!(stream.island_start(), Some(6));
+        stream.push(&[5, 6]);
+        assert_eq!(stream.island_start(), None, "merged");
+        assert_eq!(stream.prefix_len(), 9);
+        assert_eq!(stream.downloaded(), 9);
+        let b = stream.buf.lock().unwrap();
+        assert_eq!(b.data, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
     }
 
     #[test]

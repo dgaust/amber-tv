@@ -642,27 +642,61 @@ enum File {
     Stream { rk: String, stream: Arc<decode::Stream>, dec: Option<decode::Running> },
 }
 
-/// Download `key` into `stream` in ranged chunks, growing from half a megabyte to eight.
+/// Download `key` into `stream` in ranged chunks, growing from half a megabyte to two.
+///
+/// When the decoder needs a place far past what has arrived (a resume partway in, a seek, an index kept at the end of
+/// the file) the download goes there first, as a piece of its own, and fills what lies before it afterwards, so the
+/// music starts at once instead of after everything in between.
 fn download(key: String, total: usize, stream: Arc<decode::Stream>) {
     let client = plx_plex::plex::client();
     let mut at = 0usize;
     let mut chunk = 512 * 1024usize;
+    // fetching a piece the decoder jumped to, the start of the file still to come
+    let mut island = false;
     loop {
         // nobody is reading it any more (the track was skipped): stop fetching
         if Arc::strong_count(&stream) == 1 {
             return;
         }
+        if total > 0 {
+            if let Some(w) = stream.wanted() {
+                // a little before it: a decoder reads back a frame or two
+                let start = w.saturating_sub(64 * 1024);
+                plx_base::eventlog::log(&format!("music: the decoder waits at byte {w} of {total}: fetching from there"));
+                stream.begin_island(start);
+                island = true;
+                at = start;
+                chunk = 512 * 1024;
+            }
+        }
         if total > 0 && at >= total {
+            if island {
+                // the part from the decoder's place on is here: fetch what lies before it
+                island = false;
+                at = stream.prefix_len();
+                chunk = 512 * 1024;
+                continue;
+            }
             break;
         }
-        // a track held ready: wait here until it plays
-        if at >= stream.cap() {
+        // a track held ready: wait here until it plays (a piece the decoder asked for is fetched regardless)
+        if !island && at >= stream.cap() {
             std::thread::sleep(std::time::Duration::from_millis(100));
             continue;
         }
         let mut to = at + chunk - 1;
         if total > 0 {
             to = to.min(total - 1);
+        }
+        // filling in before the piece: stop where it starts
+        if !island {
+            if let Some(s) = stream.island_start() {
+                if at >= s {
+                    at = stream.prefix_len();
+                    continue;
+                }
+                to = to.min(s - 1);
+            }
         }
         // a chunk that fails is asked for again a couple of times before the file is given up on
         let mut got = Err(0);
@@ -686,9 +720,14 @@ fn download(key: String, total: usize, stream: Arc<decode::Stream>) {
                     stream.set_all(bytes);
                     return;
                 }
-                at += bytes.len();
                 let short = bytes.len() < asked;
-                stream.push(&bytes);
+                if island {
+                    stream.push_island(&bytes);
+                    at += bytes.len();
+                } else {
+                    stream.push(&bytes);
+                    at = stream.prefix_len();
+                }
                 if total == 0 && short {
                     break;
                 }
